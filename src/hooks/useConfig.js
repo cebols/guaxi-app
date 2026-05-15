@@ -1,17 +1,23 @@
 const KEY = 'guaxi_config'
 
 export const CONFIG_DEFAULTS = {
-  rateio: 0,      // R$ por unidade vendida (overhead: água, luz, etc.)
-  margem: 30,     // % margem de lucro desejada
-  taxa99: 20,     // % taxa 99Food
-  taxaIfood: 27,  // % taxa iFood
+  custoFixoMensal: 0,     // R$ total de custos fixos mensais (água, luz, gás, aluguel...)
+  unidadesProjetadas: 100, // unidades projetadas de venda/mês
+  margem: 30,              // % margem de lucro
+  taxa99: 20,              // % taxa 99Food
+  taxaIfood: 27,           // % taxa iFood
 }
 
 export function getConfig() {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return { ...CONFIG_DEFAULTS }
-    return { ...CONFIG_DEFAULTS, ...JSON.parse(raw) }
+    const saved = JSON.parse(raw)
+    // backward compat: migrate old `rateio` field if present
+    if (saved.rateio != null && saved.custoFixoMensal == null) {
+      saved.custoFixoMensal = saved.rateio * (saved.unidadesProjetadas || CONFIG_DEFAULTS.unidadesProjetadas)
+    }
+    return { ...CONFIG_DEFAULTS, ...saved }
   } catch {
     return { ...CONFIG_DEFAULTS }
   }
@@ -26,7 +32,10 @@ export function saveConfig(updates) {
 export function calcPrecos(custoTotal, cfg) {
   const c = cfg || getConfig()
   if (!custoTotal || custoTotal <= 0) return { base: 0, p99: 0, pIfood: 0 }
-  const base = (custoTotal + (c.rateio || 0)) / (1 - (c.margem || 0) / 100)
+  const rateio = (c.unidadesProjetadas || 0) > 0
+    ? (c.custoFixoMensal || 0) / c.unidadesProjetadas
+    : 0
+  const base   = (custoTotal + rateio) / (1 - (c.margem    || 0) / 100)
   const p99    = base / (1 - (c.taxa99    || 0) / 100)
   const pIfood = base / (1 - (c.taxaIfood || 0) / 100)
   return { base, p99, pIfood }

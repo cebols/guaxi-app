@@ -1,14 +1,17 @@
 import { useState } from 'react'
 import { useToast } from '../hooks/useToast'
-import { getConfig, saveConfig, CONFIG_DEFAULTS } from '../hooks/useConfig'
+import { getConfig, saveConfig, calcPrecos, CONFIG_DEFAULTS } from '../hooks/useConfig'
 
 function fmtPct(v) { return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) }
-function fmtR(v) { return Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) }
+function fmtR(v) {
+  const rounded = Math.ceil(Number(v) * 100) / 100
+  return Number(rounded).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
 
 export default function Configuracoes() {
   const { toast, show } = useToast()
   const [cfg, setCfg] = useState(getConfig)
-  const [exemplo, setExemplo] = useState(5)
+  const [exemplo, setExemplo] = useState(10)
 
   const set = (k, v) => setCfg(c => ({ ...c, [k]: parseFloat(v) || 0 }))
 
@@ -23,9 +26,8 @@ export default function Configuracoes() {
     show('Restaurado para padrão')
   }
 
-  const base = (exemplo + cfg.rateio) / (1 - cfg.margem / 100)
-  const p99  = base / (1 - cfg.taxa99 / 100)
-  const pIf  = base / (1 - cfg.taxaIfood / 100)
+  const rateio = cfg.unidadesProjetadas > 0 ? (cfg.custoFixoMensal || 0) / cfg.unidadesProjetadas : 0
+  const { base, p99, pIfood } = calcPrecos(exemplo, cfg)
 
   return (
     <>
@@ -36,21 +38,42 @@ export default function Configuracoes() {
       </div>
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
-        <div className="section-label">Custos fixos (rateio)</div>
-        <div className="field-label">
-          Rateio por unidade vendida (R$)
-          <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 6 }}>
-            — água, luz, gás, aluguel ÷ unidades/mês
-          </span>
+
+        <div className="section-label">Custos fixos mensais</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+          Rateio por unidade = Custo Fixo Total Mensal ÷ Volume de Produção Projetado
         </div>
-        <input
-          className="field-input"
-          type="number"
-          min="0"
-          step="0.10"
-          value={cfg.rateio}
-          onChange={e => set('rateio', e.target.value)}
-        />
+        <div className="field-row">
+          <div>
+            <div className="field-label">Custo fixo total mensal (R$)</div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>água, luz, gás, aluguel, etc.</div>
+            <input
+              className="field-input"
+              type="number"
+              min="0"
+              step="10"
+              value={cfg.custoFixoMensal}
+              onChange={e => set('custoFixoMensal', e.target.value)}
+            />
+          </div>
+          <div>
+            <div className="field-label">Unidades projetadas/mês</div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>quantas unidades você vende por mês</div>
+            <input
+              className="field-input"
+              type="number"
+              min="1"
+              step="1"
+              value={cfg.unidadesProjetadas}
+              onChange={e => set('unidadesProjetadas', e.target.value)}
+            />
+          </div>
+        </div>
+        {rateio > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 4, padding: '5px 10px', background: 'var(--teal-light)', borderRadius: 6, display: 'inline-block' }}>
+            Rateio por unidade: <strong>R$ {fmtR(rateio)}</strong>
+          </div>
+        )}
 
         <div className="section-label" style={{ marginTop: 8 }}>Margem de lucro</div>
         <div className="field-label">Margem desejada (%)</div>
@@ -104,13 +127,13 @@ export default function Configuracoes() {
           onChange={e => setExemplo(parseFloat(e.target.value) || 0)}
           style={{ maxWidth: 160 }}
         />
-        <div className="card" style={{ padding: '12px 16px' }}>
+        <div className="card" style={{ padding: '12px 16px', marginTop: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <span style={{ fontSize: 13 }}>Venda direta</span>
             <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--teal)' }}>R$ {fmtR(base)}</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12 }}>
-            custo R$ {fmtR(exemplo)} + rateio R$ {fmtR(cfg.rateio)} com margem {fmtPct(cfg.margem)}%
+            custo R$ {fmtR(exemplo)} + rateio R$ {fmtR(rateio)} com margem {fmtPct(cfg.margem)}%
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
             <span style={{ fontSize: 13 }}>99Food <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>(−{fmtPct(cfg.taxa99)}%)</span></span>
@@ -118,7 +141,7 @@ export default function Configuracoes() {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 13 }}>iFood <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>(−{fmtPct(cfg.taxaIfood)}%)</span></span>
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#ef4444' }}>R$ {fmtR(pIf)}</span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#ef4444' }}>R$ {fmtR(pIfood)}</span>
           </div>
         </div>
 

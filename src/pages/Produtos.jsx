@@ -7,12 +7,6 @@ import {
   getReceitas, getEmbalagens,
 } from '../services/db'
 
-function waLink(phone) {
-  const digits = (phone || '').replace(/\D/g, '')
-  if (!digits) return null
-  return `https://wa.me/55${digits}`
-}
-
 function Sheet({ title, children, onClose }) {
   return (
     <>
@@ -30,7 +24,8 @@ function Sheet({ title, children, onClose }) {
 
 function fmtR(val) {
   if (!val && val !== 0) return '—'
-  return `R$ ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+  const rounded = Math.ceil(Number(val) * 100) / 100
+  return `R$ ${rounded.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 const PROD_EMPTY = { nome: '', precoPraticado: '' }
@@ -42,8 +37,12 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
   )
   const [recRows, setRecRows] = useState(
     item?.receitas?.length > 0
-      ? item.receitas.map(r => ({ receitaId: r.receitaId, nome: r.nome, quantidade: r.quantidade, custoUnid: r.custoUnid, unidadeGera: r.unidadeGera || 'un' }))
-      : [{ receitaId: null, nome: '', quantidade: 1, custoUnid: 0, unidadeGera: 'un' }]
+      ? item.receitas.map(r => ({
+          receitaId: r.receitaId, nome: r.nome,
+          quantidade: r.quantidade, unidade: r.unidadeGera || 'un',
+          custoUnid: r.custoUnid,
+        }))
+      : [{ receitaId: null, nome: '', quantidade: 1, unidade: 'un', custoUnid: 0 }]
   )
   const [embRows, setEmbRows] = useState(
     item?.embalagens?.length > 0
@@ -53,17 +52,19 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  const missingComposition = item && item.custoTotal > 0 && item.receitas?.length === 0 && item.embalagens?.length === 0
+
   const handleRecSelect = (i, nome) => {
     const rec = receitas?.find(r => r.nome === nome)
     setRecRows(prev => prev.map((row, idx) => idx === i ? {
       ...row, nome, receitaId: rec?.id ?? null,
       custoUnid: rec?.custoUnid || 0,
-      unidadeGera: rec?.unidadeGera || 'un',
+      unidade: rec?.unidadeGera || row.unidade,
     } : row))
   }
 
-  const setRecQty = (i, v) => setRecRows(prev => prev.map((row, idx) => idx === i ? { ...row, quantidade: v } : row))
-  const addRec = () => setRecRows(prev => [...prev, { receitaId: null, nome: '', quantidade: 1, custoUnid: 0, unidadeGera: 'un' }])
+  const setRecField = (i, k, v) => setRecRows(prev => prev.map((row, idx) => idx === i ? { ...row, [k]: v } : row))
+  const addRec = () => setRecRows(prev => [...prev, { receitaId: null, nome: '', quantidade: 1, unidade: 'un', custoUnid: 0 }])
   const removeRec = i => setRecRows(prev => prev.filter((_, idx) => idx !== i))
 
   const handleEmbSelect = (i, nome) => {
@@ -73,7 +74,7 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
     } : row))
   }
 
-  const setEmbQty = (i, v) => setEmbRows(prev => prev.map((row, idx) => idx === i ? { ...row, quantidade: v } : row))
+  const setEmbField = (i, k, v) => setEmbRows(prev => prev.map((row, idx) => idx === i ? { ...row, [k]: v } : row))
   const addEmb = () => setEmbRows(prev => [...prev, { embalagemId: null, nome: '', quantidade: 1, custoUnit: 0 }])
   const removeEmb = i => setEmbRows(prev => prev.filter((_, idx) => idx !== i))
 
@@ -102,13 +103,19 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
       <div className="field-label">Nome do produto *</div>
       <input className="field-input" placeholder="ex: Choux Craquelin" value={form.nome} onChange={e => set('nome', e.target.value)} />
 
+      {missingComposition && (
+        <div style={{ fontSize: 12, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '8px 10px', borderRadius: 6, marginBottom: 8 }}>
+          A composição deste produto não foi carregada — as tabelas de composição ainda não existem no banco. Execute o migration2.sql no Supabase e re-salve o produto.
+        </div>
+      )}
+
       <div className="section-label" style={{ marginTop: 4 }}>Composição — Receitas</div>
       <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 4 }}>
         {recRows.map((row, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '6px 0', borderBottom: i < recRows.length - 1 ? '1px solid var(--border)' : 'none' }}>
+          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '6px 0', borderBottom: i < recRows.length - 1 ? '1px solid var(--border)' : 'none', flexWrap: 'wrap' }}>
             <input
               className="field-input"
-              style={{ flex: 3, marginBottom: 0, fontSize: 13 }}
+              style={{ flex: '1 1 140px', minWidth: 100, marginBottom: 0, fontSize: 13 }}
               list="receitas-list"
               placeholder="Receita"
               value={row.nome}
@@ -121,11 +128,15 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
               step="0.5"
               placeholder="Qtd"
               value={row.quantidade}
-              onChange={e => setRecQty(i, e.target.value)}
+              onChange={e => setRecField(i, 'quantidade', e.target.value)}
             />
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 28, whiteSpace: 'nowrap' }}>
-              {row.unidadeGera}
-            </span>
+            <input
+              className="item-qty"
+              style={{ width: 52, textAlign: 'left', fontSize: 12 }}
+              placeholder="un"
+              value={row.unidade}
+              onChange={e => setRecField(i, 'unidade', e.target.value)}
+            />
             {recRows.length > 1 && (
               <button className="item-rm" onClick={() => removeRec(i)}>&#215;</button>
             )}
@@ -156,7 +167,7 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
               step="1"
               placeholder="Qtd"
               value={row.quantidade}
-              onChange={e => setEmbQty(i, e.target.value)}
+              onChange={e => setEmbField(i, 'quantidade', e.target.value)}
             />
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 28 }}>un</span>
             {embRows.length > 1 && (
@@ -173,16 +184,16 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
       {custoTotal > 0 && (
         <div style={{ margin: '12px 0 4px', padding: '10px 14px', background: 'var(--teal-light)', borderRadius: 8 }}>
           <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 6 }}>
-            Custo total: <strong>R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+            Custo total: <strong>R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
           </div>
           <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>
-            Venda direta: R$ {precos.base.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            Venda direta: {fmtR(precos.base)}
           </div>
           <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 3 }}>
-            99Food: R$ {precos.p99.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            99Food: {fmtR(precos.p99)}
           </div>
           <div style={{ fontSize: 12, color: '#ef4444', marginTop: 2 }}>
-            iFood: R$ {precos.pIfood.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+            iFood: {fmtR(precos.pIfood)}
           </div>
         </div>
       )}
@@ -196,7 +207,7 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
         type="number"
         min="0"
         step="0.50"
-        placeholder={custoTotal > 0 ? `Sugerido: R$ ${precos.base.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'Preço praticado (R$)'}
+        placeholder={custoTotal > 0 ? `Sugerido: ${fmtR(precos.base)}` : 'Preço praticado (R$)'}
         value={form.precoPraticado}
         onChange={e => set('precoPraticado', e.target.value)}
       />
@@ -217,9 +228,9 @@ export default function Produtos() {
   const [sheet, setSheet] = useState(null)
   const { toast, show } = useToast()
 
-  const { data: produtos,    loading: lProd, reload: rProd } = useData(getProdutos)
-  const { data: receitas,    loading: lRec  } = useData(getReceitas)
-  const { data: embalagens,  loading: lEmb  } = useData(getEmbalagens)
+  const { data: produtos,   loading: lProd, reload: rProd } = useData(getProdutos)
+  const { data: receitas,   loading: lRec  } = useData(getReceitas)
+  const { data: embalagens, loading: lEmb  } = useData(getEmbalagens)
 
   const loading = lProd || lRec || lEmb
 
@@ -254,7 +265,6 @@ export default function Produtos() {
           <div className="loading">Carregando...</div>
         ) : (
           <>
-            {/* Desktop table */}
             <div className="desktop-only">
               <div className="card card-flush">
                 {(produtos || []).length === 0
@@ -288,7 +298,6 @@ export default function Produtos() {
               </div>
             </div>
 
-            {/* Mobile cards */}
             <div className="mobile-only">
               {(produtos || []).length === 0 ? (
                 <div className="empty">

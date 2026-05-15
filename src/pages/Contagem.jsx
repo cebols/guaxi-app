@@ -38,6 +38,7 @@ function ListaCompras({ contagem, itens }) {
         unidade: item.unidade || '',
         whatsapp: item.whatsapp || '',
         fornecedor: item.fornecedor || '',
+        linkCompra: item.linkCompra || '',
       }
     })
     .filter(Boolean)
@@ -75,8 +76,20 @@ function ListaCompras({ contagem, itens }) {
               </div>
             )}
             {grupo.items.map((p, i) => (
-              <div key={i} style={{ fontSize: 12, color: 'var(--warn-text)', marginBottom: 2 }}>
-                · {p.nome}: {p.falta} {p.unidade}
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                <span style={{ fontSize: 12, color: 'var(--warn-text)', flex: 1 }}>
+                  · {p.nome}: {p.falta} {p.unidade}
+                </span>
+                {p.linkCompra && (
+                  <a
+                    href={p.linkCompra}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}
+                  >
+                    Ver loja
+                  </a>
+                )}
               </div>
             ))}
             {waComMsg && (
