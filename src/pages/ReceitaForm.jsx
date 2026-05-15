@@ -168,7 +168,21 @@ export default function ReceitaForm() {
           </div>
           <div>
             <div className="field-label">Rendimento — qtd de {form.unidadeGera || 'unidades'}</div>
-            <input className="field-input" type="number" min="0" placeholder="ex: 12" value={form.rendimento} onChange={e => setField('rendimento', e.target.value)} />
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input className="field-input" style={{ marginBottom: 0, flex: 1 }} type="number" min="0" placeholder="ex: 12" value={form.rendimento} onChange={e => setField('rendimento', e.target.value)} />
+              {rendimentoBruto > 0 && ['g','ml','kg','L'].includes(form.unidadeGera) && (() => {
+                const sugerido = ['kg','L'].includes(form.unidadeGera) ? rendimentoBruto / 1000 : rendimentoBruto
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setField('rendimento', sugerido.toFixed(1).replace(/\.0$/, ''))}
+                    style={{ fontSize: 11, color: 'var(--teal)', background: 'var(--teal-light)', border: '1px solid var(--teal)', borderRadius: 6, padding: '6px 10px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+                  >
+                    ← usar bruto ({sugerido >= 1000 ? `${(sugerido/1000).toFixed(2)} ${['kg','L'].includes(form.unidadeGera)?form.unidadeGera:'k'}` : `${sugerido.toFixed(0)} ${form.unidadeGera}`})
+                  </button>
+                )
+              })()}
+            </div>
           </div>
         </div>
 

@@ -48,7 +48,7 @@ const INSUMO_EMPTY = {
   fornecedor: '', whatsapp: '',
 }
 
-function InsumoForm({ item, categorias, onSave, onDelete, onClose }) {
+function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item ? {
     ...item,
     pesoEmb: item.pesoEmb || '',
@@ -156,7 +156,21 @@ function InsumoForm({ item, categorias, onSave, onDelete, onClose }) {
       </div>
 
       <div className="section-label" style={{ marginTop: 4 }}>Fornecedor</div>
-      <input className="field-input" placeholder="Nome do fornecedor" value={form.fornecedor} onChange={e => set('fornecedor', e.target.value)} />
+      <input
+        className="field-input"
+        list="fornecedores-list"
+        placeholder="Nome do fornecedor"
+        value={form.fornecedor}
+        onChange={e => {
+          const nome = e.target.value
+          set('fornecedor', nome)
+          const known = (fornecedores || []).find(f => f.nome === nome)
+          if (known?.whatsapp && !form.whatsapp) set('whatsapp', known.whatsapp)
+        }}
+      />
+      <datalist id="fornecedores-list">
+        {(fornecedores || []).map(f => <option key={f.nome} value={f.nome} />)}
+      </datalist>
       <div className="field-label">WhatsApp <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(DDD + número, sem +55)</span></div>
       <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
 
@@ -300,6 +314,16 @@ export default function Cadastros() {
     [...new Set((insumos || []).map(i => i.categoria).filter(Boolean))].sort(),
     [insumos]
   )
+
+  const fornecedores = useMemo(() => {
+    const map = {}
+    ;[...(insumos || []), ...(embalagens || [])].forEach(i => {
+      if (i.fornecedor && !map[i.fornecedor]) {
+        map[i.fornecedor] = { nome: i.fornecedor, whatsapp: i.whatsapp || '' }
+      }
+    })
+    return Object.values(map).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }, [insumos, embalagens])
   const catsEmbalagem = useMemo(() =>
     [...new Set((embalagens || []).map(e => e.categoria).filter(Boolean))].sort(),
     [embalagens]
@@ -488,7 +512,7 @@ export default function Cadastros() {
       <button className="fab mobile-only" onClick={openNew}>+</button>
 
       {sheet?.type === 'insumo' && (
-        <InsumoForm item={sheet.item} categorias={catsInsumo} onSave={insActions.save} onDelete={insActions.del} onClose={() => setSheet(null)} />
+        <InsumoForm item={sheet.item} categorias={catsInsumo} fornecedores={fornecedores} onSave={insActions.save} onDelete={insActions.del} onClose={() => setSheet(null)} />
       )}
       {sheet?.type === 'embalagem' && (
         <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />

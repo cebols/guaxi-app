@@ -158,7 +158,7 @@ export async function getProdutos() {
     .order('nome')
 
   if (error) {
-    // Fallback if junction tables don't exist yet (migration2.sql not run)
+    // Junction tables don't exist — fallback to composicao JSON column
     const { data: d2, error: e2 } = await supabase.from('produtos').select('*').order('nome')
     if (e2) throw e2
     return d2.map(r => ({
@@ -167,8 +167,8 @@ export async function getProdutos() {
       custoTotal: r.custo_total || 0,
       precoSugerido: r.preco_sugerido || 0,
       precoPraticado: r.preco_praticado,
-      receitas: [],
-      embalagens: [],
+      receitas:   (r.composicao?.receitas   || []),
+      embalagens: (r.composicao?.embalagens || []),
     }))
   }
 
@@ -219,7 +219,25 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     prodId = data.id
   }
 
-  // Junction tables — skip gracefully if migration2.sql not yet run
+  // Always save composicao JSON as backup (works even without junction tables)
+  const composicao = {
+    receitas: receitaItems.map(r => ({
+      receitaId: r.receitaId, nome: r.nome,
+      quantidade: parseFloat(r.quantidade) || 1,
+      unidade: r.unidade || 'un',
+      custoUnid: parseFloat(r.custoUnid) || 0,
+    })),
+    embalagens: embalagemItems.map(e => ({
+      embalagemId: e.embalagemId, nome: e.nome,
+      quantidade: parseFloat(e.quantidade) || 1,
+      custoUnit: parseFloat(e.custoUnit) || 0,
+    })),
+  }
+  try {
+    await supabase.from('produtos').update({ composicao, custo_total: custoTotal }).eq('id', prodId)
+  } catch (_) { /* composicao column may not exist yet — harmless */ }
+
+  // Junction tables — skip gracefully if migration3.sql not yet run
   try {
     if (prod.id) {
       await supabase.from('produto_receitas').delete().eq('produto_id', prod.id)
@@ -239,7 +257,6 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     }
   } catch (e) {
     if (!e.message?.includes('produto_receitas') && !e.message?.includes('produto_embalagens')) throw e
-    // Junction tables don't exist yet — produto saved, composition not linked
   }
 }
 

@@ -52,8 +52,6 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const missingComposition = item && item.custoTotal > 0 && item.receitas?.length === 0 && item.embalagens?.length === 0
-
   const handleRecSelect = (i, nome) => {
     const rec = receitas?.find(r => r.nome === nome)
     setRecRows(prev => prev.map((row, idx) => idx === i ? {
@@ -102,12 +100,6 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
     <Sheet title={item ? 'Editar produto' : 'Novo produto'} onClose={onClose}>
       <div className="field-label">Nome do produto *</div>
       <input className="field-input" placeholder="ex: Choux Craquelin" value={form.nome} onChange={e => set('nome', e.target.value)} />
-
-      {missingComposition && (
-        <div style={{ fontSize: 12, color: 'var(--warn-text)', background: 'var(--warn-bg)', padding: '8px 10px', borderRadius: 6, marginBottom: 8 }}>
-          A composição deste produto não foi carregada — as tabelas de composição ainda não existem no banco. Execute o migration2.sql no Supabase e re-salve o produto.
-        </div>
-      )}
 
       <div className="section-label" style={{ marginTop: 4 }}>Composição — Receitas</div>
       <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 4 }}>
@@ -250,13 +242,22 @@ export default function Produtos() {
       <div className="topbar">
         <div className="topbar-inner">
           <div className="topbar-title">Produtos</div>
-          <button
-            className="btn-ghost"
-            onClick={() => setSheet({ type: 'produto' })}
-            style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
-          >
-            +
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              className="btn-outline-teal desktop-only"
+              onClick={() => setSheet({ type: 'produto' })}
+              style={{ fontSize: 13, padding: '6px 14px' }}
+            >
+              + Novo produto
+            </button>
+            <button
+              className="btn-ghost mobile-only"
+              onClick={() => setSheet({ type: 'produto' })}
+              style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
+            >
+              +
+            </button>
+          </div>
         </div>
       </div>
 
