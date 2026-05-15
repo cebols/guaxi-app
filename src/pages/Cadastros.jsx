@@ -66,14 +66,19 @@ function InsumoForm({ item, onSave, onDelete, onClose }) {
     }
   }
 
-  const handle = async () => {
+  const handle = async (keepOpen = false) => {
     if (!form.nome) return
     setSaving(true)
-    try { await onSave(form); onClose() } catch (e) { alert(e.message) } finally { setSaving(false) }
+    try {
+      await onSave(form)
+      if (keepOpen) setForm(INSUMO_EMPTY)
+      else onClose()
+    } catch (e) { alert(e.message) } finally { setSaving(false) }
   }
 
   return (
     <Sheet title={item ? 'Editar insumo' : 'Novo insumo'} onClose={onClose}>
+      {!item && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>Só o nome é obrigatório — complete o resto quando tiver.</div>}
       <div className="field-label">Nome *</div>
       <input className="field-input" placeholder="ex: Farinha de trigo" value={form.nome} onChange={e => set('nome', e.target.value)} />
 
@@ -136,9 +141,14 @@ function InsumoForm({ item, onSave, onDelete, onClose }) {
       <div className="field-label">WhatsApp</div>
       <input className="field-input" type="tel" placeholder="+55 11 9 ..." value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
 
-      <button className="btn-primary" onClick={handle} disabled={saving || !form.nome}>
+      <button className="btn-primary" onClick={() => handle(false)} disabled={saving || !form.nome}>
         {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar insumo'}
       </button>
+      {!item && (
+        <button className="btn-outline-teal" onClick={() => handle(true)} disabled={saving || !form.nome}>
+          Salvar e adicionar outro
+        </button>
+      )}
       {item && (
         <button className="btn-danger" onClick={() => { if (confirm('Excluir?')) onDelete(item.id).then(onClose).catch(e => alert(e.message)) }}>
           Excluir
@@ -170,14 +180,19 @@ function EmbalagemForm({ item, onSave, onDelete, onClose }) {
   const custoCompra = parseFloat(form.custoCompra) || 0
   const custoUnitCalc = qtdCompra > 0 ? custoCompra / qtdCompra : null
 
-  const handle = async () => {
+  const handle = async (keepOpen = false) => {
     if (!form.nome) return
     setSaving(true)
-    try { await onSave(form); onClose() } catch (e) { alert(e.message) } finally { setSaving(false) }
+    try {
+      await onSave(form)
+      if (keepOpen) setForm(EMB_EMPTY)
+      else onClose()
+    } catch (e) { alert(e.message) } finally { setSaving(false) }
   }
 
   return (
     <Sheet title={item ? 'Editar embalagem' : 'Nova embalagem'} onClose={onClose}>
+      {!item && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>Só o nome é obrigatório — complete o resto quando tiver.</div>}
       <div className="field-label">Nome *</div>
       <input className="field-input" placeholder="ex: Caixinha 15×15cm" value={form.nome} onChange={e => set('nome', e.target.value)} />
 
@@ -217,9 +232,14 @@ function EmbalagemForm({ item, onSave, onDelete, onClose }) {
       <div className="field-label">WhatsApp</div>
       <input className="field-input" type="tel" placeholder="+55 11 9 ..." value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
 
-      <button className="btn-primary" onClick={handle} disabled={saving || !form.nome}>
+      <button className="btn-primary" onClick={() => handle(false)} disabled={saving || !form.nome}>
         {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar embalagem'}
       </button>
+      {!item && (
+        <button className="btn-outline-teal" onClick={() => handle(true)} disabled={saving || !form.nome}>
+          Salvar e adicionar outro
+        </button>
+      )}
       {item && (
         <button className="btn-danger" onClick={() => { if (confirm('Excluir?')) onDelete(item.id).then(onClose).catch(e => alert(e.message)) }}>
           Excluir
@@ -243,14 +263,19 @@ function ProdutoForm({ item, onSave, onDelete, onClose }) {
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const handle = async () => {
+  const handle = async (keepOpen = false) => {
     if (!form.nome) return
     setSaving(true)
-    try { await onSave(form); onClose() } catch (e) { alert(e.message) } finally { setSaving(false) }
+    try {
+      await onSave(form)
+      if (keepOpen) setForm(PROD_EMPTY)
+      else onClose()
+    } catch (e) { alert(e.message) } finally { setSaving(false) }
   }
 
   return (
     <Sheet title={item ? 'Editar produto' : 'Novo produto'} onClose={onClose}>
+      {!item && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>Só o nome é obrigatório — complete o resto quando tiver.</div>}
       <div className="field-label">Nome *</div>
       <input className="field-input" placeholder="ex: Bolo de Pote Chocolate" value={form.nome} onChange={e => set('nome', e.target.value)} />
 
@@ -268,9 +293,14 @@ function ProdutoForm({ item, onSave, onDelete, onClose }) {
       <div className="field-label">Preço praticado (R$)</div>
       <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.precoPraticado} onChange={e => set('precoPraticado', e.target.value)} />
 
-      <button className="btn-primary" onClick={handle} disabled={saving || !form.nome}>
+      <button className="btn-primary" onClick={() => handle(false)} disabled={saving || !form.nome}>
         {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar produto'}
       </button>
+      {!item && (
+        <button className="btn-outline-teal" onClick={() => handle(true)} disabled={saving || !form.nome}>
+          Salvar e adicionar outro
+        </button>
+      )}
       {item && (
         <button className="btn-danger" onClick={() => { if (confirm('Excluir?')) onDelete(item.id).then(onClose).catch(e => alert(e.message)) }}>
           Excluir

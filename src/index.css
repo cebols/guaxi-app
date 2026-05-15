@@ -722,7 +722,7 @@ input, select, textarea { font-family: var(--font); }
     align-items: center;
     justify-content: space-between;
   }
-  .topbar { padding: 0; }
+  .topbar { padding: 0; display: block; }
 
   /* ── Two-column pedido form ───────────── */
   .pedido-grid {
