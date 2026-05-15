@@ -3,6 +3,12 @@ import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getInsumos, getEmbalagens, updateEstoqueInsumos, updateEstoqueEmbalagens } from '../services/db'
 
+function waLink(phone) {
+  const digits = (phone || '').replace(/\D/g, '')
+  if (!digits) return null
+  return `https://wa.me/55${digits}`
+}
+
 function groupBy(arr, key) {
   return arr.reduce((acc, item) => {
     const k = item[key] || 'Outros'
@@ -24,9 +30,28 @@ function ListaCompras({ contagem, itens }) {
     .map(item => {
       const val = parseFloat(contagem[item.id] ?? item.estoqueAtual)
       const falta = calcPedir(val, item.estoqueMin)
-      return falta > 0 ? `${item.nome}: ${falta} ${item.unidade || ''}` : null
+      if (!falta || falta <= 0) return null
+      return {
+        id: item.id,
+        nome: item.nome,
+        falta,
+        unidade: item.unidade || '',
+        whatsapp: item.whatsapp || '',
+        fornecedor: item.fornecedor || '',
+      }
     })
     .filter(Boolean)
+
+  // Group by fornecedor for WhatsApp context
+  const byFornecedor = useMemo(() => {
+    const map = {}
+    pedir.forEach(p => {
+      const key = p.whatsapp || '__sem_contato__'
+      if (!map[key]) map[key] = { fornecedor: p.fornecedor, whatsapp: p.whatsapp, items: [] }
+      map[key].items.push(p)
+    })
+    return Object.values(map)
+  }, [pedir])
 
   if (pedir.length === 0) return (
     <div className="card" style={{ background: 'var(--ok-bg)', borderColor: '#3a6b1a', marginTop: 4 }}>
@@ -34,12 +59,49 @@ function ListaCompras({ contagem, itens }) {
       <div style={{ fontSize: 12, color: 'var(--ok-text)', marginTop: 2 }}>Estoque acima do mínimo em todos os itens</div>
     </div>
   )
+
   return (
     <div className="card" style={{ background: 'var(--warn-bg)', borderColor: '#6b4a1a', marginTop: 4 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--warn-text)', marginBottom: 4 }}>Lista de compras</div>
-      {pedir.map((p, i) => (
-        <div key={i} style={{ fontSize: 12, color: 'var(--warn-text)' }}>· {p}</div>
-      ))}
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--warn-text)', marginBottom: 8 }}>Lista de compras</div>
+      {byFornecedor.map((grupo, gi) => {
+        const wa = waLink(grupo.whatsapp)
+        const msg = grupo.items.map(p => `${p.nome}: ${p.falta} ${p.unidade}`).join('\n')
+        const waComMsg = wa ? `${wa}?text=${encodeURIComponent(`Olá! Preciso pedir:\n${msg}`)}` : null
+        return (
+          <div key={gi} style={{ marginBottom: gi < byFornecedor.length - 1 ? 12 : 0 }}>
+            {grupo.fornecedor && (
+              <div style={{ fontSize: 11, color: 'var(--warn-text)', fontWeight: 600, marginBottom: 4, opacity: 0.8 }}>
+                {grupo.fornecedor}
+              </div>
+            )}
+            {grupo.items.map((p, i) => (
+              <div key={i} style={{ fontSize: 12, color: 'var(--warn-text)', marginBottom: 2 }}>
+                · {p.nome}: {p.falta} {p.unidade}
+              </div>
+            ))}
+            {waComMsg && (
+              <a
+                href={waComMsg}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'inline-block',
+                  marginTop: 6,
+                  fontSize: 12,
+                  color: '#fff',
+                  background: '#25d366',
+                  borderRadius: 6,
+                  padding: '4px 10px',
+                  textDecoration: 'none',
+                  fontWeight: 600,
+                }}
+              >
+                Pedir no WhatsApp
+              </a>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

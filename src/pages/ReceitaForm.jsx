@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getReceitas, saveReceita, deleteReceita } from '../services/db'
+import { getReceitas, saveReceita, deleteReceita, getInsumos } from '../services/db'
 
-const TIPO_OPTS = ['Massa', 'Recheio', 'Cobertura', 'Base', 'Outro']
-const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L']
+const TIPO_OPTS = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
 
 export default function ReceitaForm() {
   const { id } = useParams()
@@ -13,12 +12,13 @@ export default function ReceitaForm() {
   const { toast, show } = useToast()
   const isEdit = !!id && id !== 'nova'
 
-  const { data: receitas, loading } = useData(getReceitas)
+  const { data: receitas, loading: loadRec } = useData(getReceitas)
+  const { data: insumos, loading: loadIns } = useData(getInsumos)
 
   const [form, setForm] = useState({
-    nome: '', tipo: 'Outro', rendimento: '', custoTotal: '', custoUnid: '',
+    nome: '', tipo: 'Outro', rendimento: '',
   })
-  const [ingredientes, setIngredientes] = useState([{ nome: '', quantidade: '', unidade: 'g' }])
+  const [ingredientes, setIngredientes] = useState([{ insumoId: null, nome: '', quantidade: '', unidade: 'g' }])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -30,18 +30,48 @@ export default function ReceitaForm() {
       nome: rec.nome,
       tipo: rec.tipo || 'Outro',
       rendimento: rec.rendimento || '',
-      custoTotal: rec.custoTotal || '',
-      custoUnid: rec.custoUnid || '',
     })
     if (rec.ingredientes?.length > 0) {
-      setIngredientes(rec.ingredientes.map(i => ({ nome: i.nome, quantidade: i.quantidade, unidade: i.unidade })))
+      setIngredientes(rec.ingredientes.map(i => ({
+        insumoId: i.insumoId || null,
+        nome: i.nome,
+        quantidade: i.quantidade,
+        unidade: i.unidade,
+      })))
     }
   }, [receitas, id, isEdit])
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleIngNome = (i, nome) => {
+    const found = insumos?.find(ins => ins.nome === nome)
+    setIngredientes(prev => prev.map((it, idx) =>
+      idx === i ? {
+        ...it,
+        nome,
+        insumoId: found?.id ?? null,
+        unidade: found ? found.unidade : it.unidade,
+      } : it
+    ))
+  }
+
   const setIng = (i, k, v) => setIngredientes(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
-  const addIng = () => setIngredientes(prev => [...prev, { nome: '', quantidade: '', unidade: 'g' }])
-  const removeIng = (i) => setIngredientes(prev => prev.filter((_, idx) => idx !== i))
+  const addIng = () => setIngredientes(prev => [...prev, { insumoId: null, nome: '', quantidade: '', unidade: 'g' }])
+  const removeIng = i => setIngredientes(prev => prev.filter((_, idx) => idx !== i))
+
+  const ingCusto = (ing) => {
+    const insumo = insumos?.find(ins => ins.id === ing.insumoId || ins.nome === ing.nome)
+    if (!insumo?.custoUnit || !ing.quantidade) return 0
+    return (parseFloat(ing.quantidade) || 0) * insumo.custoUnit
+  }
+
+  const custoTotal = useMemo(() =>
+    ingredientes.reduce((s, ing) => s + ingCusto(ing), 0),
+    [ingredientes, insumos]
+  )
+
+  const rendimentoNum = parseFloat(form.rendimento) || 0
+  const custoUnid = rendimentoNum > 0 ? custoTotal / rendimentoNum : 0
 
   const handleSave = async () => {
     if (!form.nome) { show('Preencha o nome da receita'); return }
@@ -49,7 +79,7 @@ export default function ReceitaForm() {
     try {
       const ings = ingredientes.filter(i => i.nome && i.quantidade)
       const recId = await saveReceita(
-        { ...form, id: isEdit ? parseInt(id) : undefined },
+        { ...form, id: isEdit ? parseInt(id) : undefined, custoTotal, custoUnid },
         ings
       )
       show(isEdit ? 'Receita atualizada!' : 'Receita criada!')
@@ -73,7 +103,8 @@ export default function ReceitaForm() {
     }
   }
 
-  if (loading && isEdit) return <div className="loading">Carregando...</div>
+  const loading = (loadRec && isEdit) || loadIns
+  if (loading) return <div className="loading">Carregando...</div>
 
   return (
     <>
@@ -103,51 +134,61 @@ export default function ReceitaForm() {
           </div>
         </div>
 
-        <div className="field-row">
-          <div>
-            <div className="field-label">Custo lote (R$)</div>
-            <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.custoTotal} onChange={e => setField('custoTotal', e.target.value)} />
-          </div>
-          <div>
-            <div className="field-label">Custo/unidade (R$)</div>
-            <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.custoUnid} onChange={e => setField('custoUnid', e.target.value)} />
-          </div>
-        </div>
-
         <div className="section-label" style={{ marginTop: 4 }}>Ingredientes</div>
         <div className="card card-flush" style={{ padding: '0 14px' }}>
-          {ingredientes.map((ing, i) => (
-            <div key={i} className="ing-form-row">
-              <input
-                className="field-input"
-                style={{ flex: 2, marginBottom: 0, fontSize: 13 }}
-                placeholder="Ingrediente"
-                value={ing.nome}
-                onChange={e => setIng(i, 'nome', e.target.value)}
-              />
-              <input
-                className="item-qty"
-                type="number"
-                min="0"
-                step="0.1"
-                placeholder="Qtd"
-                value={ing.quantidade}
-                onChange={e => setIng(i, 'quantidade', e.target.value)}
-              />
-              <select
-                style={{ width: 54, padding: '6px 4px', border: '1px solid #333', borderRadius: 6, fontSize: 12, background: 'var(--bg-card)', color: 'var(--text-primary)' }}
-                value={ing.unidade}
-                onChange={e => setIng(i, 'unidade', e.target.value)}
-              >
-                {UNID_OPTS.map(u => <option key={u}>{u}</option>)}
-              </select>
-              {ingredientes.length > 1 && (
-                <button className="item-rm" onClick={() => removeIng(i)}>&#215;</button>
-              )}
-            </div>
-          ))}
+          {ingredientes.map((ing, i) => {
+            const custo = ingCusto(ing)
+            return (
+              <div key={i} className="ing-form-row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flex: '1 1 100%', alignItems: 'center' }}>
+                  <input
+                    className="field-input"
+                    style={{ flex: 2, marginBottom: 0, fontSize: 13 }}
+                    list="insumos-list"
+                    placeholder="Ingrediente"
+                    value={ing.nome}
+                    onChange={e => handleIngNome(i, e.target.value)}
+                  />
+                  <input
+                    className="item-qty"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    placeholder="Qtd"
+                    value={ing.quantidade}
+                    onChange={e => setIng(i, 'quantidade', e.target.value)}
+                  />
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 24 }}>{ing.unidade}</span>
+                  {ingredientes.length > 1 && (
+                    <button className="item-rm" onClick={() => removeIng(i)}>&#215;</button>
+                  )}
+                </div>
+                {custo > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--teal)', paddingLeft: 2, paddingBottom: 4 }}>
+                    R$ {custo.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
+        <datalist id="insumos-list">
+          {(insumos || []).map(ins => <option key={ins.id} value={ins.nome} />)}
+        </datalist>
         <button className="btn-add-item" onClick={addIng}>+ adicionar ingrediente</button>
+
+        {custoTotal > 0 && (
+          <div style={{ margin: '12px 0 4px', padding: '10px 14px', background: 'var(--teal-light)', borderRadius: 8 }}>
+            <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>
+              Custo do lote: R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            {custoUnid > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--teal)', marginTop: 2 }}>
+                Custo/unidade: R$ {custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+              </div>
+            )}
+          </div>
+        )}
 
         <button className="btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Salvando...' : isEdit ? 'Atualizar receita' : 'Criar receita'}

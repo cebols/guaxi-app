@@ -84,6 +84,7 @@ export async function getEmbalagens() {
     qtdCompra: r.qtd_compra || 0,
     custoCompra: r.custo_compra || 0,
     custoUnit: r.custo_unit || 0,
+    linkCompra: r.link_compra || '',
     fornecedor: r.fornecedor || '',
     telefone: r.telefone || '',
     whatsapp: r.whatsapp || '',
@@ -103,6 +104,7 @@ export async function saveEmbalagem(emb) {
     qtd_compra: qtdCompra,
     custo_compra: custoCompra,
     custo_unit: custoUnit,
+    link_compra: emb.linkCompra || '',
     estoque_atual: emb.estoqueAtual !== '' ? parseFloat(emb.estoqueAtual) : null,
     estoque_min: parseFloat(emb.estoqueMin) || 0,
     fornecedor: emb.fornecedor || '',
@@ -134,29 +136,97 @@ export async function updateEstoqueEmbalagens(items) {
 // ── Produtos ──────────────────────────────────────────────────
 
 export async function getProdutos() {
-  const { data, error } = await supabase.from('produtos').select('*').order('nome')
-  if (error) throw error
+  const { data, error } = await supabase
+    .from('produtos')
+    .select(`
+      *,
+      produto_receitas(*, receitas(nome, custo_unid)),
+      produto_embalagens(*, embalagens(nome, custo_unit))
+    `)
+    .order('nome')
+
+  if (error) {
+    // Fallback if junction tables don't exist yet (migration2.sql not run)
+    const { data: d2, error: e2 } = await supabase.from('produtos').select('*').order('nome')
+    if (e2) throw e2
+    return d2.map(r => ({
+      id: r.id,
+      nome: r.nome,
+      custoTotal: r.custo_total || 0,
+      precoSugerido: r.preco_sugerido || 0,
+      precoPraticado: r.preco_praticado,
+      receitas: [],
+      embalagens: [],
+    }))
+  }
+
   return data.map(r => ({
     id: r.id,
     nome: r.nome,
     custoTotal: r.custo_total || 0,
     precoSugerido: r.preco_sugerido || 0,
     precoPraticado: r.preco_praticado,
+    receitas: (r.produto_receitas || []).map(pr => ({
+      id: pr.id,
+      receitaId: pr.receita_id,
+      nome: pr.receitas?.nome || '',
+      quantidade: pr.quantidade || 1,
+      custoUnid: pr.receitas?.custo_unid || 0,
+    })),
+    embalagens: (r.produto_embalagens || []).map(pe => ({
+      id: pe.id,
+      embalagemId: pe.embalagem_id,
+      nome: pe.embalagens?.nome || '',
+      quantidade: pe.quantidade || 1,
+      custoUnit: pe.embalagens?.custo_unit || 0,
+    })),
   }))
 }
 
-export async function saveProduto(prod) {
+export async function saveProduto(prod, receitaItems = [], embalagemItems = []) {
+  const custoTotal =
+    receitaItems.reduce((s, r) => s + (parseFloat(r.custoUnid) || 0) * (parseFloat(r.quantidade) || 1), 0) +
+    embalagemItems.reduce((s, e) => s + (parseFloat(e.custoUnit) || 0) * (parseFloat(e.quantidade) || 1), 0)
+
   const row = {
     nome: prod.nome,
-    custo_total: parseFloat(prod.custoTotal) || 0,
+    custo_total: custoTotal,
     preco_sugerido: parseFloat(prod.precoSugerido) || 0,
-    preco_praticado: prod.precoPraticado !== '' ? parseFloat(prod.precoPraticado) : null,
+    preco_praticado: prod.precoPraticado !== '' && prod.precoPraticado != null
+      ? parseFloat(prod.precoPraticado) : null,
   }
+
+  let prodId = prod.id
   if (prod.id) {
     const { error } = await supabase.from('produtos').update(row).eq('id', prod.id)
     if (error) throw error
+    await supabase.from('produto_receitas').delete().eq('produto_id', prod.id)
+    await supabase.from('produto_embalagens').delete().eq('produto_id', prod.id)
   } else {
-    const { error } = await supabase.from('produtos').insert(row)
+    const { data, error } = await supabase.from('produtos').insert(row).select().single()
+    if (error) throw error
+    prodId = data.id
+  }
+
+  if (receitaItems.length > 0) {
+    const { error } = await supabase.from('produto_receitas').insert(
+      receitaItems.map(r => ({
+        produto_id: prodId,
+        receita_id: r.receitaId,
+        quantidade: parseFloat(r.quantidade) || 1,
+      }))
+    )
+    if (error) throw error
+  }
+
+  if (embalagemItems.length > 0) {
+    const { error } = await supabase.from('produto_embalagens').insert(
+      embalagemItems.map(e => ({
+        produto_id: prodId,
+        embalagem_id: e.embalagemId,
+        quantidade: parseFloat(e.quantidade) || 1,
+      }))
+    )
     if (error) throw error
   }
 }
@@ -255,7 +325,7 @@ export async function updateStatusEncomenda(id, status, pgto) {
 
 // ── Receitas ──────────────────────────────────────────────────
 
-const TIPO_ORDER = ['Massa', 'Recheio', 'Cobertura', 'Base', 'Outro']
+const TIPO_ORDER = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
 
 export async function getReceitas() {
   const { data, error } = await supabase
@@ -274,6 +344,7 @@ export async function getReceitas() {
       custoUnid: r.custo_unid || 0,
       ingredientes: (r.receita_ingredientes || []).map(i => ({
         id: i.id,
+        insumoId: i.insumo_id || null,
         nome: i.insumo_nome,
         quantidade: i.quantidade || 0,
         unidade: i.unidade || 'g',
@@ -303,6 +374,7 @@ export async function saveReceita(receita, ingredientes) {
       const { error: ie } = await supabase.from('receita_ingredientes').insert(
         ingredientes.map(i => ({
           receita_id: receita.id,
+          insumo_id: i.insumoId || null,
           insumo_nome: i.nome,
           quantidade: parseFloat(i.quantidade) || 0,
           unidade: i.unidade || 'g',
@@ -318,6 +390,7 @@ export async function saveReceita(receita, ingredientes) {
       const { error: ie } = await supabase.from('receita_ingredientes').insert(
         ingredientes.map(i => ({
           receita_id: data.id,
+          insumo_id: i.insumoId || null,
           insumo_nome: i.nome,
           quantidade: parseFloat(i.quantidade) || 0,
           unidade: i.unidade || 'g',
