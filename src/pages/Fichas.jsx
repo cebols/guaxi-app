@@ -4,11 +4,14 @@ import { useData } from '../hooks/useData'
 import { getReceitas } from '../services/db'
 
 const TIPO_COLOR = {
-  'Massa':     'badge-warn',
-  'Recheio':   'badge-info',
-  'Cobertura': 'badge-teal',
-  'Base':      'badge-ok',
-  'Outro':     '',
+  'Bolo':          'badge-warn',
+  'Torta':         'badge-warn',
+  'Massa':         'badge-warn',
+  'Recheio':       'badge-info',
+  'Cobertura':     'badge-teal',
+  'Base':          'badge-ok',
+  'Produto Final': 'badge-ok',
+  'Outro':         '',
 }
 
 function fmt(val) {
@@ -109,7 +112,7 @@ export default function Fichas() {
                         <td>
                           {r.tipo && <span className={`badge ${TIPO_COLOR[r.tipo] || ''}`}>{r.tipo}</span>}
                         </td>
-                        <td className="muted">{r.rendimento > 0 ? `${r.rendimento} un` : '—'}</td>
+                        <td className="muted">{r.rendimento > 0 ? `${r.rendimento} ${r.unidadeGera || 'un'}` : '—'}</td>
                         <td className="muted">{r.custoTotal > 0 ? `R$ ${fmt(r.custoTotal)}` : '—'}</td>
                         <td className="teal">{r.custoUnid > 0 ? `R$ ${fmt(r.custoUnid)}` : '—'}</td>
                       </tr>

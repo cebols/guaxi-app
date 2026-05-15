@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
+import { getConfig, calcPrecos } from '../hooks/useConfig'
 import {
   getInsumos, saveInsumo, deleteInsumo,
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
@@ -328,11 +329,15 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
   const validRecRows = recRows.filter(r => r.receitaId)
   const validEmbRows = embRows.filter(e => e.embalagemId)
 
+  const cfg = getConfig()
+  const precos = calcPrecos(custoTotal, cfg)
+  const fmtRp = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
   const handle = async () => {
     if (!form.nome) return
     setSaving(true)
     try {
-      await onSave(form, validRecRows, validEmbRows)
+      await onSave({ ...form, precoSugerido: precos.base }, validRecRows, validEmbRows)
       onClose()
     } catch (e) { alert(e.message) } finally { setSaving(false) }
   }
@@ -387,24 +392,30 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
       <button className="btn-add-item" onClick={addEmb}>+ embalagem</button>
 
       {custoTotal > 0 && (
-        <div style={{ margin: '12px 0 8px', padding: '8px 12px', background: 'var(--teal-light)', borderRadius: 8 }}>
-          <span style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>
-            Custo calculado: R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
+        <div style={{ margin: '12px 0 8px', padding: '10px 14px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+            Custo insumos: R$ {fmtRp(custoTotal)}
+            {cfg.rateio > 0 && ` + rateio R$ ${fmtRp(cfg.rateio)}`}
+            {` · margem ${cfg.margem}%`}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>Venda direta</span>
+            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--teal)' }}>R$ {fmtRp(precos.base)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>99Food (−{cfg.taxa99}%)</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#f59e0b' }}>R$ {fmtRp(precos.p99)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>iFood (−{cfg.taxaIfood}%)</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#ef4444' }}>R$ {fmtRp(precos.pIfood)}</span>
+          </div>
         </div>
       )}
 
-      <div className="section-label" style={{ marginTop: 4 }}>Preço de venda</div>
-      <div className="field-row">
-        <div>
-          <div className="field-label">Sugerido (R$)</div>
-          <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.precoSugerido} onChange={e => set('precoSugerido', e.target.value)} />
-        </div>
-        <div>
-          <div className="field-label">Praticado (R$)</div>
-          <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.precoPraticado} onChange={e => set('precoPraticado', e.target.value)} />
-        </div>
-      </div>
+      <div className="section-label" style={{ marginTop: 4 }}>Preço praticado (override)</div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Deixe em branco para usar o preço calculado acima</div>
+      <input className="field-input" type="number" min="0" step="0.01" placeholder="—" value={form.precoPraticado} onChange={e => set('precoPraticado', e.target.value)} />
 
       <button className="btn-primary" onClick={handle} disabled={saving || !form.nome}>
         {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar produto'}

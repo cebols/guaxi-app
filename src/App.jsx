@@ -8,13 +8,15 @@ import Fichas from './pages/Fichas'
 import Cozinha from './pages/Cozinha'
 import ReceitaForm from './pages/ReceitaForm'
 import Cadastros from './pages/Cadastros'
+import Configuracoes from './pages/Configuracoes'
 
 const NAV = [
-  { path: '/',          label: 'Home',      icon: HomeIcon },
-  { path: '/pedidos',   label: 'Pedidos',   icon: PedidosIcon },
-  { path: '/contagem',  label: 'Contagem',  icon: ContagemIcon },
-  { path: '/fichas',    label: 'Fichas',    icon: FichasIcon },
-  { path: '/cadastros', label: 'Cadastros', icon: CadastrosIcon },
+  { path: '/',              label: 'Home',      icon: HomeIcon },
+  { path: '/pedidos',       label: 'Pedidos',   icon: PedidosIcon },
+  { path: '/contagem',      label: 'Contagem',  icon: ContagemIcon },
+  { path: '/fichas',        label: 'Fichas',    icon: FichasIcon },
+  { path: '/cadastros',     label: 'Cadastros', icon: CadastrosIcon },
+  { path: '/configuracoes', label: 'Preços',    icon: ConfigIcon },
 ]
 
 function Sidebar() {
@@ -85,6 +87,7 @@ export default function App() {
           <Route path="/fichas/:id"          element={<Cozinha />} />
           <Route path="/fichas/:id/editar"   element={<ReceitaForm />} />
           <Route path="/cadastros"           element={<Cadastros />} />
+          <Route path="/configuracoes"       element={<Configuracoes />} />
           <Route path="*"                    element={<Navigate to="/" />} />
         </Routes>
       </div>
@@ -146,5 +149,11 @@ function CadastrosIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <circle cx="12" cy="12" r="3"/>
     <path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/>
+  </svg>
+}
+function ConfigIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <line x1="12" y1="1" x2="12" y2="23"/>
+    <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
   </svg>
 }

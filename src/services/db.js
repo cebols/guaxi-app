@@ -200,34 +200,33 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
   if (prod.id) {
     const { error } = await supabase.from('produtos').update(row).eq('id', prod.id)
     if (error) throw error
-    await supabase.from('produto_receitas').delete().eq('produto_id', prod.id)
-    await supabase.from('produto_embalagens').delete().eq('produto_id', prod.id)
   } else {
     const { data, error } = await supabase.from('produtos').insert(row).select().single()
     if (error) throw error
     prodId = data.id
   }
 
-  if (receitaItems.length > 0) {
-    const { error } = await supabase.from('produto_receitas').insert(
-      receitaItems.map(r => ({
-        produto_id: prodId,
-        receita_id: r.receitaId,
-        quantidade: parseFloat(r.quantidade) || 1,
-      }))
-    )
-    if (error) throw error
-  }
-
-  if (embalagemItems.length > 0) {
-    const { error } = await supabase.from('produto_embalagens').insert(
-      embalagemItems.map(e => ({
-        produto_id: prodId,
-        embalagem_id: e.embalagemId,
-        quantidade: parseFloat(e.quantidade) || 1,
-      }))
-    )
-    if (error) throw error
+  // Junction tables — skip gracefully if migration2.sql not yet run
+  try {
+    if (prod.id) {
+      await supabase.from('produto_receitas').delete().eq('produto_id', prod.id)
+      await supabase.from('produto_embalagens').delete().eq('produto_id', prod.id)
+    }
+    if (receitaItems.length > 0) {
+      const { error } = await supabase.from('produto_receitas').insert(
+        receitaItems.map(r => ({ produto_id: prodId, receita_id: r.receitaId, quantidade: parseFloat(r.quantidade) || 1 }))
+      )
+      if (error) throw error
+    }
+    if (embalagemItems.length > 0) {
+      const { error } = await supabase.from('produto_embalagens').insert(
+        embalagemItems.map(e => ({ produto_id: prodId, embalagem_id: e.embalagemId, quantidade: parseFloat(e.quantidade) || 1 }))
+      )
+      if (error) throw error
+    }
+  } catch (e) {
+    if (!e.message?.includes('produto_receitas') && !e.message?.includes('produto_embalagens')) throw e
+    // Junction tables don't exist yet — produto saved, composition not linked
   }
 }
 
