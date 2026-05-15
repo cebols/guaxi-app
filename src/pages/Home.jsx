@@ -116,8 +116,10 @@ export default function Home() {
   const navigate = useNavigate()
   const { toast, show } = useToast()
   const { data: encomendas, loading: loadEnc, reload: reloadEnc } = useData(getEncomendas)
-  const { data: insumos,    loading: loadIns } = useData(getInsumos)
-  const { data: embalagens, loading: loadEmb } = useData(getEmbalagens)
+  const { data: insumos,    loading: loadIns, reload: reloadIns } = useData(getInsumos)
+  const { data: embalagens, loading: loadEmb, reload: reloadEmb } = useData(getEmbalagens)
+
+  const reloadAll = () => { reloadEnc(); reloadIns(); reloadEmb() }
 
   const proximas = (encomendas || [])
     .filter(e => {
@@ -147,7 +149,11 @@ export default function Home() {
     ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem', unidade: 'un' })),
   ]
   const alertas = todosItens
-    .filter(i => i.estoqueAtual !== null && i.estoqueMin > 0 && nivelEstoque(i.estoqueAtual, i.estoqueMin) < 2)
+    .filter(i => {
+      if (i.estoqueAtual === null || i.estoqueAtual === undefined) return false
+      if (i.estoqueMin <= 0) return false
+      return nivelEstoque(i.estoqueAtual, i.estoqueMin) < 2
+    })
     .sort((a, b) => nivelEstoque(a.estoqueAtual, a.estoqueMin) - nivelEstoque(b.estoqueAtual, b.estoqueMin))
   const criticos = alertas.filter(i => nivelEstoque(i.estoqueAtual, i.estoqueMin) === 0)
 
@@ -174,10 +180,12 @@ export default function Home() {
             <div className="topbar-title">Olá, {primeiroNome}</div>
             <div className="topbar-sub">{diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1)}, {dataStr}</div>
           </div>
-          {/* Avatar/logout only on mobile — desktop uses sidebar */}
-          <button className="avatar mobile-only" onClick={signOut} title="Sair">
-            {primeiroNome.charAt(0).toUpperCase()}
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="btn-ghost" onClick={reloadAll} style={{ fontSize: 18, padding: '4px 10px', border: 'none', color: 'var(--text-secondary)' }} title="Atualizar">↻</button>
+            <button className="avatar mobile-only" onClick={signOut} title="Sair">
+              {primeiroNome.charAt(0).toUpperCase()}
+            </button>
+          </div>
         </div>
       </div>
 

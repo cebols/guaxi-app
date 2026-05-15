@@ -439,6 +439,50 @@ export async function saveReceita(receita, ingredientes) {
   }
 }
 
+// ── Vendas ────────────────────────────────────────────────────
+
+export async function getVendas() {
+  try {
+    const { data, error } = await supabase
+      .from('vendas')
+      .select('*')
+      .order('data', { ascending: false })
+    if (error) throw error
+    return data.map(r => ({
+      id: r.id,
+      data: r.data,
+      produtoNome: r.produto_nome,
+      produtoId: r.produto_id,
+      quantidade: r.quantidade,
+      precoUnit: r.preco_unit,
+      plataforma: r.plataforma || 'Direta',
+      custoUnit: r.custo_unit || 0,
+    }))
+  } catch (e) {
+    if (e.message?.includes('vendas')) return []
+    throw e
+  }
+}
+
+export async function saveVenda(venda) {
+  const { data, error } = await supabase.from('vendas').insert({
+    data: venda.data,
+    produto_nome: venda.produtoNome,
+    produto_id: venda.produtoId || null,
+    quantidade: parseFloat(venda.quantidade) || 1,
+    preco_unit: parseFloat(venda.precoUnit) || 0,
+    plataforma: venda.plataforma || 'Direta',
+    custo_unit: parseFloat(venda.custoUnit) || 0,
+  }).select().single()
+  if (error) throw error
+  return data.id
+}
+
+export async function deleteVenda(id) {
+  const { error } = await supabase.from('vendas').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function deleteReceita(id) {
   const { error } = await supabase.from('receitas').delete().eq('id', id)
   if (error) throw error
