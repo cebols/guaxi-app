@@ -24,20 +24,47 @@ function Sheet({ title, children, onClose }) {
   )
 }
 
+function CalcBadge({ label, value }) {
+  if (!value) return null
+  return (
+    <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 10, padding: '5px 10px', background: 'var(--teal-light)', borderRadius: 6, display: 'inline-block' }}>
+      {label}: <strong>R$ {Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 5, maximumFractionDigits: 5 })}</strong>
+    </div>
+  )
+}
+
 // ── Insumos ───────────────────────────────────────────────────
 
-const INSUMO_EMPTY = { nome: '', categoria: '', unidade: 'g', custoEmb: '', custoUnit: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '' }
+const INSUMO_EMPTY = {
+  nome: '', categoria: '', unidade: 'g',
+  pesoEmb: '', custoEmb: '', pesoUn: '',
+  estoqueAtual: '', estoqueMin: '',
+  fornecedor: '', whatsapp: '',
+}
 
 function InsumoForm({ item, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item ? {
     ...item,
+    pesoEmb: item.pesoEmb || '',
     custoEmb: item.custoEmb || '',
-    custoUnit: item.custoUnit || '',
+    pesoUn: item.pesoUn ?? '',
     estoqueAtual: item.estoqueAtual ?? '',
     estoqueMin: item.estoqueMin || '',
   } : INSUMO_EMPTY)
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const pesoEmb = parseFloat(form.pesoEmb) || 0
+  const custoEmb = parseFloat(form.custoEmb) || 0
+  const pesoUn = parseFloat(form.pesoUn) || 0
+  let custoUnitCalc = null
+  if (pesoEmb > 0 && custoEmb > 0) {
+    if (form.unidade === 'un' && pesoUn > 0) {
+      custoUnitCalc = (custoEmb / pesoEmb) / pesoUn
+    } else {
+      custoUnitCalc = custoEmb / pesoEmb
+    }
+  }
 
   const handle = async () => {
     if (!form.nome) return
@@ -56,38 +83,56 @@ function InsumoForm({ item, onSave, onDelete, onClose }) {
           <input className="field-input" placeholder="ex: Farinhas" value={form.categoria} onChange={e => set('categoria', e.target.value)} />
         </div>
         <div>
-          <div className="field-label">Unidade</div>
+          <div className="field-label">Unidade de uso</div>
           <select className="field-input" value={form.unidade} onChange={e => set('unidade', e.target.value)}>
             {UNID_OPTS.map(u => <option key={u}>{u}</option>)}
           </select>
         </div>
       </div>
 
-      <div className="field-row">
-        <div>
-          <div className="field-label">Custo emb. (R$)</div>
-          <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.custoEmb} onChange={e => set('custoEmb', e.target.value)} />
-        </div>
-        <div>
-          <div className="field-label">Custo unit. (R$)</div>
-          <input className="field-input" type="number" min="0" step="0.001" placeholder="0,000" value={form.custoUnit} onChange={e => set('custoUnit', e.target.value)} />
-        </div>
-      </div>
+      <div className="section-label" style={{ marginTop: 4 }}>Precificação</div>
 
       <div className="field-row">
         <div>
-          <div className="field-label">Estoque atual</div>
+          <div className="field-label">
+            {form.unidade === 'un' ? 'Qtd. na embalagem (un)' : `Peso/vol. da embalagem (${form.unidade})`}
+          </div>
+          <input className="field-input" type="number" min="0" step="any" placeholder="ex: 1000" value={form.pesoEmb} onChange={e => set('pesoEmb', e.target.value)} />
+        </div>
+        <div>
+          <div className="field-label">Custo da embalagem (R$)</div>
+          <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.custoEmb} onChange={e => set('custoEmb', e.target.value)} />
+        </div>
+      </div>
+
+      {form.unidade === 'un' && (
+        <>
+          <div className="field-label">Peso por unidade (g) — para calcular custo</div>
+          <input className="field-input" type="number" min="0" step="any" placeholder="ex: 50 para ovos de 50g" value={form.pesoUn} onChange={e => set('pesoUn', e.target.value)} />
+        </>
+      )}
+
+      {custoUnitCalc !== null && (
+        <CalcBadge
+          label={`Custo por ${form.unidade === 'un' && pesoUn > 0 ? 'g' : form.unidade}`}
+          value={custoUnitCalc}
+        />
+      )}
+
+      <div className="section-label" style={{ marginTop: 4 }}>Estoque</div>
+      <div className="field-row">
+        <div>
+          <div className="field-label">Estoque atual ({form.unidade})</div>
           <input className="field-input" type="number" min="0" placeholder="—" value={form.estoqueAtual} onChange={e => set('estoqueAtual', e.target.value)} />
         </div>
         <div>
-          <div className="field-label">Estoque mínimo</div>
+          <div className="field-label">Estoque mínimo ({form.unidade})</div>
           <input className="field-input" type="number" min="0" placeholder="0" value={form.estoqueMin} onChange={e => set('estoqueMin', e.target.value)} />
         </div>
       </div>
 
-      <div className="field-label">Fornecedor</div>
+      <div className="section-label" style={{ marginTop: 4 }}>Fornecedor</div>
       <input className="field-input" placeholder="Nome do fornecedor" value={form.fornecedor} onChange={e => set('fornecedor', e.target.value)} />
-
       <div className="field-label">WhatsApp</div>
       <input className="field-input" type="tel" placeholder="+55 11 9 ..." value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
 
@@ -105,17 +150,25 @@ function InsumoForm({ item, onSave, onDelete, onClose }) {
 
 // ── Embalagens ────────────────────────────────────────────────
 
-const EMB_EMPTY = { nome: '', categoria: '', custoUnit: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '' }
+const EMB_EMPTY = {
+  nome: '', categoria: '', qtdCompra: '', custoCompra: '',
+  estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '',
+}
 
 function EmbalagemForm({ item, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item ? {
     ...item,
-    custoUnit: item.custoUnit || '',
+    qtdCompra: item.qtdCompra || '',
+    custoCompra: item.custoCompra || '',
     estoqueAtual: item.estoqueAtual ?? '',
     estoqueMin: item.estoqueMin || '',
   } : EMB_EMPTY)
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const qtdCompra = parseFloat(form.qtdCompra) || 0
+  const custoCompra = parseFloat(form.custoCompra) || 0
+  const custoUnitCalc = qtdCompra > 0 ? custoCompra / qtdCompra : null
 
   const handle = async () => {
     if (!form.nome) return
@@ -126,33 +179,41 @@ function EmbalagemForm({ item, onSave, onDelete, onClose }) {
   return (
     <Sheet title={item ? 'Editar embalagem' : 'Nova embalagem'} onClose={onClose}>
       <div className="field-label">Nome *</div>
-      <input className="field-input" placeholder="ex: Caixinha 15x15" value={form.nome} onChange={e => set('nome', e.target.value)} />
+      <input className="field-input" placeholder="ex: Caixinha 15×15cm" value={form.nome} onChange={e => set('nome', e.target.value)} />
 
+      <div className="field-label">Categoria</div>
+      <input className="field-input" placeholder="ex: Caixas" value={form.categoria} onChange={e => set('categoria', e.target.value)} />
+
+      <div className="section-label" style={{ marginTop: 4 }}>Precificação</div>
       <div className="field-row">
         <div>
-          <div className="field-label">Categoria</div>
-          <input className="field-input" placeholder="ex: Caixas" value={form.categoria} onChange={e => set('categoria', e.target.value)} />
+          <div className="field-label">Qtd. na compra (un)</div>
+          <input className="field-input" type="number" min="1" step="1" placeholder="ex: 10" value={form.qtdCompra} onChange={e => set('qtdCompra', e.target.value)} />
         </div>
         <div>
-          <div className="field-label">Custo unit. (R$)</div>
-          <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.custoUnit} onChange={e => set('custoUnit', e.target.value)} />
+          <div className="field-label">Custo da compra (R$)</div>
+          <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.custoCompra} onChange={e => set('custoCompra', e.target.value)} />
         </div>
       </div>
 
+      {custoUnitCalc !== null && (
+        <CalcBadge label="Custo por unidade" value={custoUnitCalc} />
+      )}
+
+      <div className="section-label" style={{ marginTop: 4 }}>Estoque</div>
       <div className="field-row">
         <div>
-          <div className="field-label">Estoque atual</div>
+          <div className="field-label">Estoque atual (un)</div>
           <input className="field-input" type="number" min="0" placeholder="—" value={form.estoqueAtual} onChange={e => set('estoqueAtual', e.target.value)} />
         </div>
         <div>
-          <div className="field-label">Estoque mínimo</div>
+          <div className="field-label">Estoque mínimo (un)</div>
           <input className="field-input" type="number" min="0" placeholder="0" value={form.estoqueMin} onChange={e => set('estoqueMin', e.target.value)} />
         </div>
       </div>
 
-      <div className="field-label">Fornecedor</div>
+      <div className="section-label" style={{ marginTop: 4 }}>Fornecedor</div>
       <input className="field-input" placeholder="Nome do fornecedor" value={form.fornecedor} onChange={e => set('fornecedor', e.target.value)} />
-
       <div className="field-label">WhatsApp</div>
       <input className="field-input" type="tel" placeholder="+55 11 9 ..." value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
 
@@ -242,7 +303,6 @@ export default function Cadastros() {
   const prodActions = { save: withReload(saveProduto,   rProd), del: withReload(deleteProduto,   rProd) }
 
   const loading = { insumos: lIns, embalagens: lEmb, produtos: lProd }[tab]
-
   const openNew = () => setSheet({ type: tab === 'produtos' ? 'produto' : tab === 'embalagens' ? 'embalagem' : 'insumo' })
 
   return (
@@ -271,7 +331,6 @@ export default function Cadastros() {
           <div className="loading">Carregando...</div>
         ) : tab === 'insumos' ? (
           <>
-            {/* Desktop table */}
             <div className="desktop-only">
               <div className="card card-flush">
                 {(insumos || []).length === 0
@@ -279,7 +338,8 @@ export default function Cadastros() {
                   : <table className="dt">
                       <thead><tr>
                         <th>Nome</th><th>Categoria</th><th>Unidade</th>
-                        <th>Custo unit.</th><th>Estoque</th><th>Fornecedor</th>
+                        <th>Emb.</th><th>Custo emb.</th><th>Custo/un</th>
+                        <th>Estoque</th><th>Fornecedor</th>
                       </tr></thead>
                       <tbody>
                         {(insumos || []).map(ins => (
@@ -287,9 +347,11 @@ export default function Cadastros() {
                             <td style={{ fontWeight: 600 }}>{ins.nome}</td>
                             <td className="muted">{ins.categoria || '—'}</td>
                             <td className="muted">{ins.unidade}</td>
-                            <td className="teal">{fmtR(ins.custoUnit)}/{ins.unidade}</td>
+                            <td className="muted">{ins.pesoEmb > 0 ? `${ins.pesoEmb} ${ins.unidade}` : '—'}</td>
+                            <td className="muted">{fmtR(ins.custoEmb)}</td>
+                            <td className="teal">{ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : '—'}</td>
                             <td>
-                              {ins.estoqueAtual !== null
+                              {ins.estoqueAtual !== null && ins.estoqueAtual !== undefined
                                 ? <span style={{ color: ins.estoqueAtual < ins.estoqueMin ? 'var(--alert-text)' : 'var(--ok-text)', fontWeight: 600, fontSize: 13 }}>
                                     {ins.estoqueAtual} {ins.unidade}
                                   </span>
@@ -303,7 +365,6 @@ export default function Cadastros() {
                 }
               </div>
             </div>
-            {/* Mobile cards */}
             <div className="mobile-only">
               <div className="card card-flush" style={{ padding: '0 14px' }}>
                 {(insumos || []).length === 0
@@ -315,8 +376,10 @@ export default function Cadastros() {
                         <div className="list-item-sub">{ins.categoria} · {ins.unidade}{ins.fornecedor ? ` · ${ins.fornecedor}` : ''}</div>
                       </div>
                       <div className="list-item-right">
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{fmtR(ins.custoUnit)}/{ins.unidade}</div>
-                        {ins.estoqueAtual !== null && (
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
+                          {ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/${ins.unidade}` : '—'}
+                        </div>
+                        {ins.estoqueAtual !== null && ins.estoqueAtual !== undefined && (
                           <div style={{ fontSize: 11, color: ins.estoqueAtual < ins.estoqueMin ? 'var(--alert-text)' : 'var(--text-secondary)', marginTop: 2 }}>
                             {ins.estoqueAtual} {ins.unidade}
                           </div>
@@ -330,23 +393,25 @@ export default function Cadastros() {
           </>
         ) : tab === 'embalagens' ? (
           <>
-            {/* Desktop table */}
             <div className="desktop-only">
               <div className="card card-flush">
                 {(embalagens || []).length === 0
                   ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhuma embalagem cadastrada</div>
                   : <table className="dt">
                       <thead><tr>
-                        <th>Nome</th><th>Categoria</th><th>Custo unit.</th><th>Estoque</th><th>Fornecedor</th>
+                        <th>Nome</th><th>Categoria</th><th>Qtd compra</th>
+                        <th>Custo compra</th><th>Custo unit.</th><th>Estoque</th><th>Fornecedor</th>
                       </tr></thead>
                       <tbody>
                         {(embalagens || []).map(emb => (
                           <tr key={emb.id} onClick={() => setSheet({ type: 'embalagem', item: emb })}>
                             <td style={{ fontWeight: 600 }}>{emb.nome}</td>
                             <td className="muted">{emb.categoria || '—'}</td>
+                            <td className="muted">{emb.qtdCompra > 0 ? `${emb.qtdCompra} un` : '—'}</td>
+                            <td className="muted">{fmtR(emb.custoCompra)}</td>
                             <td className="teal">{fmtR(emb.custoUnit)}</td>
                             <td>
-                              {emb.estoqueAtual !== null
+                              {emb.estoqueAtual !== null && emb.estoqueAtual !== undefined
                                 ? <span style={{ color: emb.estoqueAtual < emb.estoqueMin ? 'var(--alert-text)' : 'var(--ok-text)', fontWeight: 600, fontSize: 13 }}>
                                     {emb.estoqueAtual} un
                                   </span>
@@ -360,7 +425,6 @@ export default function Cadastros() {
                 }
               </div>
             </div>
-            {/* Mobile cards */}
             <div className="mobile-only">
               <div className="card card-flush" style={{ padding: '0 14px' }}>
                 {(embalagens || []).length === 0
@@ -373,7 +437,7 @@ export default function Cadastros() {
                       </div>
                       <div className="list-item-right">
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{fmtR(emb.custoUnit)}/un</div>
-                        {emb.estoqueAtual !== null && (
+                        {emb.estoqueAtual !== null && emb.estoqueAtual !== undefined && (
                           <div style={{ fontSize: 11, color: emb.estoqueAtual < emb.estoqueMin ? 'var(--alert-text)' : 'var(--text-secondary)', marginTop: 2 }}>
                             {emb.estoqueAtual} un
                           </div>
@@ -387,7 +451,6 @@ export default function Cadastros() {
           </>
         ) : (
           <>
-            {/* Desktop table */}
             <div className="desktop-only">
               <div className="card card-flush">
                 {(produtos || []).length === 0
@@ -410,7 +473,6 @@ export default function Cadastros() {
                 }
               </div>
             </div>
-            {/* Mobile cards */}
             <div className="mobile-only">
               <div className="card card-flush" style={{ padding: '0 14px' }}>
                 {(produtos || []).length === 0
@@ -435,7 +497,6 @@ export default function Cadastros() {
         )}
       </div>
 
-      {/* FAB for mobile */}
       <button className="fab mobile-only" onClick={openNew}>+</button>
 
       {sheet?.type === 'insumo' && (

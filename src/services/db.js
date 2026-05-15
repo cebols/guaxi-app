@@ -10,7 +10,9 @@ export async function getInsumos() {
     nome: r.nome,
     categoria: r.categoria || '',
     unidade: r.unidade || 'g',
+    pesoEmb: r.peso_emb || 0,
     custoEmb: r.custo_emb || 0,
+    pesoUn: r.peso_un ?? null,
     custoUnit: r.custo_unit || 0,
     estoqueAtual: r.estoque_atual,
     estoqueMin: r.estoque_min || 0,
@@ -21,12 +23,27 @@ export async function getInsumos() {
 }
 
 export async function saveInsumo(insumo) {
+  const pesoEmb = parseFloat(insumo.pesoEmb) || 0
+  const custoEmb = parseFloat(insumo.custoEmb) || 0
+  const pesoUn = insumo.pesoUn !== '' && insumo.pesoUn != null ? parseFloat(insumo.pesoUn) : null
+
+  let custoUnit = 0
+  if (pesoEmb > 0 && custoEmb > 0) {
+    if (insumo.unidade === 'un' && pesoUn > 0) {
+      custoUnit = (custoEmb / pesoEmb) / pesoUn
+    } else {
+      custoUnit = custoEmb / pesoEmb
+    }
+  }
+
   const row = {
     nome: insumo.nome,
     categoria: insumo.categoria || '',
     unidade: insumo.unidade || 'g',
-    custo_emb: parseFloat(insumo.custoEmb) || 0,
-    custo_unit: parseFloat(insumo.custoUnit) || 0,
+    peso_emb: pesoEmb,
+    custo_emb: custoEmb,
+    peso_un: pesoUn,
+    custo_unit: custoUnit,
     estoque_atual: insumo.estoqueAtual !== '' ? parseFloat(insumo.estoqueAtual) : null,
     estoque_min: parseFloat(insumo.estoqueMin) || 0,
     fornecedor: insumo.fornecedor || '',
@@ -64,6 +81,8 @@ export async function getEmbalagens() {
     id: r.id,
     nome: r.nome,
     categoria: r.categoria || '',
+    qtdCompra: r.qtd_compra || 0,
+    custoCompra: r.custo_compra || 0,
     custoUnit: r.custo_unit || 0,
     fornecedor: r.fornecedor || '',
     telefone: r.telefone || '',
@@ -74,10 +93,16 @@ export async function getEmbalagens() {
 }
 
 export async function saveEmbalagem(emb) {
+  const qtdCompra = parseFloat(emb.qtdCompra) || 0
+  const custoCompra = parseFloat(emb.custoCompra) || 0
+  const custoUnit = qtdCompra > 0 ? custoCompra / qtdCompra : 0
+
   const row = {
     nome: emb.nome,
     categoria: emb.categoria || '',
-    custo_unit: parseFloat(emb.custoUnit) || 0,
+    qtd_compra: qtdCompra,
+    custo_compra: custoCompra,
+    custo_unit: custoUnit,
     estoque_atual: emb.estoqueAtual !== '' ? parseFloat(emb.estoqueAtual) : null,
     estoque_min: parseFloat(emb.estoqueMin) || 0,
     fornecedor: emb.fornecedor || '',
