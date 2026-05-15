@@ -80,6 +80,58 @@ function StatusSelect({ value, options, badgeMap, onChange }) {
   )
 }
 
+// 0=crítico (<min), 1=atenção (min..1.5×min), 2=ok
+function nivelEstoque(atual, min) {
+  if (atual === null || atual === undefined || !min || min <= 0) return 2
+  const ratio = atual / min
+  if (ratio < 1)   return 0
+  if (ratio < 1.5) return 1
+  return 2
+}
+
+function AlertaItem({ item }) {
+  const nivel = nivelEstoque(item.estoqueAtual, item.estoqueMin)
+  const cor         = nivel === 0 ? 'var(--alert-text)' : '#f59e0b'
+  const borderColor = nivel === 0 ? 'var(--alert-text)' : '#92400e'
+  const badgeLabel  = nivel === 0 ? 'Pedir' : 'Atenção'
+  const badgeClass  = nivel === 0 ? 'badge-alert' : 'badge-warn'
+  const digits = (item.whatsapp || '').toString().replace(/\D/g, '')
+  const waHref = digits ? `https://wa.me/55${digits}` : null
+  const pct = item.estoqueMin > 0 ? Math.min(100, (item.estoqueAtual / item.estoqueMin) * 100) : 0
+
+  return (
+    <div className="card" style={{ borderColor, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, color: cor }}>{item.nome}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+            Atual: {item.estoqueAtual ?? '—'} · Mín: {item.estoqueMin} {item.unidade}
+            {item.fornecedor ? ` · ${item.fornecedor}` : ''}
+          </div>
+          {/* Progress bar */}
+          <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, marginTop: 6, maxWidth: 160 }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: cor, borderRadius: 2, transition: 'width 0.3s' }} />
+          </div>
+          <div style={{ fontSize: 10, color: cor, marginTop: 2 }}>
+            {pct.toFixed(0)}% do mínimo
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, marginLeft: 8, flexShrink: 0 }}>
+          <span className={`badge ${badgeClass}`}>{badgeLabel}</span>
+          {waHref && (
+            <a href={waHref} target="_blank" rel="noreferrer"
+              style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>💬 WhatsApp</a>
+          )}
+          {item.linkCompra && (
+            <a href={item.linkCompra} target="_blank" rel="noreferrer"
+              style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>🛒 Loja</a>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function EncomendaCard({ enc, onUpdateStatus }) {
   const itemStr = (enc.itens || [])
     .map(i => i.quantidade > 1 ? `${i.produto} x${i.quantidade}` : i.produto)
@@ -135,27 +187,17 @@ export default function Home() {
     .filter(e => e.status !== 'Cancelado' && e.pgto !== 'Pago')
     .reduce((s, e) => s + (e.saldo || 0), 0)
   const pgtosPendentes = (encomendas || []).filter(e => e.status !== 'Cancelado' && e.pgto !== 'Pago').length
-  // Stock level helper: 0=crítico (<min), 1=atenção (min..1.5×min), 2=ok
-  function nivelEstoque(atual, min) {
-    if (atual === null || atual === undefined || min <= 0) return 2
-    const ratio = atual / min
-    if (ratio < 1) return 0
-    if (ratio < 1.5) return 1
-    return 2
-  }
 
-  const todosItens = [
-    ...(insumos    || []).map(i => ({ ...i, _tipo: 'insumo' })),
-    ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem', unidade: 'un' })),
-  ]
-  const alertas = todosItens
-    .filter(i => {
-      if (i.estoqueAtual === null || i.estoqueAtual === undefined) return false
-      if (i.estoqueMin <= 0) return false
-      return nivelEstoque(i.estoqueAtual, i.estoqueMin) < 2
-    })
+  const alertasInsumos = (insumos || [])
+    .filter(i => i.estoqueAtual !== null && i.estoqueAtual !== undefined && i.estoqueMin > 0 && nivelEstoque(i.estoqueAtual, i.estoqueMin) < 2)
     .sort((a, b) => nivelEstoque(a.estoqueAtual, a.estoqueMin) - nivelEstoque(b.estoqueAtual, b.estoqueMin))
-  const criticos = alertas.filter(i => nivelEstoque(i.estoqueAtual, i.estoqueMin) === 0)
+
+  const alertasEmb = (embalagens || [])
+    .filter(e => e.estoqueAtual !== null && e.estoqueAtual !== undefined && e.estoqueMin > 0 && nivelEstoque(e.estoqueAtual, e.estoqueMin) < 2)
+    .sort((a, b) => nivelEstoque(a.estoqueAtual, a.estoqueMin) - nivelEstoque(b.estoqueAtual, b.estoqueMin))
+
+  const totalAlertas = alertasInsumos.length + alertasEmb.length
+  const criticos = [...alertasInsumos, ...alertasEmb].filter(i => nivelEstoque(i.estoqueAtual, i.estoqueMin) === 0)
 
   const handleUpdateStatus = async (enc, novoStatus, novoPgto) => {
     try {
@@ -209,8 +251,8 @@ export default function Home() {
           </div>
           <div className="metric-card">
             <div className="metric-label">Alertas estoque</div>
-            <div className="metric-value" style={{ color: criticos.length > 0 ? 'var(--alert-text)' : alertas.length > 0 ? '#f59e0b' : 'var(--text-primary)' }}>
-              {(loadIns || loadEmb) ? '—' : alertas.length}
+            <div className="metric-value" style={{ color: criticos.length > 0 ? 'var(--alert-text)' : totalAlertas > 0 ? '#f59e0b' : 'var(--text-primary)' }}>
+              {(loadIns || loadEmb) ? '—' : totalAlertas}
             </div>
           </div>
         </div>
@@ -231,43 +273,21 @@ export default function Home() {
           ))
         )}
 
-        {alertas.length > 0 && (
-          <>
-            <div className="section-label" style={{ marginTop: 16 }}>Alertas de estoque</div>
-            {alertas.slice(0, 8).map(item => {
-              const nivel = nivelEstoque(item.estoqueAtual, item.estoqueMin)
-              const cor = nivel === 0 ? 'var(--alert-text)' : '#f59e0b'
-              const borderColor = nivel === 0 ? 'var(--alert-text)' : '#92400e'
-              const badgeLabel = nivel === 0 ? 'Pedir' : 'Atenção'
-              const badgeClass = nivel === 0 ? 'badge-alert' : 'badge-warn'
-              const digits = (item.whatsapp || '').toString().replace(/\D/g, '')
-              const waLink = digits ? `https://wa.me/55${digits}` : null
-              return (
-                <div key={`${item._tipo}-${item.id}`} className="card" style={{ borderColor }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: cor }}>{item.nome}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-                        Atual: {item.estoqueAtual ?? '—'} · Mín: {item.estoqueMin} {item.unidade}
-                        {item.fornecedor ? ` · ${item.fornecedor}` : ''}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                      <span className={`badge ${badgeClass}`}>{badgeLabel}</span>
-                      {waLink && (
-                        <a href={waLink} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                          style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>💬 WhatsApp</a>
-                      )}
-                      {item.linkCompra && (
-                        <a href={item.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                          style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>🛒 Loja</a>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-          </>
+        {(alertasInsumos.length > 0 || alertasEmb.length > 0) && (
+          <div style={{ marginTop: 16 }}>
+            {alertasInsumos.length > 0 && (
+              <>
+                <div className="section-label">Insumos — alertas de estoque</div>
+                {alertasInsumos.map(item => <AlertaItem key={`ins-${item.id}`} item={item} />)}
+              </>
+            )}
+            {alertasEmb.length > 0 && (
+              <>
+                <div className="section-label" style={{ marginTop: alertasInsumos.length > 0 ? 12 : 0 }}>Embalagens — alertas de estoque</div>
+                {alertasEmb.map(item => <AlertaItem key={`emb-${item.id}`} item={{ ...item, unidade: 'un' }} />)}
+              </>
+            )}
+          </div>
         )}
       </div>
 

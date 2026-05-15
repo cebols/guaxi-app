@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useRef } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getInsumos, getEmbalagens, updateEstoqueInsumos, updateEstoqueEmbalagens } from '../services/db'
@@ -43,16 +43,12 @@ function ListaCompras({ contagem, itens }) {
     })
     .filter(Boolean)
 
-  // Group by fornecedor for WhatsApp context
-  const byFornecedor = useMemo(() => {
-    const map = {}
-    pedir.forEach(p => {
-      const key = p.whatsapp || '__sem_contato__'
-      if (!map[key]) map[key] = { fornecedor: p.fornecedor, whatsapp: p.whatsapp, items: [] }
-      map[key].items.push(p)
-    })
-    return Object.values(map)
-  }, [pedir])
+  const byFornecedor = pedir.reduce((map, p) => {
+    const key = p.whatsapp || '__sem_contato__'
+    if (!map[key]) map[key] = { fornecedor: p.fornecedor, whatsapp: p.whatsapp, items: [] }
+    map[key].items.push(p)
+    return map
+  }, {})
 
   if (pedir.length === 0) return (
     <div className="card" style={{ background: 'var(--ok-bg)', borderColor: '#3a6b1a', marginTop: 4 }}>
@@ -64,12 +60,12 @@ function ListaCompras({ contagem, itens }) {
   return (
     <div className="card" style={{ background: 'var(--warn-bg)', borderColor: '#6b4a1a', marginTop: 4 }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--warn-text)', marginBottom: 8 }}>Lista de compras</div>
-      {byFornecedor.map((grupo, gi) => {
+      {Object.values(byFornecedor).map((grupo, gi, arr) => {
         const wa = waLink(grupo.whatsapp)
         const msg = grupo.items.map(p => `${p.nome}: ${p.falta} ${p.unidade}`).join('\n')
         const waComMsg = wa ? `${wa}?text=${encodeURIComponent(`Olá! Preciso pedir:\n${msg}`)}` : null
         return (
-          <div key={gi} style={{ marginBottom: gi < byFornecedor.length - 1 ? 12 : 0 }}>
+          <div key={gi} style={{ marginBottom: gi < arr.length - 1 ? 12 : 0 }}>
             {grupo.fornecedor && (
               <div style={{ fontSize: 11, color: 'var(--warn-text)', fontWeight: 600, marginBottom: 4, opacity: 0.8 }}>
                 {grupo.fornecedor}
@@ -81,34 +77,16 @@ function ListaCompras({ contagem, itens }) {
                   · {p.nome}: {p.falta} {p.unidade}
                 </span>
                 {p.linkCompra && (
-                  <a
-                    href={p.linkCompra}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}
-                  >
+                  <a href={p.linkCompra} target="_blank" rel="noreferrer"
+                    style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
                     Ver loja
                   </a>
                 )}
               </div>
             ))}
             {waComMsg && (
-              <a
-                href={waComMsg}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  display: 'inline-block',
-                  marginTop: 6,
-                  fontSize: 12,
-                  color: '#fff',
-                  background: '#25d366',
-                  borderRadius: 6,
-                  padding: '4px 10px',
-                  textDecoration: 'none',
-                  fontWeight: 600,
-                }}
-              >
+              <a href={waComMsg} target="_blank" rel="noreferrer"
+                style={{ display: 'inline-block', marginTop: 6, fontSize: 12, color: '#fff', background: '#25d366', borderRadius: 6, padding: '4px 10px', textDecoration: 'none', fontWeight: 600 }}>
                 Pedir no WhatsApp
               </a>
             )}
@@ -120,8 +98,7 @@ function ListaCompras({ contagem, itens }) {
 }
 
 function StockTab({ itens, contagem, onChange }) {
-  const grupos = useMemo(() => groupBy(itens, 'categoria'), [itens])
-
+  const grupos = groupBy(itens, 'categoria')
   return (
     <>
       {Object.entries(grupos).map(([cat, items]) => (
@@ -167,32 +144,29 @@ export default function Contagem() {
   const [tab, setTab] = useState('insumos')
   const [contagemIns, setContagemIns] = useState({})
   const [contagemEmb, setContagemEmb] = useState({})
-  const [saving, setSaving] = useState(false)
+  const [autoSaveState, setAutoSaveState] = useState('idle') // idle | saving | saved
+  const debounceRef = useRef({})
 
-  const setIns = (id, val) => setContagemIns(c => ({ ...c, [id]: val }))
-  const setEmb = (id, val) => setContagemEmb(c => ({ ...c, [id]: val }))
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      if (tab === 'insumos') {
-        const payload = Object.entries(contagemIns)
-          .filter(([, v]) => v !== '')
-          .map(([id, v]) => ({ id: parseInt(id), estoqueAtual: parseFloat(v) }))
-        await updateEstoqueInsumos(payload)
-      } else {
-        const payload = Object.entries(contagemEmb)
-          .filter(([, v]) => v !== '')
-          .map(([id, v]) => ({ id: parseInt(id), estoqueAtual: parseFloat(v) }))
-        await updateEstoqueEmbalagens(payload)
+  const autoSave = (type, id, val) => {
+    const key = `${type}-${id}`
+    if (debounceRef.current[key]) clearTimeout(debounceRef.current[key])
+    setAutoSaveState('saving')
+    debounceRef.current[key] = setTimeout(async () => {
+      try {
+        const payload = [{ id, estoqueAtual: val !== '' ? parseFloat(val) : null }]
+        if (type === 'ins') await updateEstoqueInsumos(payload)
+        else await updateEstoqueEmbalagens(payload)
+        setAutoSaveState('saved')
+        setTimeout(() => setAutoSaveState('idle'), 1500)
+      } catch (e) {
+        show('Erro ao salvar: ' + e.message)
+        setAutoSaveState('idle')
       }
-      show('Contagem salva!')
-    } catch (e) {
-      show('Erro: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
+    }, 700)
   }
+
+  const setIns = (id, val) => { setContagemIns(c => ({ ...c, [id]: val })); autoSave('ins', id, val) }
+  const setEmb = (id, val) => { setContagemEmb(c => ({ ...c, [id]: val })); autoSave('emb', id, val) }
 
   const loading = tab === 'insumos' ? loadIns : loadEmb
 
@@ -203,6 +177,9 @@ export default function Contagem() {
           <div>
             <div className="topbar-title">Contagem semanal</div>
             <div className="topbar-sub">Digite o estoque físico atual</div>
+          </div>
+          <div style={{ fontSize: 12, color: autoSaveState === 'saving' ? 'var(--text-secondary)' : autoSaveState === 'saved' ? 'var(--teal)' : 'transparent' }}>
+            {autoSaveState === 'saving' ? 'Salvando...' : 'Salvo ✓'}
           </div>
         </div>
       </div>
@@ -226,10 +203,6 @@ export default function Contagem() {
             <ListaCompras contagem={contagemEmb} itens={embalagens || []} />
           </>
         )}
-
-        <button className="btn-primary" onClick={handleSave} disabled={saving || loading} style={{ marginTop: 16 }}>
-          {saving ? 'Salvando...' : 'Salvar contagem'}
-        </button>
       </div>
 
       {toast && <div className="toast">{toast}</div>}
