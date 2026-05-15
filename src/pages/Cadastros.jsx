@@ -9,8 +9,6 @@ import {
 
 const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
 
-// ── Generic sheet form ────────────────────────────────────────
-
 function Sheet({ title, children, onClose }) {
   return (
     <>
@@ -230,117 +228,215 @@ function fmtR(val) {
 
 export default function Cadastros() {
   const [tab, setTab] = useState('insumos')
-  const [sheet, setSheet] = useState(null) // { type, item? }
+  const [sheet, setSheet] = useState(null)
   const { toast, show } = useToast()
 
-  const { data: insumos,   loading: lIns, reload: rIns } = useData(getInsumos)
-  const { data: embalagens, loading: lEmb, reload: rEmb } = useData(getEmbalagens)
+  const { data: insumos,    loading: lIns,  reload: rIns  } = useData(getInsumos)
+  const { data: embalagens, loading: lEmb,  reload: rEmb  } = useData(getEmbalagens)
   const { data: produtos,   loading: lProd, reload: rProd } = useData(getProdutos)
 
   const withReload = (fn, reload) => async (...args) => { await fn(...args); reload(); show('Salvo!') }
 
-  const insActions = {
-    save: withReload(saveInsumo, rIns),
-    del: withReload(deleteInsumo, rIns),
-  }
-  const embActions = {
-    save: withReload(saveEmbalagem, rEmb),
-    del: withReload(deleteEmbalagem, rEmb),
-  }
-  const prodActions = {
-    save: withReload(saveProduto, rProd),
-    del: withReload(deleteProduto, rProd),
-  }
+  const insActions  = { save: withReload(saveInsumo,    rIns),  del: withReload(deleteInsumo,    rIns)  }
+  const embActions  = { save: withReload(saveEmbalagem,  rEmb),  del: withReload(deleteEmbalagem,  rEmb)  }
+  const prodActions = { save: withReload(saveProduto,   rProd), del: withReload(deleteProduto,   rProd) }
 
   const loading = { insumos: lIns, embalagens: lEmb, produtos: lProd }[tab]
+
+  const openNew = () => setSheet({ type: tab === 'produtos' ? 'produto' : tab === 'embalagens' ? 'embalagem' : 'insumo' })
 
   return (
     <>
       <div className="topbar">
-        <div className="topbar-title">Cadastros</div>
+        <div className="topbar-inner">
+          <div className="topbar-title">Cadastros</div>
+          <button
+            className="btn-ghost"
+            onClick={openNew}
+            style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
+          >
+            +
+          </button>
+        </div>
       </div>
 
-      <div className="page" style={{ padding: '16px' }}>
+      <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="tab-bar">
-          <button className={`tab-btn ${tab === 'insumos' ? 'active' : ''}`} onClick={() => setTab('insumos')}>Insumos</button>
+          <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => setTab('insumos')}>Insumos</button>
           <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => setTab('embalagens')}>Embalagens</button>
-          <button className={`tab-btn ${tab === 'produtos' ? 'active' : ''}`} onClick={() => setTab('produtos')}>Produtos</button>
+          <button className={`tab-btn ${tab === 'produtos'   ? 'active' : ''}`} onClick={() => setTab('produtos')}>Produtos</button>
         </div>
 
         {loading ? (
           <div className="loading">Carregando...</div>
         ) : tab === 'insumos' ? (
-          <div className="card card-flush" style={{ padding: '0 14px' }}>
-            {(insumos || []).length === 0
-              ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum insumo cadastrado</div>
-              : (insumos || []).map(ins => (
-                <div key={ins.id} className="list-item" onClick={() => setSheet({ type: 'insumo', item: ins })}>
-                  <div>
-                    <div className="list-item-name">{ins.nome}</div>
-                    <div className="list-item-sub">{ins.categoria} · {ins.unidade}{ins.fornecedor ? ` · ${ins.fornecedor}` : ''}</div>
-                  </div>
-                  <div className="list-item-right">
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{fmtR(ins.custoUnit)}/{ins.unidade}</div>
-                    {ins.estoqueAtual !== null && (
-                      <div style={{ fontSize: 11, color: ins.estoqueAtual < ins.estoqueMin ? 'var(--alert-text)' : 'var(--text-secondary)', marginTop: 2 }}>
-                        {ins.estoqueAtual} {ins.unidade}
+          <>
+            {/* Desktop table */}
+            <div className="desktop-only">
+              <div className="card card-flush">
+                {(insumos || []).length === 0
+                  ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum insumo cadastrado</div>
+                  : <table className="dt">
+                      <thead><tr>
+                        <th>Nome</th><th>Categoria</th><th>Unidade</th>
+                        <th>Custo unit.</th><th>Estoque</th><th>Fornecedor</th>
+                      </tr></thead>
+                      <tbody>
+                        {(insumos || []).map(ins => (
+                          <tr key={ins.id} onClick={() => setSheet({ type: 'insumo', item: ins })}>
+                            <td style={{ fontWeight: 600 }}>{ins.nome}</td>
+                            <td className="muted">{ins.categoria || '—'}</td>
+                            <td className="muted">{ins.unidade}</td>
+                            <td className="teal">{fmtR(ins.custoUnit)}/{ins.unidade}</td>
+                            <td>
+                              {ins.estoqueAtual !== null
+                                ? <span style={{ color: ins.estoqueAtual < ins.estoqueMin ? 'var(--alert-text)' : 'var(--ok-text)', fontWeight: 600, fontSize: 13 }}>
+                                    {ins.estoqueAtual} {ins.unidade}
+                                  </span>
+                                : <span className="muted">—</span>}
+                            </td>
+                            <td className="muted">{ins.fornecedor || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                }
+              </div>
+            </div>
+            {/* Mobile cards */}
+            <div className="mobile-only">
+              <div className="card card-flush" style={{ padding: '0 14px' }}>
+                {(insumos || []).length === 0
+                  ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum insumo cadastrado</div>
+                  : (insumos || []).map(ins => (
+                    <div key={ins.id} className="list-item" onClick={() => setSheet({ type: 'insumo', item: ins })}>
+                      <div>
+                        <div className="list-item-name">{ins.nome}</div>
+                        <div className="list-item-sub">{ins.categoria} · {ins.unidade}{ins.fornecedor ? ` · ${ins.fornecedor}` : ''}</div>
                       </div>
-                    )}
-                  </div>
-                </div>
-              ))
-            }
-          </div>
-        ) : tab === 'embalagens' ? (
-          <div className="card card-flush" style={{ padding: '0 14px' }}>
-            {(embalagens || []).length === 0
-              ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhuma embalagem cadastrada</div>
-              : (embalagens || []).map(emb => (
-                <div key={emb.id} className="list-item" onClick={() => setSheet({ type: 'embalagem', item: emb })}>
-                  <div>
-                    <div className="list-item-name">{emb.nome}</div>
-                    <div className="list-item-sub">{emb.categoria}{emb.fornecedor ? ` · ${emb.fornecedor}` : ''}</div>
-                  </div>
-                  <div className="list-item-right">
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{fmtR(emb.custoUnit)}/un</div>
-                    {emb.estoqueAtual !== null && (
-                      <div style={{ fontSize: 11, color: emb.estoqueAtual < emb.estoqueMin ? 'var(--alert-text)' : 'var(--text-secondary)', marginTop: 2 }}>
-                        {emb.estoqueAtual} un
+                      <div className="list-item-right">
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{fmtR(ins.custoUnit)}/{ins.unidade}</div>
+                        {ins.estoqueAtual !== null && (
+                          <div style={{ fontSize: 11, color: ins.estoqueAtual < ins.estoqueMin ? 'var(--alert-text)' : 'var(--text-secondary)', marginTop: 2 }}>
+                            {ins.estoqueAtual} {ins.unidade}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
-              ))
-            }
-          </div>
-        ) : (
-          <div className="card card-flush" style={{ padding: '0 14px' }}>
-            {(produtos || []).length === 0
-              ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum produto cadastrado</div>
-              : (produtos || []).map(prod => (
-                <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
-                  <div>
-                    <div className="list-item-name">{prod.nome}</div>
-                    <div className="list-item-sub">Custo: {fmtR(prod.custoTotal)}</div>
-                  </div>
-                  <div className="list-item-right">
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
-                      {fmtR(prod.precoPraticado || prod.precoSugerido)}
                     </div>
-                  </div>
-                </div>
-              ))
-            }
-          </div>
+                  ))
+                }
+              </div>
+            </div>
+          </>
+        ) : tab === 'embalagens' ? (
+          <>
+            {/* Desktop table */}
+            <div className="desktop-only">
+              <div className="card card-flush">
+                {(embalagens || []).length === 0
+                  ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhuma embalagem cadastrada</div>
+                  : <table className="dt">
+                      <thead><tr>
+                        <th>Nome</th><th>Categoria</th><th>Custo unit.</th><th>Estoque</th><th>Fornecedor</th>
+                      </tr></thead>
+                      <tbody>
+                        {(embalagens || []).map(emb => (
+                          <tr key={emb.id} onClick={() => setSheet({ type: 'embalagem', item: emb })}>
+                            <td style={{ fontWeight: 600 }}>{emb.nome}</td>
+                            <td className="muted">{emb.categoria || '—'}</td>
+                            <td className="teal">{fmtR(emb.custoUnit)}</td>
+                            <td>
+                              {emb.estoqueAtual !== null
+                                ? <span style={{ color: emb.estoqueAtual < emb.estoqueMin ? 'var(--alert-text)' : 'var(--ok-text)', fontWeight: 600, fontSize: 13 }}>
+                                    {emb.estoqueAtual} un
+                                  </span>
+                                : <span className="muted">—</span>}
+                            </td>
+                            <td className="muted">{emb.fornecedor || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                }
+              </div>
+            </div>
+            {/* Mobile cards */}
+            <div className="mobile-only">
+              <div className="card card-flush" style={{ padding: '0 14px' }}>
+                {(embalagens || []).length === 0
+                  ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhuma embalagem cadastrada</div>
+                  : (embalagens || []).map(emb => (
+                    <div key={emb.id} className="list-item" onClick={() => setSheet({ type: 'embalagem', item: emb })}>
+                      <div>
+                        <div className="list-item-name">{emb.nome}</div>
+                        <div className="list-item-sub">{emb.categoria}{emb.fornecedor ? ` · ${emb.fornecedor}` : ''}</div>
+                      </div>
+                      <div className="list-item-right">
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{fmtR(emb.custoUnit)}/un</div>
+                        {emb.estoqueAtual !== null && (
+                          <div style={{ fontSize: 11, color: emb.estoqueAtual < emb.estoqueMin ? 'var(--alert-text)' : 'var(--text-secondary)', marginTop: 2 }}>
+                            {emb.estoqueAtual} un
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="desktop-only">
+              <div className="card card-flush">
+                {(produtos || []).length === 0
+                  ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum produto cadastrado</div>
+                  : <table className="dt">
+                      <thead><tr>
+                        <th>Nome</th><th>Custo total</th><th>Preço sugerido</th><th>Preço praticado</th>
+                      </tr></thead>
+                      <tbody>
+                        {(produtos || []).map(prod => (
+                          <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })}>
+                            <td style={{ fontWeight: 600 }}>{prod.nome}</td>
+                            <td className="muted">{fmtR(prod.custoTotal)}</td>
+                            <td className="muted">{fmtR(prod.precoSugerido)}</td>
+                            <td className="teal">{fmtR(prod.precoPraticado || prod.precoSugerido)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                }
+              </div>
+            </div>
+            {/* Mobile cards */}
+            <div className="mobile-only">
+              <div className="card card-flush" style={{ padding: '0 14px' }}>
+                {(produtos || []).length === 0
+                  ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum produto cadastrado</div>
+                  : (produtos || []).map(prod => (
+                    <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
+                      <div>
+                        <div className="list-item-name">{prod.nome}</div>
+                        <div className="list-item-sub">Custo: {fmtR(prod.custoTotal)}</div>
+                      </div>
+                      <div className="list-item-right">
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
+                          {fmtR(prod.precoPraticado || prod.precoSugerido)}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          </>
         )}
       </div>
 
-      <button
-        className="fab"
-        onClick={() => setSheet({ type: tab === 'produtos' ? 'produto' : tab === 'embalagens' ? 'embalagem' : 'insumo' })}
-      >
-        +
-      </button>
+      {/* FAB for mobile */}
+      <button className="fab mobile-only" onClick={openNew}>+</button>
 
       {sheet?.type === 'insumo' && (
         <InsumoForm item={sheet.item} onSave={insActions.save} onDelete={insActions.del} onClose={() => setSheet(null)} />

@@ -17,6 +17,50 @@ const NAV = [
   { path: '/cadastros', label: 'Cadastros', icon: CadastrosIcon },
 ]
 
+function Sidebar() {
+  const { user, signOut } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const primeiroNome = user?.email?.split('@')[0] || ''
+
+  return (
+    <aside className="sidebar">
+      <div className="sidebar-logo">
+        <div className="sidebar-logo-icon">🍫</div>
+        <div className="sidebar-logo-name">Guaxi</div>
+      </div>
+      <nav className="sidebar-nav">
+        {NAV.map(({ path, label, icon: Icon }) => {
+          const active = path === '/'
+            ? location.pathname === '/'
+            : location.pathname.startsWith(path)
+          return (
+            <button
+              key={path}
+              className={`sidebar-item ${active ? 'active' : ''}`}
+              onClick={() => navigate(path)}
+            >
+              <Icon />
+              <span>{label}</span>
+            </button>
+          )
+        })}
+      </nav>
+      <div className="sidebar-footer">
+        <div className="sidebar-user">
+          <div className="avatar" style={{ width: 28, height: 28, fontSize: 12, flexShrink: 0 }}>
+            {primeiroNome.charAt(0).toUpperCase()}
+          </div>
+          <span className="sidebar-user-email">{user?.email}</span>
+        </div>
+        <button className="btn-ghost" style={{ width: '100%', fontSize: 13, textAlign: 'center' }} onClick={signOut}>
+          Sair
+        </button>
+      </div>
+    </aside>
+  )
+}
+
 export default function App() {
   const { isAuthenticated, loading } = useAuth()
   const location = useLocation()
@@ -29,7 +73,9 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <div className="page">
+      <Sidebar />
+
+      <div className="main-content">
         <Routes>
           <Route path="/"                    element={<Home />} />
           <Route path="/pedidos"             element={<Pedidos />} />

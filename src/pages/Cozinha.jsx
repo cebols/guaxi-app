@@ -43,21 +43,23 @@ export default function Cozinha() {
   return (
     <>
       <div className="topbar">
-        <div>
-          <div className="topbar-title">{loading ? '...' : (receita?.nome || 'Receita')}</div>
-          <div className="topbar-sub">Modo cozinha</div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn-ghost" onClick={() => navigate(`/fichas/${id}/editar`)}>
-            Editar
-          </button>
-          <button className="btn-ghost" onClick={() => navigate('/fichas')}>
-            ← Voltar
-          </button>
+        <div className="topbar-inner">
+          <div>
+            <div className="topbar-title">{loading ? '...' : (receita?.nome || 'Receita')}</div>
+            <div className="topbar-sub">Modo cozinha</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn-ghost" onClick={() => navigate(`/fichas/${id}/editar`)}>
+              Editar
+            </button>
+            <button className="btn-ghost" onClick={() => navigate('/fichas')}>
+              ← Voltar
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="page" style={{ padding: '16px' }}>
+      <div className="page-inner" style={{ paddingTop: 16 }}>
         {loading ? (
           <div className="loading">Carregando...</div>
         ) : !receita ? (

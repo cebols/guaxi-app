@@ -29,16 +29,16 @@ function ListaCompras({ contagem, itens }) {
     .filter(Boolean)
 
   if (pedir.length === 0) return (
-    <div className="card" style={{ background: '#EAF3DE', borderColor: '#C0DD97', marginTop: 4 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#3B6D11' }}>Tudo ok!</div>
-      <div style={{ fontSize: 12, color: '#3B6D11', marginTop: 2 }}>Estoque acima do mínimo em todos os itens</div>
+    <div className="card" style={{ background: 'var(--ok-bg)', borderColor: '#3a6b1a', marginTop: 4 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ok-text)' }}>Tudo ok!</div>
+      <div style={{ fontSize: 12, color: 'var(--ok-text)', marginTop: 2 }}>Estoque acima do mínimo em todos os itens</div>
     </div>
   )
   return (
-    <div className="card" style={{ background: '#FAEEDA', borderColor: '#FAC775', marginTop: 4 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#854F0B', marginBottom: 4 }}>Lista de compras</div>
+    <div className="card" style={{ background: 'var(--warn-bg)', borderColor: '#6b4a1a', marginTop: 4 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--warn-text)', marginBottom: 4 }}>Lista de compras</div>
       {pedir.map((p, i) => (
-        <div key={i} style={{ fontSize: 12, color: '#854F0B' }}>· {p}</div>
+        <div key={i} style={{ fontSize: 12, color: 'var(--warn-text)' }}>· {p}</div>
       ))}
     </div>
   )
@@ -60,7 +60,7 @@ function StockTab({ itens, contagem, onChange }) {
                 <div key={item.id} className="stock-row">
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
-                    <div style={{ fontSize: 12, color: '#aaa' }}>mín. {item.estoqueMin} {item.unidade}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín. {item.estoqueMin} {item.unidade}</div>
                   </div>
                   <div>
                     <input
@@ -85,7 +85,7 @@ function StockTab({ itens, contagem, onChange }) {
 }
 
 export default function Contagem() {
-  const { data: insumos, loading: loadIns } = useData(getInsumos)
+  const { data: insumos,    loading: loadIns } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb } = useData(getEmbalagens)
   const { toast, show } = useToast()
 
@@ -124,15 +124,17 @@ export default function Contagem() {
   return (
     <>
       <div className="topbar">
-        <div>
-          <div className="topbar-title">Contagem semanal</div>
-          <div className="topbar-sub">Digite o estoque físico atual</div>
+        <div className="topbar-inner">
+          <div>
+            <div className="topbar-title">Contagem semanal</div>
+            <div className="topbar-sub">Digite o estoque físico atual</div>
+          </div>
         </div>
       </div>
 
-      <div className="page" style={{ padding: '16px' }}>
+      <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="tab-bar">
-          <button className={`tab-btn ${tab === 'insumos' ? 'active' : ''}`} onClick={() => setTab('insumos')}>Insumos</button>
+          <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => setTab('insumos')}>Insumos</button>
           <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => setTab('embalagens')}>Embalagens</button>
         </div>
 
@@ -150,7 +152,7 @@ export default function Contagem() {
           </>
         )}
 
-        <button className="btn-primary" onClick={handleSave} disabled={saving || loading}>
+        <button className="btn-primary" onClick={handleSave} disabled={saving || loading} style={{ marginTop: 16 }}>
           {saving ? 'Salvando...' : 'Salvar contagem'}
         </button>
       </div>

@@ -78,13 +78,15 @@ export default function ReceitaForm() {
   return (
     <>
       <div className="topbar">
-        <div className="topbar-title">{isEdit ? 'Editar receita' : 'Nova receita'}</div>
-        <button className="btn-ghost" onClick={() => navigate(isEdit ? `/fichas/${id}` : '/fichas')}>
-          ← Voltar
-        </button>
+        <div className="topbar-inner">
+          <div className="topbar-title">{isEdit ? 'Editar receita' : 'Nova receita'}</div>
+          <button className="btn-ghost" onClick={() => navigate(isEdit ? `/fichas/${id}` : '/fichas')}>
+            ← Voltar
+          </button>
+        </div>
       </div>
 
-      <div className="page" style={{ padding: '16px' }}>
+      <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="field-label">Nome da receita</div>
         <input className="field-input" placeholder="ex: Bolo de chocolate" value={form.nome} onChange={e => setField('nome', e.target.value)} />
 

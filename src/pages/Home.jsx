@@ -56,8 +56,8 @@ function StatusSelect({ value, options, badgeMap, onChange }) {
       {open && (
         <div style={{
           position: 'absolute', top: '100%', left: 0, zIndex: 50,
-          background: 'var(--bg-card)', border: '1px solid #e5e7eb', borderRadius: 8,
-          boxShadow: '0 4px 12px rgba(0,0,0,.12)', marginTop: 4, minWidth: 140,
+          background: 'var(--bg-card)', border: '1px solid #333', borderRadius: 8,
+          boxShadow: '0 4px 12px rgba(0,0,0,.3)', marginTop: 4, minWidth: 140,
           overflow: 'hidden',
         }}>
           {options.map(opt => (
@@ -88,11 +88,11 @@ function EncomendaCard({ enc, onUpdateStatus }) {
     <div className="card" style={{ marginBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <span style={{ fontWeight: 600, fontSize: 15 }}>{enc.cliente}</span>
-        <span style={{ fontSize: 12, color: isToday(enc.dataEntrega) ? '#854F0B' : '#aaa' }}>
+        <span style={{ fontSize: 12, color: isToday(enc.dataEntrega) ? 'var(--warn-text)' : 'var(--text-secondary)' }}>
           {isToday(enc.dataEntrega) ? 'hoje' : formatDate(enc.dataEntrega)}
         </span>
       </div>
-      <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>{itemStr}</div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{itemStr}</div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         <StatusSelect
           value={enc.status}
@@ -152,17 +152,20 @@ export default function Home() {
   return (
     <>
       <div className="topbar">
-        <div>
-          <div className="topbar-title">Olá, {primeiroNome}</div>
-          <div className="topbar-sub">{diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1)}, {dataStr}</div>
+        <div className="topbar-inner">
+          <div>
+            <div className="topbar-title">Olá, {primeiroNome}</div>
+            <div className="topbar-sub">{diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1)}, {dataStr}</div>
+          </div>
+          {/* Avatar/logout only on mobile — desktop uses sidebar */}
+          <button className="avatar mobile-only" onClick={signOut} title="Sair">
+            {primeiroNome.charAt(0).toUpperCase()}
+          </button>
         </div>
-        <button className="avatar" onClick={signOut} title="Sair">
-          {primeiroNome.charAt(0).toUpperCase()}
-        </button>
       </div>
 
-      <div className="page" style={{ padding: '16px' }}>
-        <div className="metric-grid">
+      <div className="page-inner" style={{ paddingTop: 16 }}>
+        <div className="metric-grid" style={{ marginBottom: 16 }}>
           <div className="metric-card">
             <div className="metric-label">Pedidos ativos</div>
             <div className="metric-value">{loadEnc ? '—' : naoEntregues.length}</div>
@@ -175,13 +178,13 @@ export default function Home() {
           </div>
           <div className="metric-card">
             <div className="metric-label">Pgto pendente</div>
-            <div className="metric-value" style={{ color: pgtosPendentes > 0 ? '#854F0B' : '#111' }}>
+            <div className="metric-value" style={{ color: pgtosPendentes > 0 ? 'var(--warn-text)' : 'var(--text-primary)' }}>
               {loadEnc ? '—' : pgtosPendentes}
             </div>
           </div>
           <div className="metric-card">
             <div className="metric-label">Falta no estoque</div>
-            <div className="metric-value" style={{ color: alertas.length > 0 ? '#A32D2D' : '#111' }}>
+            <div className="metric-value" style={{ color: alertas.length > 0 ? 'var(--alert-text)' : 'var(--text-primary)' }}>
               {loadIns ? '—' : alertas.length}
             </div>
           </div>
@@ -193,7 +196,7 @@ export default function Home() {
         ) : proximas.length === 0 ? (
           <div className="empty">
             <span>Nenhuma encomenda ativa</span>
-            <button className="btn-outline-teal" style={{ marginTop: 8 }} onClick={() => navigate('/pedidos')}>
+            <button className="btn-outline-teal" style={{ marginTop: 8, maxWidth: 220 }} onClick={() => navigate('/pedidos')}>
               + Novo pedido
             </button>
           </div>
@@ -216,20 +219,20 @@ export default function Home() {
                 <div
                   key={ins.id}
                   className="card"
-                  style={{ borderColor: '#F09595', cursor: waLink ? 'pointer' : 'default' }}
+                  style={{ borderColor: 'var(--alert-text)', cursor: waLink ? 'pointer' : 'default' }}
                   onClick={() => waLink && window.open(waLink, '_blank')}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: '#A32D2D' }}>{ins.nome}</div>
-                      <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--alert-text)' }}>{ins.nome}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
                         Atual: {ins.estoqueAtual ?? '—'} · Mín: {ins.estoqueMin} {ins.unidade}
                         {ins.fornecedor ? ` · ${ins.fornecedor}` : ''}
                       </div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                       <span className="badge badge-alert">Pedir</span>
-                      {waLink && <span style={{ fontSize: 11, color: '#1D9E75' }}>💬 WhatsApp</span>}
+                      {waLink && <span style={{ fontSize: 11, color: 'var(--teal)' }}>💬 WhatsApp</span>}
                     </div>
                   </div>
                 </div>

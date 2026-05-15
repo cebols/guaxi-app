@@ -27,25 +27,55 @@ export default function Fichas() {
   return (
     <>
       <div className="topbar">
-        <div className="topbar-title">Fichas técnicas</div>
-        <button
-          className="btn-ghost"
-          onClick={() => navigate('/fichas/nova')}
-          style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
-        >
-          +
-        </button>
+        <div className="topbar-inner">
+          <div className="topbar-title">Fichas técnicas</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="search-wrap mobile-only" style={{ margin: 0, width: 160 }}>
+              <span className="search-icon">&#9906;</span>
+              <input
+                className="search-input"
+                placeholder="Buscar..."
+                value={busca}
+                onChange={e => setBusca(e.target.value)}
+                style={{ fontSize: 13, padding: '7px 10px 7px 32px' }}
+              />
+            </div>
+            <button
+              className="btn-ghost"
+              onClick={() => navigate('/fichas/nova')}
+              style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
+            >
+              +
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="page" style={{ padding: '16px' }}>
-        <div className="search-wrap">
-          <span className="search-icon">&#9906;</span>
-          <input
-            className="search-input"
-            placeholder="Buscar receita..."
-            value={busca}
-            onChange={e => setBusca(e.target.value)}
-          />
+      <div className="page-inner">
+        {/* Desktop search */}
+        <div className="desktop-only" style={{ padding: '16px 0 0' }}>
+          <div className="search-wrap" style={{ marginBottom: 16 }}>
+            <span className="search-icon">&#9906;</span>
+            <input
+              className="search-input"
+              placeholder="Buscar receita..."
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {/* Mobile search */}
+        <div className="mobile-only" style={{ padding: '16px 16px 0' }}>
+          <div className="search-wrap">
+            <span className="search-icon">&#9906;</span>
+            <input
+              className="search-input"
+              placeholder="Buscar receita..."
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+            />
+          </div>
         </div>
 
         {loading ? (
@@ -53,33 +83,68 @@ export default function Fichas() {
         ) : filtradas.length === 0 ? (
           <div className="empty">
             <span>Nenhuma receita encontrada</span>
-            <button className="btn-outline-teal" style={{ marginTop: 8 }} onClick={() => navigate('/fichas/nova')}>
+            <button className="btn-outline-teal" style={{ marginTop: 8, maxWidth: 220 }} onClick={() => navigate('/fichas/nova')}>
               + Nova receita
             </button>
           </div>
         ) : (
-          filtradas.map(r => (
-            <div
-              key={r.id}
-              className="card"
-              style={{ cursor: 'pointer' }}
-              onClick={() => navigate(`/fichas/${r.id}`)}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontWeight: 600, fontSize: 15 }}>{r.nome}</span>
-                {r.custoUnid > 0
-                  ? <span style={{ fontWeight: 600, fontSize: 14 }}>R$ {fmt(r.custoUnid)}/un</span>
-                  : <span style={{ fontSize: 13, color: '#aaa' }}>—</span>
-                }
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
-                <span style={{ fontSize: 12, color: '#aaa' }}>
-                  {r.custoTotal > 0 ? `Custo lote: R$ ${fmt(r.custoTotal)}` : 'Custo não calculado'}
-                </span>
-                {r.tipo && <span className={`badge ${TIPO_COLOR[r.tipo] || ''}`}>{r.tipo}</span>}
+          <>
+            {/* Desktop table */}
+            <div className="desktop-only">
+              <div className="card card-flush">
+                <table className="dt">
+                  <thead>
+                    <tr>
+                      <th>Nome</th>
+                      <th>Tipo</th>
+                      <th>Rendimento</th>
+                      <th>Custo lote</th>
+                      <th>Custo/un</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtradas.map(r => (
+                      <tr key={r.id} onClick={() => navigate(`/fichas/${r.id}`)}>
+                        <td style={{ fontWeight: 600 }}>{r.nome}</td>
+                        <td>
+                          {r.tipo && <span className={`badge ${TIPO_COLOR[r.tipo] || ''}`}>{r.tipo}</span>}
+                        </td>
+                        <td className="muted">{r.rendimento > 0 ? `${r.rendimento} un` : '—'}</td>
+                        <td className="muted">{r.custoTotal > 0 ? `R$ ${fmt(r.custoTotal)}` : '—'}</td>
+                        <td className="teal">{r.custoUnid > 0 ? `R$ ${fmt(r.custoUnid)}` : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
-          ))
+
+            {/* Mobile cards */}
+            <div className="mobile-only" style={{ padding: '0 16px' }}>
+              {filtradas.map(r => (
+                <div
+                  key={r.id}
+                  className="card"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => navigate(`/fichas/${r.id}`)}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontWeight: 600, fontSize: 15 }}>{r.nome}</span>
+                    {r.custoUnid > 0
+                      ? <span style={{ fontWeight: 600, fontSize: 14 }}>R$ {fmt(r.custoUnid)}/un</span>
+                      : <span style={{ fontSize: 13, color: '#aaa' }}>—</span>
+                    }
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+                    <span style={{ fontSize: 12, color: '#aaa' }}>
+                      {r.custoTotal > 0 ? `Custo lote: R$ ${fmt(r.custoTotal)}` : 'Custo não calculado'}
+                    </span>
+                    {r.tipo && <span className={`badge ${TIPO_COLOR[r.tipo] || ''}`}>{r.tipo}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
     </>

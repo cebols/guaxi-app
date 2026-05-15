@@ -46,32 +46,135 @@ export default function Pedidos() {
 
   const prodNames = (produtos || []).map(p => p.nome)
 
+  const clienteFields = (
+    <>
+      <div className="field-label">Cliente *</div>
+      <input className="field-input" placeholder="Nome do cliente" value={form.cliente} onChange={e => setField('cliente', e.target.value)} />
+
+      <div className="field-label">Telefone / contato</div>
+      <input className="field-input" placeholder="+55 11 9 ..." value={form.contato} onChange={e => setField('contato', e.target.value)} />
+
+      <div className="field-row">
+        <div>
+          <div className="field-label">Canal</div>
+          <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
+            {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="field-label">Entrega *</div>
+          <input className="field-input" type="date" value={form.dataEntrega} onChange={e => setField('dataEntrega', e.target.value)} />
+        </div>
+      </div>
+
+      <div className="field-row">
+        <div>
+          <div className="field-label">Pagamento</div>
+          <select className="field-input" value={form.pgto} onChange={e => setField('pgto', e.target.value)}>
+            {PGTO_OPTS.map(p => <option key={p}>{p}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="field-label">Status</div>
+          <select className="field-input" value={form.status} onChange={e => setField('status', e.target.value)}>
+            {STATUS_OPTS.map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="field-label">Observações</div>
+      <textarea
+        className="field-input"
+        rows={3}
+        placeholder="Anotações, endereço, preferências..."
+        value={form.obs}
+        onChange={e => setField('obs', e.target.value)}
+        style={{ resize: 'none' }}
+      />
+    </>
+  )
+
+  const itensFields = (
+    <>
+      <div className="section-label">Itens do pedido</div>
+      <div className="card card-flush" style={{ padding: '0 14px' }}>
+        {itens.map((it, i) => (
+          <div key={i} className="item-row">
+            <select
+              className="item-select"
+              value={it.produto}
+              onChange={e => {
+                const prod = (produtos || []).find(p => p.nome === e.target.value)
+                setItem(i, 'produto', e.target.value)
+                if (prod?.precoPraticado) setItem(i, 'precoUnit', prod.precoPraticado)
+                else if (prod?.precoSugerido) setItem(i, 'precoUnit', prod.precoSugerido)
+              }}
+            >
+              <option value="">Selecionar produto</option>
+              {prodNames.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <input
+              className="item-qty"
+              type="number"
+              min="1"
+              value={it.quantidade}
+              onChange={e => setItem(i, 'quantidade', e.target.value)}
+            />
+            <input
+              className="item-price"
+              type="number"
+              placeholder="R$"
+              value={it.precoUnit}
+              onChange={e => setItem(i, 'precoUnit', e.target.value)}
+            />
+            {itens.length > 1 && (
+              <button className="item-rm" onClick={() => removeItem(i)}>&#215;</button>
+            )}
+          </div>
+        ))}
+      </div>
+      <button className="btn-add-item" onClick={addItem}>+ adicionar item</button>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
+        <div style={{ flex: 1, marginRight: 12 }}>
+          <div className="field-label">Sinal (R$)</div>
+          <input className="field-input" style={{ marginBottom: 0 }} type="number" placeholder="0,00" value={form.sinal} onChange={e => setField('sinal', e.target.value)} />
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div className="field-label">Total</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>
+            R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </div>
+        </div>
+      </div>
+
+      <button className="btn-primary" onClick={handleSave} disabled={saving}>
+        {saving ? 'Salvando...' : 'Salvar pedido'}
+      </button>
+    </>
+  )
+
   return (
     <>
       <div className="topbar">
-        <div className="topbar-title">Novo pedido</div>
+        <div className="topbar-inner">
+          <div className="topbar-title">Novo pedido</div>
+        </div>
       </div>
 
-      <div className="page" style={{ padding: '16px' }}>
-        <div className="field-label">Cliente</div>
-        <input className="field-input" placeholder="Nome do cliente" value={form.cliente} onChange={e => setField('cliente', e.target.value)} />
-
-        <div className="field-label">Telefone / contato</div>
-        <input className="field-input" placeholder="+55 11 9 ..." value={form.contato} onChange={e => setField('contato', e.target.value)} />
-
-        <div className="field-row">
-          <div>
-            <div className="field-label">Canal</div>
-            <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
-              {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="field-label">Entrega</div>
-            <input className="field-input" type="date" value={form.dataEntrega} onChange={e => setField('dataEntrega', e.target.value)} />
+      {/* Desktop: two columns */}
+      <div className="desktop-only">
+        <div className="page-inner" style={{ paddingTop: 24 }}>
+          <div className="pedido-grid">
+            <div>{clienteFields}</div>
+            <div>{itensFields}</div>
           </div>
         </div>
+      </div>
 
+      {/* Mobile: single column */}
+      <div className="mobile-only" style={{ padding: '16px' }}>
+        {clienteFields}
         <div className="section-label" style={{ marginTop: 4 }}>Itens do pedido</div>
         <div className="card card-flush" style={{ padding: '0 14px' }}>
           {itens.map((it, i) => (
@@ -89,28 +192,13 @@ export default function Pedidos() {
                 <option value="">Selecionar produto</option>
                 {prodNames.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
-              <input
-                className="item-qty"
-                type="number"
-                min="1"
-                value={it.quantidade}
-                onChange={e => setItem(i, 'quantidade', e.target.value)}
-              />
-              <input
-                className="item-price"
-                type="number"
-                placeholder="R$"
-                value={it.precoUnit}
-                onChange={e => setItem(i, 'precoUnit', e.target.value)}
-              />
-              {itens.length > 1 && (
-                <button className="item-rm" onClick={() => removeItem(i)}>&#215;</button>
-              )}
+              <input className="item-qty" type="number" min="1" value={it.quantidade} onChange={e => setItem(i, 'quantidade', e.target.value)} />
+              <input className="item-price" type="number" placeholder="R$" value={it.precoUnit} onChange={e => setItem(i, 'precoUnit', e.target.value)} />
+              {itens.length > 1 && <button className="item-rm" onClick={() => removeItem(i)}>&#215;</button>}
             </div>
           ))}
         </div>
         <button className="btn-add-item" onClick={addItem}>+ adicionar item</button>
-
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
           <div style={{ flex: 1, marginRight: 12 }}>
             <div className="field-label">Sinal (R$)</div>
@@ -118,37 +206,9 @@ export default function Pedidos() {
           </div>
           <div style={{ textAlign: 'right' }}>
             <div className="field-label">Total</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)' }}>
-              R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </div>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
           </div>
         </div>
-
-        <div className="field-row" style={{ marginTop: 10 }}>
-          <div>
-            <div className="field-label">Pagamento</div>
-            <select className="field-input" value={form.pgto} onChange={e => setField('pgto', e.target.value)}>
-              {PGTO_OPTS.map(p => <option key={p}>{p}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="field-label">Status</div>
-            <select className="field-input" value={form.status} onChange={e => setField('status', e.target.value)}>
-              {STATUS_OPTS.map(s => <option key={s}>{s}</option>)}
-            </select>
-          </div>
-        </div>
-
-        <div className="field-label">Observações</div>
-        <textarea
-          className="field-input"
-          rows={2}
-          placeholder="Anotações, endereço, preferências..."
-          value={form.obs}
-          onChange={e => setField('obs', e.target.value)}
-          style={{ resize: 'none' }}
-        />
-
         <button className="btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Salvando...' : 'Salvar pedido'}
         </button>
