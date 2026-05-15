@@ -16,9 +16,13 @@ export default function ReceitaForm() {
   const { data: insumos, loading: loadIns } = useData(getInsumos)
 
   const [form, setForm] = useState({
-    nome: '', tipo: 'Outro', rendimento: '',
+    nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'un',
   })
-  const [ingredientes, setIngredientes] = useState([{ insumoId: null, nome: '', quantidade: '', unidade: 'g' }])
+  const [ingredientes, setIngredientes] = useState([
+    { insumoId: null, nome: '', quantidade: '', unidade: 'g' },
+    { insumoId: null, nome: '', quantidade: '', unidade: 'g' },
+    { insumoId: null, nome: '', quantidade: '', unidade: 'g' },
+  ])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -30,6 +34,7 @@ export default function ReceitaForm() {
       nome: rec.nome,
       tipo: rec.tipo || 'Outro',
       rendimento: rec.rendimento || '',
+      unidadeGera: rec.unidadeGera || 'un',
     })
     if (rec.ingredientes?.length > 0) {
       setIngredientes(rec.ingredientes.map(i => ({
@@ -72,6 +77,25 @@ export default function ReceitaForm() {
 
   const rendimentoNum = parseFloat(form.rendimento) || 0
   const custoUnid = rendimentoNum > 0 ? custoTotal / rendimentoNum : 0
+
+  const rendimentoBruto = useMemo(() =>
+    ingredientes.reduce((s, ing) => {
+      const qty = parseFloat(ing.quantidade) || 0
+      switch (ing.unidade) {
+        case 'g':  return s + qty
+        case 'ml': return s + qty
+        case 'kg': return s + qty * 1000
+        case 'L':  return s + qty * 1000
+        default:   return s
+      }
+    }, 0),
+    [ingredientes]
+  )
+
+  const unidadesGera = useMemo(() =>
+    [...new Set((receitas || []).map(r => r.unidadeGera).filter(Boolean))].sort(),
+    [receitas]
+  )
 
   const handleSave = async () => {
     if (!form.nome) { show('Preencha o nome da receita'); return }
@@ -129,7 +153,20 @@ export default function ReceitaForm() {
             </select>
           </div>
           <div>
-            <div className="field-label">Rendimento (un)</div>
+            <div className="field-label">Unidade gerada</div>
+            <input
+              className="field-input"
+              list="unidades-gera-list"
+              placeholder="ex: discos, fatias"
+              value={form.unidadeGera}
+              onChange={e => setField('unidadeGera', e.target.value)}
+            />
+            <datalist id="unidades-gera-list">
+              {unidadesGera.map(u => <option key={u} value={u} />)}
+            </datalist>
+          </div>
+          <div>
+            <div className="field-label">Rendimento (qtd)</div>
             <input className="field-input" type="number" min="0" placeholder="0" value={form.rendimento} onChange={e => setField('rendimento', e.target.value)} />
           </div>
         </div>
@@ -177,14 +214,23 @@ export default function ReceitaForm() {
         </datalist>
         <button className="btn-add-item" onClick={addIng}>+ adicionar ingrediente</button>
 
-        {custoTotal > 0 && (
+        {(custoTotal > 0 || rendimentoBruto > 0) && (
           <div style={{ margin: '12px 0 4px', padding: '10px 14px', background: 'var(--teal-light)', borderRadius: 8 }}>
-            <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>
-              Custo do lote: R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
+            {rendimentoBruto > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 4 }}>
+                Rendimento bruto: {rendimentoBruto >= 1000
+                  ? `${(rendimentoBruto / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kg`
+                  : `${rendimentoBruto.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} g`}
+              </div>
+            )}
+            {custoTotal > 0 && (
+              <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>
+                Custo do lote: R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            )}
             {custoUnid > 0 && (
               <div style={{ fontSize: 12, color: 'var(--teal)', marginTop: 2 }}>
-                Custo/unidade: R$ {custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
+                Custo/{form.unidadeGera || 'un'}: R$ {custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
               </div>
             )}
           </div>

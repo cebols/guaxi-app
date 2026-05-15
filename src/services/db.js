@@ -340,6 +340,7 @@ export async function getReceitas() {
       nomeReceita: r.nome,
       tipo: r.tipo || 'Outro',
       rendimento: r.rendimento || 0,
+      unidadeGera: r.unidade_gera || 'un',
       custoTotal: r.custo_total || 0,
       custoUnid: r.custo_unid || 0,
       ingredientes: (r.receita_ingredientes || []).map(i => ({
@@ -362,42 +363,65 @@ export async function saveReceita(receita, ingredientes) {
     nome: receita.nome,
     tipo: receita.tipo || 'Outro',
     rendimento: parseFloat(receita.rendimento) || 0,
+    unidade_gera: receita.unidadeGera || 'un',
     custo_total: parseFloat(receita.custoTotal) || 0,
     custo_unid: parseFloat(receita.custoUnid) || 0,
   }
 
-  if (receita.id) {
-    const { error } = await supabase.from('receitas').update(row).eq('id', receita.id)
-    if (error) throw error
-    await supabase.from('receita_ingredientes').delete().eq('receita_id', receita.id)
-    if (ingredientes.length > 0) {
-      const { error: ie } = await supabase.from('receita_ingredientes').insert(
-        ingredientes.map(i => ({
-          receita_id: receita.id,
-          insumo_id: i.insumoId || null,
-          insumo_nome: i.nome,
-          quantidade: parseFloat(i.quantidade) || 0,
-          unidade: i.unidade || 'g',
-        }))
-      )
-      if (ie) throw ie
+  const buildIngRow = (receitaId, i, withInsumoId) => ({
+    receita_id: receitaId,
+    ...(withInsumoId ? { insumo_id: i.insumoId || null } : {}),
+    insumo_nome: i.nome,
+    quantidade: parseFloat(i.quantidade) || 0,
+    unidade: i.unidade || 'g',
+  })
+
+  const insertIngs = async (receitaId) => {
+    if (!ingredientes.length) return
+    const { error } = await supabase.from('receita_ingredientes').insert(
+      ingredientes.map(i => buildIngRow(receitaId, i, true))
+    )
+    if (error) {
+      if (error.message?.includes('insumo_id')) {
+        // Migration not yet run — save without insumo_id
+        const { error: e2 } = await supabase.from('receita_ingredientes').insert(
+          ingredientes.map(i => buildIngRow(receitaId, i, false))
+        )
+        if (e2) throw e2
+      } else {
+        throw error
+      }
     }
+  }
+
+  const saveRow = async (id) => {
+    const op = id
+      ? supabase.from('receitas').update(row).eq('id', id)
+      : supabase.from('receitas').insert(row).select().single()
+    const { data, error } = await op
+    if (error) {
+      if (error.message?.includes('unidade_gera')) {
+        const { unidade_gera, ...rowFallback } = row
+        const op2 = id
+          ? supabase.from('receitas').update(rowFallback).eq('id', id)
+          : supabase.from('receitas').insert(rowFallback).select().single()
+        const { data: d2, error: e2 } = await op2
+        if (e2) throw e2
+        return d2
+      }
+      throw error
+    }
+    return data
+  }
+
+  if (receita.id) {
+    await saveRow(receita.id)
+    await supabase.from('receita_ingredientes').delete().eq('receita_id', receita.id)
+    await insertIngs(receita.id)
     return receita.id
   } else {
-    const { data, error } = await supabase.from('receitas').insert(row).select().single()
-    if (error) throw error
-    if (ingredientes.length > 0) {
-      const { error: ie } = await supabase.from('receita_ingredientes').insert(
-        ingredientes.map(i => ({
-          receita_id: data.id,
-          insumo_id: i.insumoId || null,
-          insumo_nome: i.nome,
-          quantidade: parseFloat(i.quantidade) || 0,
-          unidade: i.unidade || 'g',
-        }))
-      )
-      if (ie) throw ie
-    }
+    const data = await saveRow(null)
+    await insertIngs(data.id)
     return data.id
   }
 }

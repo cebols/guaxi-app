@@ -27,7 +27,11 @@ CREATE TABLE IF NOT EXISTS produto_embalagens (
   quantidade   numeric default 1
 );
 
--- 5. RLS
+-- 5. Unidade gerada pela receita (ex: discos, fatias, porcoes)
+ALTER TABLE receitas
+  ADD COLUMN IF NOT EXISTS unidade_gera text default 'un';
+
+-- 6. RLS
 ALTER TABLE produto_receitas  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE produto_embalagens ENABLE ROW LEVEL SECURITY;
 
