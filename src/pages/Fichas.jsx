@@ -31,7 +31,7 @@ export default function Fichas() {
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <div className="topbar-title">Fichas técnicas</div>
+          <div className="topbar-title">Receitas</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div className="search-wrap mobile-only" style={{ margin: 0, width: 160 }}>
               <span className="search-icon">&#9906;</span>

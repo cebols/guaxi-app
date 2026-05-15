@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
-import { getEncomendas, getInsumos, updateStatusEncomenda } from '../services/db'
+import { getEncomendas, getInsumos, getEmbalagens, updateStatusEncomenda } from '../services/db'
 import { useToast } from '../hooks/useToast'
 import { useNavigate } from 'react-router-dom'
 
@@ -116,7 +116,8 @@ export default function Home() {
   const navigate = useNavigate()
   const { toast, show } = useToast()
   const { data: encomendas, loading: loadEnc, reload: reloadEnc } = useData(getEncomendas)
-  const { data: insumos, loading: loadIns } = useData(getInsumos)
+  const { data: insumos,    loading: loadIns } = useData(getInsumos)
+  const { data: embalagens, loading: loadEmb } = useData(getEmbalagens)
 
   const proximas = (encomendas || [])
     .filter(e => {
@@ -132,7 +133,23 @@ export default function Home() {
     .filter(e => e.status !== 'Cancelado' && e.pgto !== 'Pago')
     .reduce((s, e) => s + (e.saldo || 0), 0)
   const pgtosPendentes = (encomendas || []).filter(e => e.status !== 'Cancelado' && e.pgto !== 'Pago').length
-  const alertas = (insumos || []).filter(i => i.estoqueAtual !== null && i.estoqueMin > 0 && i.estoqueAtual < i.estoqueMin)
+  // Stock level helper: 0=crítico (<min), 1=atenção (min..1.5×min), 2=ok
+  function nivelEstoque(atual, min) {
+    if (atual === null || atual === undefined || min <= 0) return 2
+    const ratio = atual / min
+    if (ratio < 1) return 0
+    if (ratio < 1.5) return 1
+    return 2
+  }
+
+  const todosItens = [
+    ...(insumos    || []).map(i => ({ ...i, _tipo: 'insumo' })),
+    ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem', unidade: 'un' })),
+  ]
+  const alertas = todosItens
+    .filter(i => i.estoqueAtual !== null && i.estoqueMin > 0 && nivelEstoque(i.estoqueAtual, i.estoqueMin) < 2)
+    .sort((a, b) => nivelEstoque(a.estoqueAtual, a.estoqueMin) - nivelEstoque(b.estoqueAtual, b.estoqueMin))
+  const criticos = alertas.filter(i => nivelEstoque(i.estoqueAtual, i.estoqueMin) === 0)
 
   const handleUpdateStatus = async (enc, novoStatus, novoPgto) => {
     try {
@@ -183,9 +200,9 @@ export default function Home() {
             </div>
           </div>
           <div className="metric-card">
-            <div className="metric-label">Falta no estoque</div>
-            <div className="metric-value" style={{ color: alertas.length > 0 ? 'var(--alert-text)' : 'var(--text-primary)' }}>
-              {loadIns ? '—' : alertas.length}
+            <div className="metric-label">Alertas estoque</div>
+            <div className="metric-value" style={{ color: criticos.length > 0 ? 'var(--alert-text)' : alertas.length > 0 ? '#f59e0b' : 'var(--text-primary)' }}>
+              {(loadIns || loadEmb) ? '—' : alertas.length}
             </div>
           </div>
         </div>
@@ -209,30 +226,34 @@ export default function Home() {
         {alertas.length > 0 && (
           <>
             <div className="section-label" style={{ marginTop: 16 }}>Alertas de estoque</div>
-            {alertas.slice(0, 5).map(ins => {
-              const waLink = ins.whatsapp
-                ? ins.whatsapp.toString().startsWith('http')
-                  ? ins.whatsapp
-                  : `https://wa.me/${ins.whatsapp.toString().replace(/\D/g, '')}`
-                : null
+            {alertas.slice(0, 8).map(item => {
+              const nivel = nivelEstoque(item.estoqueAtual, item.estoqueMin)
+              const cor = nivel === 0 ? 'var(--alert-text)' : '#f59e0b'
+              const borderColor = nivel === 0 ? 'var(--alert-text)' : '#92400e'
+              const badgeLabel = nivel === 0 ? 'Pedir' : 'Atenção'
+              const badgeClass = nivel === 0 ? 'badge-alert' : 'badge-warn'
+              const digits = (item.whatsapp || '').toString().replace(/\D/g, '')
+              const waLink = digits ? `https://wa.me/55${digits}` : null
               return (
-                <div
-                  key={ins.id}
-                  className="card"
-                  style={{ borderColor: 'var(--alert-text)', cursor: waLink ? 'pointer' : 'default' }}
-                  onClick={() => waLink && window.open(waLink, '_blank')}
-                >
+                <div key={`${item._tipo}-${item.id}`} className="card" style={{ borderColor }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--alert-text)' }}>{ins.nome}</div>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: cor }}>{item.nome}</div>
                       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-                        Atual: {ins.estoqueAtual ?? '—'} · Mín: {ins.estoqueMin} {ins.unidade}
-                        {ins.fornecedor ? ` · ${ins.fornecedor}` : ''}
+                        Atual: {item.estoqueAtual ?? '—'} · Mín: {item.estoqueMin} {item.unidade}
+                        {item.fornecedor ? ` · ${item.fornecedor}` : ''}
                       </div>
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                      <span className="badge badge-alert">Pedir</span>
-                      {waLink && <span style={{ fontSize: 11, color: 'var(--teal)' }}>💬 WhatsApp</span>}
+                      <span className={`badge ${badgeClass}`}>{badgeLabel}</span>
+                      {waLink && (
+                        <a href={waLink} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                          style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>💬 WhatsApp</a>
+                      )}
+                      {item.linkCompra && (
+                        <a href={item.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                          style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>🛒 Loja</a>
+                      )}
                     </div>
                   </div>
                 </div>

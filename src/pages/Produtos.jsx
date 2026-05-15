@@ -103,37 +103,47 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
 
       <div className="section-label" style={{ marginTop: 4 }}>Composição — Receitas</div>
       <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 4 }}>
-        {recRows.map((row, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '6px 0', borderBottom: i < recRows.length - 1 ? '1px solid var(--border)' : 'none', flexWrap: 'wrap' }}>
-            <input
-              className="field-input"
-              style={{ flex: '1 1 140px', minWidth: 100, marginBottom: 0, fontSize: 13 }}
-              list="receitas-list"
-              placeholder="Receita"
-              value={row.nome}
-              onChange={e => handleRecSelect(i, e.target.value)}
-            />
-            <input
-              className="item-qty"
-              type="number"
-              min="0"
-              step="0.5"
-              placeholder="Qtd"
-              value={row.quantidade}
-              onChange={e => setRecField(i, 'quantidade', e.target.value)}
-            />
-            <input
-              className="item-qty"
-              style={{ width: 52, textAlign: 'left', fontSize: 12 }}
-              placeholder="un"
-              value={row.unidade}
-              onChange={e => setRecField(i, 'unidade', e.target.value)}
-            />
-            {recRows.length > 1 && (
-              <button className="item-rm" onClick={() => removeRec(i)}>&#215;</button>
-            )}
-          </div>
-        ))}
+        {recRows.map((row, i) => {
+          const lineCost = (row.custoUnid || 0) * (parseFloat(row.quantidade) || 1)
+          return (
+            <div key={i} style={{ padding: '6px 0', borderBottom: i < recRows.length - 1 ? '1px solid var(--border)' : 'none' }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  className="field-input"
+                  style={{ flex: '1 1 140px', minWidth: 100, marginBottom: 0, fontSize: 13 }}
+                  list="receitas-list"
+                  placeholder="Receita"
+                  value={row.nome}
+                  onChange={e => handleRecSelect(i, e.target.value)}
+                />
+                <input
+                  className="item-qty"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  placeholder="Qtd"
+                  value={row.quantidade}
+                  onChange={e => setRecField(i, 'quantidade', e.target.value)}
+                />
+                <input
+                  className="item-qty"
+                  style={{ width: 52, textAlign: 'left', fontSize: 12 }}
+                  placeholder="un"
+                  value={row.unidade}
+                  onChange={e => setRecField(i, 'unidade', e.target.value)}
+                />
+                {recRows.length > 1 && (
+                  <button className="item-rm" onClick={() => removeRec(i)}>&#215;</button>
+                )}
+              </div>
+              {lineCost > 0 && (
+                <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 2, paddingLeft: 2 }}>
+                  R$ {row.custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{row.unidade} × {row.quantidade} = <strong>R$ {lineCost.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</strong>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
       <datalist id="receitas-list">
         {(receitas || []).map(r => <option key={r.id} value={r.nome} />)}

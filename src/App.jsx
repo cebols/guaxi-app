@@ -15,7 +15,7 @@ const NAV = [
   { path: '/',              label: 'Home',      icon: HomeIcon },
   { path: '/pedidos',       label: 'Pedidos',   icon: PedidosIcon },
   { path: '/contagem',      label: 'Contagem',  icon: ContagemIcon },
-  { path: '/fichas',        label: 'Fichas',    icon: FichasIcon },
+  { path: '/fichas',        label: 'Receitas',  icon: FichasIcon },
   { path: '/cadastros',     label: 'Insumos',   icon: CadastrosIcon },
   { path: '/produtos',      label: 'Produtos',  icon: ProdutosIcon },
   { path: '/configuracoes', label: 'Preços',    icon: ConfigIcon, desktopOnly: true },
