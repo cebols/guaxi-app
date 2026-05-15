@@ -1,12 +1,9 @@
 import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getConfig, calcPrecos } from '../hooks/useConfig'
 import {
   getInsumos, saveInsumo, deleteInsumo,
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
-  getProdutos, saveProduto, deleteProduto,
-  getReceitas,
 } from '../services/db'
 
 const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
@@ -46,6 +43,7 @@ function CalcBadge({ label, value }) {
 const INSUMO_EMPTY = {
   nome: '', categoria: '', unidade: 'g',
   pesoEmb: '', custoEmb: '', pesoUn: '',
+  linkCompra: '',
   estoqueAtual: '', estoqueMin: '',
   fornecedor: '', whatsapp: '',
 }
@@ -56,6 +54,7 @@ function InsumoForm({ item, categorias, onSave, onDelete, onClose }) {
     pesoEmb: item.pesoEmb || '',
     custoEmb: item.custoEmb || '',
     pesoUn: item.pesoUn ?? '',
+    linkCompra: item.linkCompra || '',
     estoqueAtual: item.estoqueAtual ?? '',
     estoqueMin: item.estoqueMin || '',
   } : INSUMO_EMPTY)
@@ -140,6 +139,9 @@ function InsumoForm({ item, categorias, onSave, onDelete, onClose }) {
           value={custoUnitCalc}
         />
       )}
+
+      <div className="field-label">Link da loja (Shopee, etc.)</div>
+      <input className="field-input" type="url" placeholder="https://shopee.com.br/..." value={form.linkCompra} onChange={e => set('linkCompra', e.target.value)} />
 
       <div className="section-label" style={{ marginTop: 4 }}>Estoque</div>
       <div className="field-row">
@@ -279,156 +281,6 @@ function EmbalagemForm({ item, categorias, onSave, onDelete, onClose }) {
   )
 }
 
-// ── Produtos ──────────────────────────────────────────────────
-
-function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) {
-  const [form, setForm] = useState({
-    nome: item?.nome || '',
-    precoSugerido: item?.precoSugerido || '',
-    precoPraticado: item?.precoPraticado ?? '',
-  })
-  const [recRows, setRecRows] = useState(
-    item?.receitas?.length > 0
-      ? item.receitas.map(r => ({ receitaId: r.receitaId, quantidade: r.quantidade, custoUnid: r.custoUnid }))
-      : []
-  )
-  const [embRows, setEmbRows] = useState(
-    item?.embalagens?.length > 0
-      ? item.embalagens.map(e => ({ embalagemId: e.embalagemId, quantidade: e.quantidade, custoUnit: e.custoUnit }))
-      : []
-  )
-  const [saving, setSaving] = useState(false)
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-
-  const setRec = (i, k, v) => setRecRows(prev => prev.map((r, idx) => idx === i ? { ...r, [k]: v } : r))
-  const setEmb = (i, k, v) => setEmbRows(prev => prev.map((e, idx) => idx === i ? { ...e, [k]: v } : e))
-
-  const addRec = () => setRecRows(prev => [...prev, { receitaId: '', quantidade: 1, custoUnid: 0 }])
-  const addEmb = () => setEmbRows(prev => [...prev, { embalagemId: '', quantidade: 1, custoUnit: 0 }])
-  const removeRec = i => setRecRows(prev => prev.filter((_, idx) => idx !== i))
-  const removeEmb = i => setEmbRows(prev => prev.filter((_, idx) => idx !== i))
-
-  const handleRecSelect = (i, receitaId) => {
-    const rec = receitas?.find(r => String(r.id) === String(receitaId))
-    setRecRows(prev => prev.map((r, idx) =>
-      idx === i ? { ...r, receitaId: rec?.id || '', custoUnid: rec?.custoUnid || 0 } : r
-    ))
-  }
-
-  const handleEmbSelect = (i, embalagemId) => {
-    const emb = embalagens?.find(e => String(e.id) === String(embalagemId))
-    setEmbRows(prev => prev.map((e, idx) =>
-      idx === i ? { ...e, embalagemId: emb?.id || '', custoUnit: emb?.custoUnit || 0 } : e
-    ))
-  }
-
-  const custoTotal =
-    recRows.reduce((s, r) => s + (parseFloat(r.custoUnid) || 0) * (parseFloat(r.quantidade) || 1), 0) +
-    embRows.reduce((s, e) => s + (parseFloat(e.custoUnit) || 0) * (parseFloat(e.quantidade) || 1), 0)
-
-  const validRecRows = recRows.filter(r => r.receitaId)
-  const validEmbRows = embRows.filter(e => e.embalagemId)
-
-  const cfg = getConfig()
-  const precos = calcPrecos(custoTotal, cfg)
-  const fmtRp = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-
-  const handle = async () => {
-    if (!form.nome) return
-    setSaving(true)
-    try {
-      await onSave({ ...form, precoSugerido: precos.base }, validRecRows, validEmbRows)
-      onClose()
-    } catch (e) { alert(e.message) } finally { setSaving(false) }
-  }
-
-  const rowStyle = { display: 'flex', gap: 8, alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }
-  const selectStyle = { flex: 1, padding: '7px 8px', border: '1px solid #333', borderRadius: 6, fontSize: 13, background: 'var(--bg-card)', color: 'var(--text-primary)' }
-  const qtyStyle = { width: 60, padding: '7px 6px', border: '1px solid #333', borderRadius: 6, fontSize: 13, background: 'var(--bg-card)', color: 'var(--text-primary)', textAlign: 'right' }
-
-  return (
-    <Sheet title={item ? 'Editar produto' : 'Novo produto'} onClose={onClose}>
-      <div className="field-label">Nome *</div>
-      <input className="field-input" placeholder="ex: Bolo de Pote Chocolate" value={form.nome} onChange={e => set('nome', e.target.value)} />
-
-      <div className="section-label" style={{ marginTop: 4 }}>Receitas / bases</div>
-      <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
-        {recRows.length === 0 && (
-          <div style={{ padding: '12px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>Nenhuma receita adicionada</div>
-        )}
-        {recRows.map((r, i) => (
-          <div key={i} style={rowStyle}>
-            <select style={selectStyle} value={r.receitaId} onChange={e => handleRecSelect(i, e.target.value)}>
-              <option value="">Selecione...</option>
-              {(receitas || []).map(rec => (
-                <option key={rec.id} value={rec.id}>{rec.nome}</option>
-              ))}
-            </select>
-            <input style={qtyStyle} type="number" min="0" step="0.1" value={r.quantidade} onChange={e => setRec(i, 'quantidade', e.target.value)} />
-            <button className="item-rm" onClick={() => removeRec(i)}>&#215;</button>
-          </div>
-        ))}
-      </div>
-      <button className="btn-add-item" onClick={addRec}>+ receita</button>
-
-      <div className="section-label" style={{ marginTop: 8 }}>Embalagens</div>
-      <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
-        {embRows.length === 0 && (
-          <div style={{ padding: '12px 0', fontSize: 12, color: 'var(--text-tertiary)' }}>Nenhuma embalagem adicionada</div>
-        )}
-        {embRows.map((e, i) => (
-          <div key={i} style={rowStyle}>
-            <select style={selectStyle} value={e.embalagemId} onChange={ev => handleEmbSelect(i, ev.target.value)}>
-              <option value="">Selecione...</option>
-              {(embalagens || []).map(emb => (
-                <option key={emb.id} value={emb.id}>{emb.nome}</option>
-              ))}
-            </select>
-            <input style={qtyStyle} type="number" min="0" step="1" value={e.quantidade} onChange={ev => setEmb(i, 'quantidade', ev.target.value)} />
-            <button className="item-rm" onClick={() => removeEmb(i)}>&#215;</button>
-          </div>
-        ))}
-      </div>
-      <button className="btn-add-item" onClick={addEmb}>+ embalagem</button>
-
-      {custoTotal > 0 && (
-        <div style={{ margin: '12px 0 8px', padding: '10px 14px', background: 'var(--bg-card)', borderRadius: 8, border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-            Custo insumos: R$ {fmtRp(custoTotal)}
-            {cfg.rateio > 0 && ` + rateio R$ ${fmtRp(cfg.rateio)}`}
-            {` · margem ${cfg.margem}%`}
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>Venda direta</span>
-            <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--teal)' }}>R$ {fmtRp(precos.base)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>99Food (−{cfg.taxa99}%)</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#f59e0b' }}>R$ {fmtRp(precos.p99)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>iFood (−{cfg.taxaIfood}%)</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#ef4444' }}>R$ {fmtRp(precos.pIfood)}</span>
-          </div>
-        </div>
-      )}
-
-      <div className="section-label" style={{ marginTop: 4 }}>Preço praticado (override)</div>
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Deixe em branco para usar o preço calculado acima</div>
-      <input className="field-input" type="number" min="0" step="0.01" placeholder="—" value={form.precoPraticado} onChange={e => set('precoPraticado', e.target.value)} />
-
-      <button className="btn-primary" onClick={handle} disabled={saving || !form.nome}>
-        {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar produto'}
-      </button>
-      {item && (
-        <button className="btn-danger" onClick={() => { if (confirm('Excluir?')) onDelete(item.id).then(onClose).catch(e => alert(e.message)) }}>
-          Excluir
-        </button>
-      )}
-    </Sheet>
-  )
-}
-
 // ── Main page ─────────────────────────────────────────────────
 
 function fmtR(val) {
@@ -441,10 +293,8 @@ export default function Cadastros() {
   const [sheet, setSheet] = useState(null)
   const { toast, show } = useToast()
 
-  const { data: insumos,    loading: lIns,  reload: rIns  } = useData(getInsumos)
-  const { data: embalagens, loading: lEmb,  reload: rEmb  } = useData(getEmbalagens)
-  const { data: produtos,   loading: lProd, reload: rProd } = useData(getProdutos)
-  const { data: receitas } = useData(getReceitas)
+  const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
+  const { data: embalagens, loading: lEmb, reload: rEmb } = useData(getEmbalagens)
 
   const catsInsumo = useMemo(() =>
     [...new Set((insumos || []).map(i => i.categoria).filter(Boolean))].sort(),
@@ -457,18 +307,17 @@ export default function Cadastros() {
 
   const withReload = (fn, reload) => async (...args) => { await fn(...args); reload(); show('Salvo!') }
 
-  const insActions  = { save: withReload(saveInsumo,    rIns),  del: withReload(deleteInsumo,    rIns)  }
-  const embActions  = { save: withReload(saveEmbalagem,  rEmb),  del: withReload(deleteEmbalagem,  rEmb)  }
-  const prodActions = { save: withReload(saveProduto,   rProd), del: withReload(deleteProduto,   rProd) }
+  const insActions = { save: withReload(saveInsumo, rIns), del: withReload(deleteInsumo, rIns) }
+  const embActions = { save: withReload(saveEmbalagem, rEmb), del: withReload(deleteEmbalagem, rEmb) }
 
-  const loading = { insumos: lIns, embalagens: lEmb, produtos: lProd }[tab]
-  const openNew = () => setSheet({ type: tab === 'produtos' ? 'produto' : tab === 'embalagens' ? 'embalagem' : 'insumo' })
+  const loading = tab === 'insumos' ? lIns : lEmb
+  const openNew = () => setSheet({ type: tab === 'embalagens' ? 'embalagem' : 'insumo' })
 
   return (
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <div className="topbar-title">Cadastros</div>
+          <div className="topbar-title">Insumos &amp; Embalagens</div>
           <button
             className="btn-ghost"
             onClick={openNew}
@@ -483,7 +332,6 @@ export default function Cadastros() {
         <div className="tab-bar">
           <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => setTab('insumos')}>Insumos</button>
           <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => setTab('embalagens')}>Embalagens</button>
-          <button className={`tab-btn ${tab === 'produtos'   ? 'active' : ''}`} onClick={() => setTab('produtos')}>Produtos</button>
         </div>
 
         {loading ? (
@@ -517,12 +365,14 @@ export default function Cadastros() {
                                 : <span className="muted">—</span>}
                             </td>
                             <td className="muted">{ins.fornecedor || '—'}</td>
-                            <td onClick={e => e.stopPropagation()}>
+                            <td onClick={e => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                              {ins.linkCompra && (
+                                <a href={ins.linkCompra} target="_blank" rel="noreferrer"
+                                  style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', marginRight: 8 }}>Loja</a>
+                              )}
                               {waLink(ins.whatsapp) && (
                                 <a href={waLink(ins.whatsapp)} target="_blank" rel="noreferrer"
-                                  style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-                                  WhatsApp
-                                </a>
+                                  style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>WA</a>
                               )}
                             </td>
                           </tr>
@@ -546,12 +396,13 @@ export default function Cadastros() {
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
                           {ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/${ins.unidade}` : '—'}
                         </div>
+                        {ins.linkCompra && (
+                          <a href={ins.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                            style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>Loja</a>
+                        )}
                         {waLink(ins.whatsapp) && (
-                          <a href={waLink(ins.whatsapp)} target="_blank" rel="noreferrer"
-                            onClick={e => e.stopPropagation()}
-                            style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>
-                            WhatsApp
-                          </a>
+                          <a href={waLink(ins.whatsapp)} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                            style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>WhatsApp</a>
                         )}
                       </div>
                     </div>
@@ -560,7 +411,7 @@ export default function Cadastros() {
               </div>
             </div>
           </>
-        ) : tab === 'embalagens' ? (
+        ) : (
           <>
             <div className="desktop-only">
               <div className="card card-flush">
@@ -591,12 +442,10 @@ export default function Cadastros() {
                                 : <span className="muted">—</span>}
                             </td>
                             <td className="muted">{emb.fornecedor || '—'}</td>
-                            <td onClick={e => e.stopPropagation()}>
+                            <td onClick={e => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
                               {waLink(emb.whatsapp) && (
                                 <a href={waLink(emb.whatsapp)} target="_blank" rel="noreferrer"
-                                  style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-                                  WhatsApp
-                                </a>
+                                  style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>WA</a>
                               )}
                             </td>
                           </tr>
@@ -619,70 +468,13 @@ export default function Cadastros() {
                       <div className="list-item-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{fmtR(emb.custoUnit)}/un</div>
                         {emb.linkCompra && (
-                          <a href={emb.linkCompra} target="_blank" rel="noreferrer"
-                            onClick={e => e.stopPropagation()}
-                            style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>
-                            Shopee
-                          </a>
+                          <a href={emb.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                            style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>Shopee</a>
                         )}
                         {waLink(emb.whatsapp) && (
-                          <a href={waLink(emb.whatsapp)} target="_blank" rel="noreferrer"
-                            onClick={e => e.stopPropagation()}
-                            style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>
-                            WhatsApp
-                          </a>
+                          <a href={waLink(emb.whatsapp)} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                            style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>WhatsApp</a>
                         )}
-                      </div>
-                    </div>
-                  ))
-                }
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="desktop-only">
-              <div className="card card-flush">
-                {(produtos || []).length === 0
-                  ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum produto cadastrado</div>
-                  : <table className="dt">
-                      <thead><tr>
-                        <th>Nome</th><th>Receitas</th><th>Embalagens</th><th>Custo total</th><th>Preço sugerido</th><th>Preço praticado</th>
-                      </tr></thead>
-                      <tbody>
-                        {(produtos || []).map(prod => (
-                          <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })}>
-                            <td style={{ fontWeight: 600 }}>{prod.nome}</td>
-                            <td className="muted" style={{ fontSize: 12 }}>
-                              {prod.receitas?.length > 0 ? prod.receitas.map(r => r.nome).join(', ') : '—'}
-                            </td>
-                            <td className="muted" style={{ fontSize: 12 }}>
-                              {prod.embalagens?.length > 0 ? prod.embalagens.map(e => e.nome).join(', ') : '—'}
-                            </td>
-                            <td className="muted">{fmtR(prod.custoTotal)}</td>
-                            <td className="muted">{fmtR(prod.precoSugerido)}</td>
-                            <td className="teal">{fmtR(prod.precoPraticado || prod.precoSugerido)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                }
-              </div>
-            </div>
-            <div className="mobile-only">
-              <div className="card card-flush" style={{ padding: '0 14px' }}>
-                {(produtos || []).length === 0
-                  ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum produto cadastrado</div>
-                  : (produtos || []).map(prod => (
-                    <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
-                      <div>
-                        <div className="list-item-name">{prod.nome}</div>
-                        <div className="list-item-sub">Custo: {fmtR(prod.custoTotal)}</div>
-                      </div>
-                      <div className="list-item-right">
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
-                          {fmtR(prod.precoPraticado || prod.precoSugerido)}
-                        </div>
                       </div>
                     </div>
                   ))
@@ -696,32 +488,10 @@ export default function Cadastros() {
       <button className="fab mobile-only" onClick={openNew}>+</button>
 
       {sheet?.type === 'insumo' && (
-        <InsumoForm
-          item={sheet.item}
-          categorias={catsInsumo}
-          onSave={insActions.save}
-          onDelete={insActions.del}
-          onClose={() => setSheet(null)}
-        />
+        <InsumoForm item={sheet.item} categorias={catsInsumo} onSave={insActions.save} onDelete={insActions.del} onClose={() => setSheet(null)} />
       )}
       {sheet?.type === 'embalagem' && (
-        <EmbalagemForm
-          item={sheet.item}
-          categorias={catsEmbalagem}
-          onSave={embActions.save}
-          onDelete={embActions.del}
-          onClose={() => setSheet(null)}
-        />
-      )}
-      {sheet?.type === 'produto' && (
-        <ProdutoForm
-          item={sheet.item}
-          receitas={receitas || []}
-          embalagens={embalagens || []}
-          onSave={prodActions.save}
-          onDelete={prodActions.del}
-          onClose={() => setSheet(null)}
-        />
+        <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />
       )}
 
       {toast && <div className="toast">{toast}</div>}

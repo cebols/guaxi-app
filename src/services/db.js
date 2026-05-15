@@ -1,5 +1,27 @@
 import { supabase } from '../lib/supabase'
 
+// Upsert helper with graceful fallback for optional new columns
+// If a column doesn't exist (migration not run), it strips those columns and retries.
+async function upsert(table, row, id, optionalCols = []) {
+  const exec = async (r) => {
+    if (id) {
+      const { error } = await supabase.from(table).update(r).eq('id', id)
+      return { data: { id }, error }
+    }
+    return supabase.from(table).insert(r).select().single()
+  }
+  let { data, error } = await exec(row)
+  if (error && optionalCols.some(c => error.message?.includes(c))) {
+    const reduced = Object.fromEntries(Object.entries(row).filter(([k]) => !optionalCols.includes(k)))
+    const res = await exec(reduced)
+    if (res.error) throw res.error
+    data = res.data
+  } else if (error) {
+    throw error
+  }
+  return data
+}
+
 // ── Insumos ───────────────────────────────────────────────────
 
 export async function getInsumos() {
@@ -14,6 +36,7 @@ export async function getInsumos() {
     custoEmb: r.custo_emb || 0,
     pesoUn: r.peso_un ?? null,
     custoUnit: r.custo_unit || 0,
+    linkCompra: r.link_compra || '',
     estoqueAtual: r.estoque_atual,
     estoqueMin: r.estoque_min || 0,
     fornecedor: r.fornecedor || '',
@@ -44,19 +67,14 @@ export async function saveInsumo(insumo) {
     custo_emb: custoEmb,
     peso_un: pesoUn,
     custo_unit: custoUnit,
+    link_compra: insumo.linkCompra || '',
     estoque_atual: insumo.estoqueAtual !== '' ? parseFloat(insumo.estoqueAtual) : null,
     estoque_min: parseFloat(insumo.estoqueMin) || 0,
     fornecedor: insumo.fornecedor || '',
     telefone: insumo.telefone || '',
     whatsapp: insumo.whatsapp || '',
   }
-  if (insumo.id) {
-    const { error } = await supabase.from('insumos').update(row).eq('id', insumo.id)
-    if (error) throw error
-  } else {
-    const { error } = await supabase.from('insumos').insert(row)
-    if (error) throw error
-  }
+  await upsert('insumos', row, insumo.id || null, ['link_compra'])
 }
 
 export async function deleteInsumo(id) {
@@ -111,13 +129,7 @@ export async function saveEmbalagem(emb) {
     telefone: emb.telefone || '',
     whatsapp: emb.whatsapp || '',
   }
-  if (emb.id) {
-    const { error } = await supabase.from('embalagens').update(row).eq('id', emb.id)
-    if (error) throw error
-  } else {
-    const { error } = await supabase.from('embalagens').insert(row)
-    if (error) throw error
-  }
+  await upsert('embalagens', row, emb.id || null, ['link_compra'])
 }
 
 export async function deleteEmbalagem(id) {
@@ -140,7 +152,7 @@ export async function getProdutos() {
     .from('produtos')
     .select(`
       *,
-      produto_receitas(*, receitas(nome, custo_unid)),
+      produto_receitas(*, receitas(nome, custo_unid, unidade_gera)),
       produto_embalagens(*, embalagens(nome, custo_unit))
     `)
     .order('nome')
@@ -172,6 +184,7 @@ export async function getProdutos() {
       nome: pr.receitas?.nome || '',
       quantidade: pr.quantidade || 1,
       custoUnid: pr.receitas?.custo_unid || 0,
+      unidadeGera: pr.receitas?.unidade_gera || 'un',
     })),
     embalagens: (r.produto_embalagens || []).map(pe => ({
       id: pe.id,
@@ -342,6 +355,7 @@ export async function getReceitas() {
       unidadeGera: r.unidade_gera || 'un',
       custoTotal: r.custo_total || 0,
       custoUnid: r.custo_unid || 0,
+      pesoLiquido: r.peso_liquido || null,
       ingredientes: (r.receita_ingredientes || []).map(i => ({
         id: i.id,
         insumoId: i.insumo_id || null,
@@ -363,6 +377,7 @@ export async function saveReceita(receita, ingredientes) {
     tipo: receita.tipo || 'Outro',
     rendimento: parseFloat(receita.rendimento) || 0,
     unidade_gera: receita.unidadeGera || 'un',
+    peso_liquido: receita.pesoLiquido ? parseFloat(receita.pesoLiquido) : null,
     custo_total: parseFloat(receita.custoTotal) || 0,
     custo_unid: parseFloat(receita.custoUnid) || 0,
   }
@@ -393,33 +408,15 @@ export async function saveReceita(receita, ingredientes) {
     }
   }
 
-  const saveRow = async (id) => {
-    const op = id
-      ? supabase.from('receitas').update(row).eq('id', id)
-      : supabase.from('receitas').insert(row).select().single()
-    const { data, error } = await op
-    if (error) {
-      if (error.message?.includes('unidade_gera')) {
-        const { unidade_gera, ...rowFallback } = row
-        const op2 = id
-          ? supabase.from('receitas').update(rowFallback).eq('id', id)
-          : supabase.from('receitas').insert(rowFallback).select().single()
-        const { data: d2, error: e2 } = await op2
-        if (e2) throw e2
-        return d2
-      }
-      throw error
-    }
-    return data
-  }
+  const OPTIONAL = ['unidade_gera', 'peso_liquido']
 
   if (receita.id) {
-    await saveRow(receita.id)
+    await upsert('receitas', row, receita.id, OPTIONAL)
     await supabase.from('receita_ingredientes').delete().eq('receita_id', receita.id)
     await insertIngs(receita.id)
     return receita.id
   } else {
-    const data = await saveRow(null)
+    const data = await upsert('receitas', row, null, OPTIONAL)
     await insertIngs(data.id)
     return data.id
   }

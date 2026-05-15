@@ -9,14 +9,16 @@ import Cozinha from './pages/Cozinha'
 import ReceitaForm from './pages/ReceitaForm'
 import Cadastros from './pages/Cadastros'
 import Configuracoes from './pages/Configuracoes'
+import Produtos from './pages/Produtos'
 
 const NAV = [
   { path: '/',              label: 'Home',      icon: HomeIcon },
   { path: '/pedidos',       label: 'Pedidos',   icon: PedidosIcon },
   { path: '/contagem',      label: 'Contagem',  icon: ContagemIcon },
   { path: '/fichas',        label: 'Fichas',    icon: FichasIcon },
-  { path: '/cadastros',     label: 'Cadastros', icon: CadastrosIcon },
-  { path: '/configuracoes', label: 'Preços',    icon: ConfigIcon },
+  { path: '/cadastros',     label: 'Insumos',   icon: CadastrosIcon },
+  { path: '/produtos',      label: 'Produtos',  icon: ProdutosIcon },
+  { path: '/configuracoes', label: 'Preços',    icon: ConfigIcon, desktopOnly: true },
 ]
 
 function Sidebar() {
@@ -32,7 +34,7 @@ function Sidebar() {
         <div className="sidebar-logo-name">Guaxi</div>
       </div>
       <nav className="sidebar-nav">
-        {NAV.map(({ path, label, icon: Icon }) => {
+        {NAV.map(({ path, label, icon: Icon, desktopOnly: _ }) => {
           const active = path === '/'
             ? location.pathname === '/'
             : location.pathname.startsWith(path)
@@ -87,6 +89,7 @@ export default function App() {
           <Route path="/fichas/:id"          element={<Cozinha />} />
           <Route path="/fichas/:id/editar"   element={<ReceitaForm />} />
           <Route path="/cadastros"           element={<Cadastros />} />
+          <Route path="/produtos"            element={<Produtos />} />
           <Route path="/configuracoes"       element={<Configuracoes />} />
           <Route path="*"                    element={<Navigate to="/" />} />
         </Routes>
@@ -94,7 +97,7 @@ export default function App() {
 
       {!isReceitaForm && (
         <nav className="bottom-nav">
-          {NAV.map(({ path, label, icon: Icon }) => {
+          {NAV.filter(n => !n.desktopOnly).map(({ path, label, icon: Icon }) => {
             const active = path === '/'
               ? location.pathname === '/'
               : location.pathname.startsWith(path)
@@ -143,6 +146,13 @@ function FichasIcon() {
     <line x1="16" y1="13" x2="8" y2="13"/>
     <line x1="16" y1="17" x2="8" y2="17"/>
     <polyline points="10 9 9 9 8 9"/>
+  </svg>
+}
+function ProdutosIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+    <line x1="12" y1="22.08" x2="12" y2="12"/>
   </svg>
 }
 function CadastrosIcon() {

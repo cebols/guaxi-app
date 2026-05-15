@@ -27,7 +27,15 @@ CREATE TABLE IF NOT EXISTS produto_embalagens (
   quantidade   numeric default 1
 );
 
--- 5. Unidade gerada pela receita (ex: discos, fatias, porcoes)
+-- 7. Link de compra para insumos (ex: Shopee)
+ALTER TABLE insumos
+  ADD COLUMN IF NOT EXISTS link_compra text default '';
+
+-- 8. Peso líquido das receitas (após assar/processar)
+ALTER TABLE receitas
+  ADD COLUMN IF NOT EXISTS peso_liquido numeric;
+
+-- 9. Unidade gerada pela receita (já adicionado)
 ALTER TABLE receitas
   ADD COLUMN IF NOT EXISTS unidade_gera text default 'un';
 

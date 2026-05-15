@@ -8,6 +8,7 @@ function fmtR(v) { return Number(v).toLocaleString('pt-BR', { minimumFractionDig
 export default function Configuracoes() {
   const { toast, show } = useToast()
   const [cfg, setCfg] = useState(getConfig)
+  const [exemplo, setExemplo] = useState(5)
 
   const set = (k, v) => setCfg(c => ({ ...c, [k]: parseFloat(v) || 0 }))
 
@@ -22,8 +23,6 @@ export default function Configuracoes() {
     show('Restaurado para padrão')
   }
 
-  // Exemplo de precificação para R$ 5,00 de custo
-  const exemplo = 5
   const base = (exemplo + cfg.rateio) / (1 - cfg.margem / 100)
   const p99  = base / (1 - cfg.taxa99 / 100)
   const pIf  = base / (1 - cfg.taxaIfood / 100)
@@ -94,16 +93,24 @@ export default function Configuracoes() {
         </div>
 
         {/* Preview */}
-        <div className="section-label" style={{ marginTop: 8 }}>
-          Prévia — produto com custo de R$ {fmtR(exemplo)}
-        </div>
+        <div className="section-label" style={{ marginTop: 8 }}>Prévia de precificação</div>
+        <div className="field-label">Custo do produto (R$) — preencha para simular</div>
+        <input
+          className="field-input"
+          type="number"
+          min="0"
+          step="0.50"
+          value={exemplo}
+          onChange={e => setExemplo(parseFloat(e.target.value) || 0)}
+          style={{ maxWidth: 160 }}
+        />
         <div className="card" style={{ padding: '12px 16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <span style={{ fontSize: 13 }}>Venda direta</span>
             <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--teal)' }}>R$ {fmtR(base)}</span>
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 12 }}>
-            custo R$ {fmtR(exemplo)} + rateio R$ {fmtR(cfg.rateio)} → margem {fmtPct(cfg.margem)}%
+            custo R$ {fmtR(exemplo)} + rateio R$ {fmtR(cfg.rateio)} com margem {fmtPct(cfg.margem)}%
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
             <span style={{ fontSize: 13 }}>99Food <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>(−{fmtPct(cfg.taxa99)}%)</span></span>
