@@ -169,7 +169,7 @@ export default function ReceitaForm() {
           <div>
             <div className="field-label">Rendimento — qtd de {form.unidadeGera || 'unidades'}</div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input className="field-input" style={{ marginBottom: 0, flex: 1 }} type="number" min="0" placeholder="ex: 12" value={form.rendimento} onChange={e => setField('rendimento', e.target.value)} />
+              <input className="field-input" style={{ marginBottom: 0, flex: 1 }} type="number" inputMode="decimal" min="0" placeholder="ex: 12" value={form.rendimento} onChange={e => setField('rendimento', e.target.value)} />
               {rendimentoBruto > 0 && ['g','ml','kg','L'].includes(form.unidadeGera) && (() => {
                 const sugerido = ['kg','L'].includes(form.unidadeGera) ? rendimentoBruto / 1000 : rendimentoBruto
                 return (
@@ -194,7 +194,7 @@ export default function ReceitaForm() {
             </div>
             <input
               className="field-input"
-              type="number"
+              type="number" inputMode="decimal"
               min="0"
               placeholder={rendimentoBruto > 0 ? `Bruto: ${rendimentoBruto >= 1000 ? `${(rendimentoBruto/1000).toFixed(2)} kg` : `${rendimentoBruto.toFixed(0)} g`}` : 'ex: 450'}
               value={form.pesoLiquido}
@@ -220,7 +220,7 @@ export default function ReceitaForm() {
                   />
                   <input
                     className="item-qty"
-                    type="number"
+                    type="number" inputMode="decimal"
                     min="0"
                     step="0.1"
                     placeholder="Qtd"

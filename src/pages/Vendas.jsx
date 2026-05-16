@@ -242,7 +242,7 @@ function VendaForm({ produtos, prefill, onSave, onClose }) {
       <div className="field-row">
         <div>
           <div className="field-label">Quantidade</div>
-          <input className="field-input" type="number" min="0.5" step="0.5" value={form.quantidade} onChange={e => set('quantidade', e.target.value)} />
+          <input className="field-input" type="number" inputMode="decimal" min="0.5" step="0.5" value={form.quantidade} onChange={e => set('quantidade', e.target.value)} />
         </div>
         <div>
           <div className="field-label">Plataforma</div>
@@ -252,7 +252,7 @@ function VendaForm({ produtos, prefill, onSave, onClose }) {
         </div>
       </div>
       <div className="field-label">Preço cobrado (R$) *</div>
-      <input className="field-input" type="number" min="0" step="0.50" value={form.precoUnit} onChange={e => set('precoUnit', e.target.value)} />
+      <input className="field-input" type="number" inputMode="decimal" min="0" step="0.50" value={form.precoUnit} onChange={e => set('precoUnit', e.target.value)} />
       {margin !== null && (
         <div style={{ padding: '8px 12px', background: 'var(--teal-light)', borderRadius: 8, marginBottom: 8 }}>
           <div style={{ fontSize: 12, color: 'var(--teal)' }}>
@@ -327,7 +327,7 @@ function LancamentoRapido({ produtos, onSave, onClose }) {
               </div>
               <input
                 className="item-qty"
-                type="number" min="0" step="1" placeholder="0"
+                type="number" inputMode="decimal" min="0" step="1" placeholder="0"
                 value={qtds[prod.id] || ''}
                 onChange={e => setQtds(prev => ({ ...prev, [prod.id]: e.target.value }))}
                 style={{ width: 64 }}

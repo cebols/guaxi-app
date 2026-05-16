@@ -508,13 +508,13 @@ function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
               />
               <input
                 className="item-qty"
-                type="number" min="1"
+                type="number" inputMode="decimal" min="1"
                 value={it.quantidade}
                 onChange={e => setItem(i, 'quantidade', e.target.value)}
               />
               <input
                 className="item-price"
-                type="number" placeholder="R$"
+                type="number" inputMode="decimal" placeholder="R$"
                 value={it.precoUnit}
                 onChange={e => setItem(i, 'precoUnit', e.target.value)}
               />
@@ -700,7 +700,7 @@ function ProducaoView({ pedidos, produtos, receitas, onEstoqueUpdated }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
                   <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Produziu hoje:</span>
                   <input
-                    type="number" min="0"
+                    type="number" inputMode="decimal" min="0"
                     className="item-qty"
                     style={{ width: 64 }}
                     placeholder="0"

@@ -118,18 +118,18 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
           <div className="field-label">
             {form.unidade === 'un' ? 'Qtd. na embalagem (un)' : `Peso/vol. da embalagem (${form.unidade})`}
           </div>
-          <input className="field-input" type="number" min="0" step="any" placeholder="ex: 1000" value={form.pesoEmb} onChange={e => set('pesoEmb', e.target.value)} />
+          <input className="field-input" type="number" inputMode="decimal" min="0" step="any" placeholder="ex: 1000" value={form.pesoEmb} onChange={e => set('pesoEmb', e.target.value)} />
         </div>
         <div>
           <div className="field-label">Custo da embalagem (R$)</div>
-          <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.custoEmb} onChange={e => set('custoEmb', e.target.value)} />
+          <input className="field-input" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0,00" value={form.custoEmb} onChange={e => set('custoEmb', e.target.value)} />
         </div>
       </div>
 
       {form.unidade === 'un' && (
         <>
           <div className="field-label">Peso por unidade (g) — para calcular custo</div>
-          <input className="field-input" type="number" min="0" step="any" placeholder="ex: 50 para ovos de 50g" value={form.pesoUn} onChange={e => set('pesoUn', e.target.value)} />
+          <input className="field-input" type="number" inputMode="decimal" min="0" step="any" placeholder="ex: 50 para ovos de 50g" value={form.pesoUn} onChange={e => set('pesoUn', e.target.value)} />
         </>
       )}
 
@@ -147,11 +147,11 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
       <div className="field-row">
         <div>
           <div className="field-label">Estoque atual ({form.unidade})</div>
-          <input className="field-input" type="number" min="0" placeholder="—" value={form.estoqueAtual} onChange={e => set('estoqueAtual', e.target.value)} />
+          <input className="field-input" type="number" inputMode="decimal" min="0" placeholder="—" value={form.estoqueAtual} onChange={e => set('estoqueAtual', e.target.value)} />
         </div>
         <div>
           <div className="field-label">Estoque mínimo ({form.unidade})</div>
-          <input className="field-input" type="number" min="0" placeholder="0" value={form.estoqueMin} onChange={e => set('estoqueMin', e.target.value)} />
+          <input className="field-input" type="number" inputMode="decimal" min="0" placeholder="0" value={form.estoqueMin} onChange={e => set('estoqueMin', e.target.value)} />
         </div>
       </div>
 
@@ -246,11 +246,11 @@ function EmbalagemForm({ item, categorias, onSave, onDelete, onClose }) {
       <div className="field-row">
         <div>
           <div className="field-label">Qtd. na compra (un)</div>
-          <input className="field-input" type="number" min="1" step="1" placeholder="ex: 10" value={form.qtdCompra} onChange={e => set('qtdCompra', e.target.value)} />
+          <input className="field-input" type="number" inputMode="decimal" min="1" step="1" placeholder="ex: 10" value={form.qtdCompra} onChange={e => set('qtdCompra', e.target.value)} />
         </div>
         <div>
           <div className="field-label">Custo da compra (R$)</div>
-          <input className="field-input" type="number" min="0" step="0.01" placeholder="0,00" value={form.custoCompra} onChange={e => set('custoCompra', e.target.value)} />
+          <input className="field-input" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0,00" value={form.custoCompra} onChange={e => set('custoCompra', e.target.value)} />
         </div>
       </div>
 
@@ -265,11 +265,11 @@ function EmbalagemForm({ item, categorias, onSave, onDelete, onClose }) {
       <div className="field-row">
         <div>
           <div className="field-label">Estoque atual (un)</div>
-          <input className="field-input" type="number" min="0" placeholder="—" value={form.estoqueAtual} onChange={e => set('estoqueAtual', e.target.value)} />
+          <input className="field-input" type="number" inputMode="decimal" min="0" placeholder="—" value={form.estoqueAtual} onChange={e => set('estoqueAtual', e.target.value)} />
         </div>
         <div>
           <div className="field-label">Estoque mínimo (un)</div>
-          <input className="field-input" type="number" min="0" placeholder="0" value={form.estoqueMin} onChange={e => set('estoqueMin', e.target.value)} />
+          <input className="field-input" type="number" inputMode="decimal" min="0" placeholder="0" value={form.estoqueMin} onChange={e => set('estoqueMin', e.target.value)} />
         </div>
       </div>
 

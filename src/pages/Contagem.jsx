@@ -118,7 +118,7 @@ function StockTab({ itens, contagem, onChange, minValues, onChangeMin }) {
                         <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín.</span>
                         <input
                           className="stock-input"
-                          type="number"
+                          type="number" inputMode="decimal"
                           min="0"
                           style={{ width: 52 }}
                           value={minValues?.[item.id] ?? item.estoqueMin}
@@ -133,7 +133,7 @@ function StockTab({ itens, contagem, onChange, minValues, onChangeMin }) {
                   <div>
                     <input
                       className="stock-input"
-                      type="number"
+                      type="number" inputMode="decimal"
                       min="0"
                       value={val}
                       placeholder="—"
