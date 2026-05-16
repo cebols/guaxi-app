@@ -552,6 +552,121 @@ function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
   )
 }
 
+// ── Production view ───────────────────────────────────────────
+function fmtQty(q, unidade) {
+  const n = Number(q)
+  const str = n % 1 === 0 ? String(n) : n.toFixed(1)
+  return `${str} ${unidade || 'un'}`
+}
+
+function ProducaoView({ pedidos, produtos, receitas }) {
+  const ativos = (pedidos || []).filter(p => !['Entregue', 'Cancelado'].includes(p.status))
+
+  // 1. Aggregate item quantities across active orders
+  const itemQtd = {}
+  for (const ped of ativos) {
+    for (const it of (ped.itens || [])) {
+      itemQtd[it.produto] = (itemQtd[it.produto] || 0) + (Number(it.quantidade) || 1)
+    }
+  }
+
+  const receitaMap = Object.fromEntries((receitas || []).map(r => [r.id, r]))
+  const prodMap    = Object.fromEntries((produtos  || []).map(p => [p.nome, p]))
+
+  // 2. Expand into sub-receitas and ingredients
+  const receitaQtd = {}     // { nome: { quantidade, unidade } }
+  const ingredienteQtd = {} // { nome: { quantidade, unidade } }
+
+  for (const [nomeProd, qty] of Object.entries(itemQtd)) {
+    const prod = prodMap[nomeProd]
+    if (!prod || !prod.receitas?.length) continue
+
+    for (const pr of prod.receitas) {
+      const totalRec = (Number(pr.quantidade) || 1) * qty
+      const unidade  = pr.unidadeGera || pr.unidade || 'un'
+      const key = pr.nome
+
+      if (!receitaQtd[key]) receitaQtd[key] = { quantidade: 0, unidade }
+      receitaQtd[key].quantidade += totalRec
+
+      // Expand into ingredients via the full receita
+      const rec = receitaMap[pr.receitaId]
+      if (!rec || !rec.rendimento) continue
+      const fator = totalRec / rec.rendimento
+      for (const ing of (rec.ingredientes || [])) {
+        const ingKey = ing.nome
+        if (!ingredienteQtd[ingKey]) ingredienteQtd[ingKey] = { quantidade: 0, unidade: ing.unidade || 'g' }
+        ingredienteQtd[ingKey].quantidade += (Number(ing.quantidade) || 0) * fator
+      }
+    }
+  }
+
+  const itensOrdenados = Object.entries(itemQtd).sort((a, b) => b[1] - a[1])
+  const receitasOrdenadas = Object.entries(receitaQtd).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
+  const ingredientesOrdenados = Object.entries(ingredienteQtd).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
+
+  if (ativos.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>
+        Nenhum pedido ativo
+      </div>
+    )
+  }
+
+  const SectionTable = ({ title, rows, emptyMsg }) => (
+    <>
+      <div className="section-label" style={{ marginTop: 16 }}>{title}</div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '8px 0' }}>{emptyMsg}</div>
+      ) : (
+        <div className="card card-flush" style={{ padding: '0 14px' }}>
+          {rows.map(([nome, info], i, arr) => (
+            <div key={nome} style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: '9px 0',
+              borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+            }}>
+              <span style={{ fontSize: 13 }}>{nome}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
+                {fmtQty(info.quantidade ?? info, info.unidade)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  )
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '4px 10px', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
+          {ativos.length} pedido{ativos.length !== 1 ? 's' : ''} ativo{ativos.length !== 1 ? 's' : ''}
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '4px 10px', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
+          {itensOrdenados.length} item{itensOrdenados.length !== 1 ? 'ns' : ''} distintos
+        </div>
+      </div>
+
+      <SectionTable
+        title="Itens a produzir"
+        rows={itensOrdenados.map(([nome, qty]) => [nome, { quantidade: qty, unidade: 'un' }])}
+        emptyMsg="Nenhum item"
+      />
+      <SectionTable
+        title="Receitas necessárias"
+        rows={receitasOrdenadas}
+        emptyMsg="Sem receitas vinculadas — itens podem ser avulsos ou personalizados"
+      />
+      <SectionTable
+        title="Ingredientes"
+        rows={ingredientesOrdenados}
+        emptyMsg="Sem ingredientes — rode as receitas para calcular"
+      />
+    </>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────
 export default function Pedidos() {
   const { data: pedidos,  loading: loadingPed, reload: reloadPedidos } = useData(getEncomendas)
@@ -561,8 +676,9 @@ export default function Pedidos() {
   const { data: clientes, reload: reloadClientes } = useData(getClientes)
 
   // mode: 'list' | 'novo' | pedido-object
-  const [mode, setMode] = useState('list')
+  const [mode, setMode]   = useState('list')
   const [filtro, setFiltro] = useState('Todos')
+  const [aba, setAba]     = useState('pedidos') // 'pedidos' | 'producao'
 
   const alertMap = useMemo(
     () => buildAlertMap(produtos || [], receitas || [], insumos || []),
@@ -617,37 +733,60 @@ export default function Pedidos() {
       </div>
 
       <div className="page-inner" style={{ paddingTop: 12 }}>
-        {/* Filtros */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto', paddingBottom: 2 }}>
-          {FILTROS.map(f => (
+        {/* Abas Pedidos / Produção */}
+        <div style={{ display: 'flex', gap: 0, marginBottom: 14, borderBottom: '1px solid var(--border)' }}>
+          {[['pedidos', 'Pedidos'], ['producao', 'Produção']].map(([key, label]) => (
             <button
-              key={f}
-              onClick={() => setFiltro(f)}
+              key={key}
+              onClick={() => setAba(key)}
               style={{
-                padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                border: '1px solid',
-                borderColor: filtro === f ? 'var(--teal)' : 'var(--border)',
-                background:  filtro === f ? 'var(--teal-light)' : 'transparent',
-                color:       filtro === f ? 'var(--teal)' : 'var(--text-secondary)',
-                cursor: 'pointer', whiteSpace: 'nowrap',
+                padding: '7px 18px', fontSize: 13, fontWeight: 600,
+                border: 'none', background: 'transparent', cursor: 'pointer',
+                color: aba === key ? 'var(--teal)' : 'var(--text-secondary)',
+                borderBottom: aba === key ? '2px solid var(--teal)' : '2px solid transparent',
+                marginBottom: -1,
               }}
-            >{f}</button>
+            >{label}</button>
           ))}
         </div>
 
-        {pedidosFiltrados.length === 0 ? (
-          <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>
-            {filtro === 'Todos' ? 'Nenhum pedido ainda' : `Nenhum pedido ${filtro.toLowerCase()}`}
-          </div>
+        {aba === 'producao' ? (
+          <ProducaoView pedidos={pedidos} produtos={produtos} receitas={receitas} />
         ) : (
-          pedidosFiltrados.map(p => (
-            <PedidoCard
-              key={p.id}
-              pedido={p}
-              alertMap={alertMap}
-              onClick={() => setMode(p)}
-            />
-          ))
+          <>
+            {/* Filtros */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto', paddingBottom: 2 }}>
+              {FILTROS.map(f => (
+                <button
+                  key={f}
+                  onClick={() => setFiltro(f)}
+                  style={{
+                    padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                    border: '1px solid',
+                    borderColor: filtro === f ? 'var(--teal)' : 'var(--border)',
+                    background:  filtro === f ? 'var(--teal-light)' : 'transparent',
+                    color:       filtro === f ? 'var(--teal)' : 'var(--text-secondary)',
+                    cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >{f}</button>
+              ))}
+            </div>
+
+            {pedidosFiltrados.length === 0 ? (
+              <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>
+                {filtro === 'Todos' ? 'Nenhum pedido ainda' : `Nenhum pedido ${filtro.toLowerCase()}`}
+              </div>
+            ) : (
+              pedidosFiltrados.map(p => (
+                <PedidoCard
+                  key={p.id}
+                  pedido={p}
+                  alertMap={alertMap}
+                  onClick={() => setMode(p)}
+                />
+              ))
+            )}
+          </>
         )}
       </div>
     </>
