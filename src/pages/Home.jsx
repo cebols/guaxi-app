@@ -144,13 +144,21 @@ function EncomendaCard({ enc, onUpdateStatus }) {
           {isToday(enc.dataEntrega) ? 'hoje' : formatDate(enc.dataEntrega)}
         </span>
       </div>
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>{itemStr}</div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: enc.obs ? 4 : 8 }}>{itemStr}</div>
+      {enc.obs && (
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {enc.obs}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         <StatusSelect
           value={enc.status}
           options={STATUS_PROD}
           badgeMap={PROD_BADGE}
-          onChange={(val) => onUpdateStatus(enc, val, enc.pgto)}
+          onChange={(val) => {
+            const newPgto = val === 'Entregue' && enc.pgto !== 'Pago' ? 'Atrasado' : enc.pgto
+            onUpdateStatus(enc, val, newPgto)
+          }}
         />
         <StatusSelect
           value={enc.pgto || 'Aguardando'}

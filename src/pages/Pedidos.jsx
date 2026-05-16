@@ -124,7 +124,6 @@ function Badge({ label, style }) {
 // ── Order card ────────────────────────────────────────────────
 function PedidoCard({ pedido, alertMap, onClick }) {
   const urg      = urgency(pedido.dataEntrega)
-  const saldo    = pedido.valor - (pedido.sinal || 0)
   const stStyle  = STATUS_STYLE[pedido.status] || STATUS_STYLE.Pendente
   const pgStyle  = PGTO_STYLE[pedido.pgto]     || PGTO_STYLE.Aguardando
   const hasAlert = (pedido.itens || []).some(it => alertMap[it.produto])
@@ -157,9 +156,6 @@ function PedidoCard({ pedido, alertMap, onClick }) {
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
           <div style={{ fontSize: 16, fontWeight: 700 }}>R$ {fmtR(pedido.valor)}</div>
-          {saldo > 0 && pedido.pgto !== 'Pago' && (
-            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 1 }}>saldo R$ {fmtR(saldo)}</div>
-          )}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
@@ -178,8 +174,7 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const [saving, setSaving]   = useState(false)
   const [confirm, setConfirm] = useState(false)
 
-  const saldo = pedido.valor - (pedido.sinal || 0)
-  const urg   = urgency(pedido.dataEntrega)
+  const urg = urgency(pedido.dataEntrega)
   const wa    = waLink(pedido.contato)
 
   const handleSave = async () => {
@@ -259,18 +254,10 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
 
         {/* Financeiro */}
         <div className="card" style={{ padding: '12px 14px', marginBottom: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Total</span>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>R$ {fmtR(pedido.valor)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Sinal recebido</span>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>R$ {fmtR(pedido.sinal)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Saldo a receber</span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: saldo > 0 ? '#f59e0b' : 'var(--teal)' }}>
-              R$ {fmtR(saldo)}
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>Total a receber</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: pedido.pgto === 'Pago' ? 'var(--teal)' : '#f59e0b' }}>
+              R$ {fmtR(pedido.valor)}
             </span>
           </div>
         </div>
@@ -279,7 +266,11 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
         <div className="field-row" style={{ marginBottom: 12 }}>
           <div>
             <div className="field-label">Status de produção</div>
-            <select className="field-input" value={status} onChange={e => setStatus(e.target.value)}>
+            <select className="field-input" value={status} onChange={e => {
+              const v = e.target.value
+              setStatus(v)
+              if (v === 'Entregue' && pgto !== 'Pago') setPgto('Atrasado')
+            }}>
               {STATUS_OPTS.map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
@@ -351,7 +342,7 @@ function NovoView({ produtos, alertMap, onBack, onSaved }) {
   const { toast, show } = useToast()
   const [form, setForm] = useState({
     cliente: '', contato: '', canal: 'WhatsApp',
-    dataEntrega: '', sinal: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
+    dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
   })
   const [itens, setItens] = useState([{ produto: '', quantidade: 1, precoUnit: '' }])
   const [saving, setSaving] = useState(false)
@@ -362,7 +353,6 @@ function NovoView({ produtos, alertMap, onBack, onSaved }) {
   const removeItem = (i) => setItens(prev => prev.filter((_, idx) => idx !== i))
 
   const total = itens.reduce((s, it) => s + (parseFloat(it.precoUnit) || 0) * (parseFloat(it.quantidade) || 1), 0)
-  const saldo = total - (parseFloat(form.sinal) || 0)
 
   const handleProdutoChange = (i, nome) => {
     const prod = (produtos || []).find(p => p.nome === nome)
@@ -491,25 +481,10 @@ function NovoView({ produtos, alertMap, onBack, onSaved }) {
         </div>
         <button className="btn-add-item" onClick={addItem}>+ adicionar item</button>
 
-        {/* Sinal + Total */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
-          <div style={{ flex: 1, marginRight: 12 }}>
-            <div className="field-label">Sinal (R$)</div>
-            <input
-              className="field-input"
-              style={{ marginBottom: 0 }}
-              type="number" placeholder="0,00"
-              value={form.sinal}
-              onChange={e => setField('sinal', e.target.value)}
-            />
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div className="field-label">Total</div>
-            <div style={{ fontSize: 22, fontWeight: 700 }}>R$ {fmtR(total)}</div>
-            {parseFloat(form.sinal) > 0 && (
-              <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 2 }}>Saldo: R$ {fmtR(saldo)}</div>
-            )}
-          </div>
+        {/* Total */}
+        <div style={{ textAlign: 'right', marginTop: 12 }}>
+          <div className="field-label">Total</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>R$ {fmtR(total)}</div>
         </div>
 
         {/* Obs */}
