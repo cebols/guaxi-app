@@ -175,6 +175,7 @@ export default function Home() {
   const { signOut, user } = useAuth()
   const navigate = useNavigate()
   const { toast, show } = useToast()
+  const [alertasOpen, setAlertasOpen] = useState(false)
   const { data: encomendas, loading: loadEnc, reload: reloadEnc } = useData(getEncomendas)
   const { data: insumos,    loading: loadIns, reload: reloadIns } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb, reload: reloadEmb } = useData(getEmbalagens)
@@ -287,24 +288,49 @@ export default function Home() {
           ))
         )}
 
-        {(alertasInsumos.length > 0 || alertasEmb.length > 0 || alertasProd.length > 0) && (
+        {totalAlertas > 0 && (
           <div style={{ marginTop: 16 }}>
-            {alertasProd.length > 0 && (
+            <button
+              onClick={() => setAlertasOpen(o => !o)}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                width: '100%', background: 'none', border: 'none', cursor: 'pointer',
+                padding: '0 0 8px 0',
+              }}
+            >
+              <span className="section-label" style={{ margin: 0 }}>Alertas de estoque</span>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                {criticos.length > 0 && (
+                  <span className="badge badge-alert">{criticos.length} pedir</span>
+                )}
+                {(totalAlertas - criticos.length) > 0 && (
+                  <span className="badge badge-warn">{totalAlertas - criticos.length} atenção</span>
+                )}
+                <span style={{ color: 'var(--text-secondary)', fontSize: 13, marginLeft: 2 }}>
+                  {alertasOpen ? '▲' : '▼'}
+                </span>
+              </div>
+            </button>
+            {alertasOpen && (
               <>
-                <div className="section-label">Produtos — alertas de estoque</div>
-                {alertasProd.map(item => <AlertaItem key={`prod-${item.id}`} item={item} />)}
-              </>
-            )}
-            {alertasInsumos.length > 0 && (
-              <>
-                <div className="section-label" style={{ marginTop: alertasProd.length > 0 ? 12 : 0 }}>Insumos — alertas de estoque</div>
-                {alertasInsumos.map(item => <AlertaItem key={`ins-${item.id}`} item={item} />)}
-              </>
-            )}
-            {alertasEmb.length > 0 && (
-              <>
-                <div className="section-label" style={{ marginTop: alertasInsumos.length > 0 || alertasProd.length > 0 ? 12 : 0 }}>Embalagens — alertas de estoque</div>
-                {alertasEmb.map(item => <AlertaItem key={`emb-${item.id}`} item={{ ...item, unidade: 'un' }} />)}
+                {alertasProd.length > 0 && (
+                  <>
+                    <div className="section-label" style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Produtos</div>
+                    {alertasProd.map(item => <AlertaItem key={`prod-${item.id}`} item={item} />)}
+                  </>
+                )}
+                {alertasInsumos.length > 0 && (
+                  <>
+                    <div className="section-label" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: alertasProd.length > 0 ? 10 : 0, marginBottom: 6 }}>Insumos</div>
+                    {alertasInsumos.map(item => <AlertaItem key={`ins-${item.id}`} item={item} />)}
+                  </>
+                )}
+                {alertasEmb.length > 0 && (
+                  <>
+                    <div className="section-label" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: (alertasInsumos.length > 0 || alertasProd.length > 0) ? 10 : 0, marginBottom: 6 }}>Embalagens</div>
+                    {alertasEmb.map(item => <AlertaItem key={`emb-${item.id}`} item={{ ...item, unidade: 'un' }} />)}
+                  </>
+                )}
               </>
             )}
           </div>
