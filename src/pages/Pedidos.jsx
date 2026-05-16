@@ -5,7 +5,7 @@ import { getProdutos, getInsumos, getReceitas, getEncomendas, savePedido, update
 
 // ── Constants ─────────────────────────────────────────────────
 const STATUS_OPTS = ['Pendente', 'Produzindo', 'Pronto', 'Entregue', 'Cancelado']
-const PGTO_OPTS   = ['Aguardando', 'Pago parcial', 'Pago']
+const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
 const CANAL_OPTS  = ['WhatsApp', 'iFood', '99Food', 'Keeta', 'Presencial']
 const FILTROS     = ['Todos', 'Pendente', 'Produzindo', 'Pronto', 'Entregue']
 
@@ -17,9 +17,9 @@ const STATUS_STYLE = {
   Cancelado:  { bg: '#3b1f1f', color: '#ef4444' },
 }
 const PGTO_STYLE = {
-  Aguardando:     { bg: '#3b2700', color: '#f59e0b' },
-  'Pago parcial': { bg: '#1e3a5f', color: '#60a5fa' },
-  Pago:           { bg: '#14532d', color: '#4ade80' },
+  Aguardando: { bg: '#3b2700', color: '#f59e0b' },
+  Pago:       { bg: '#14532d', color: '#4ade80' },
+  Atrasado:   { bg: '#3b1f1f', color: '#ef4444' },
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -28,7 +28,7 @@ function fmtR(v) {
 }
 function fmtDate(d) {
   if (!d) return ''
-  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 function urgency(dataEntrega) {
   if (!dataEntrega) return null
@@ -60,27 +60,73 @@ function buildAlertMap(produtos, receitas, insumos) {
   const map = {}
   for (const prod of (produtos || [])) {
     if (prod.tipo !== 'produto') continue
-    if ((prod.receitas || []).some(r => criticalReceitaIds.has(r.receitaId))) {
-      map[prod.nome] = true
-    }
+    if ((prod.receitas || []).some(r => criticalReceitaIds.has(r.receitaId))) map[prod.nome] = true
   }
   return map
 }
 
-// ── Badge component ───────────────────────────────────────────
+// ── Badge ─────────────────────────────────────────────────────
 function Badge({ label, style }) {
   return (
     <span style={{
       fontSize: 10, fontWeight: 700, letterSpacing: '0.03em',
       padding: '2px 7px', borderRadius: 10,
-      background: style.bg, color: style.color,
-      whiteSpace: 'nowrap',
+      background: style.bg, color: style.color, whiteSpace: 'nowrap',
     }}>{label}</span>
   )
 }
 
-// ── Order detail / edit modal ─────────────────────────────────
-function PedidoModal({ pedido, alertMap, onClose, onSaved }) {
+// ── Order card ────────────────────────────────────────────────
+function PedidoCard({ pedido, alertMap, onClick }) {
+  const urg      = urgency(pedido.dataEntrega)
+  const saldo    = pedido.valor - (pedido.sinal || 0)
+  const stStyle  = STATUS_STYLE[pedido.status] || STATUS_STYLE.Pendente
+  const pgStyle  = PGTO_STYLE[pedido.pgto]     || PGTO_STYLE.Aguardando
+  const hasAlert = (pedido.itens || []).some(it => alertMap[it.produto])
+
+  return (
+    <div className="card" onClick={onClick} style={{ padding: '12px 14px', marginBottom: 8, cursor: 'pointer' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 3 }}>
+            {urg && <Badge label={urg.label} style={urg} />}
+            {hasAlert && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', padding: '2px 6px', background: '#3b2700', borderRadius: 10 }}>
+                ⚠️ estoque
+              </span>
+            )}
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{pedido.id}</span>
+          </div>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{pedido.cliente}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: pedido.obs ? 4 : 0 }}>
+            {fmtDate(pedido.dataEntrega)}
+            {pedido.contato ? ` · ${pedido.contato}` : ''}
+          </div>
+          {pedido.obs ? (
+            <div style={{
+              fontSize: 11, color: 'var(--text-tertiary)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              maxWidth: 220,
+            }}>{pedido.obs}</div>
+          ) : null}
+        </div>
+        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>R$ {fmtR(pedido.valor)}</div>
+          {saldo > 0 && pedido.pgto !== 'Pago' && (
+            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 1 }}>saldo R$ {fmtR(saldo)}</div>
+          )}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+        <Badge label={pedido.status} style={stStyle} />
+        <Badge label={pedido.pgto}   style={pgStyle} />
+      </div>
+    </div>
+  )
+}
+
+// ── Detail view ───────────────────────────────────────────────
+function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const { toast, show } = useToast()
   const [status, setStatus] = useState(pedido.status)
   const [pgto, setPgto]     = useState(pedido.pgto)
@@ -95,7 +141,7 @@ function PedidoModal({ pedido, alertMap, onClose, onSaved }) {
     try {
       await updateStatusEncomenda(pedido.id, status, pgto)
       show('Salvo!')
-      setTimeout(() => { onSaved(); onClose() }, 700)
+      setTimeout(() => { onSaved(); onBack() }, 700)
     } catch (e) {
       show('Erro: ' + e.message)
     } finally {
@@ -104,42 +150,38 @@ function PedidoModal({ pedido, alertMap, onClose, onSaved }) {
   }
 
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'flex-end' }}
-      onClick={e => e.target === e.currentTarget && onClose()}
-    >
-      <div style={{
-        background: 'var(--card-bg)', borderRadius: '16px 16px 0 0',
-        width: '100%', maxWidth: 540, margin: '0 auto',
-        padding: '20px 20px 36px', maxHeight: '90vh', overflowY: 'auto',
-      }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>{pedido.id}</div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{pedido.cliente}</div>
-            <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-              {urg && <Badge label={urg.label} style={urg} />}
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                Entrega: {fmtDate(pedido.dataEntrega)}
-              </span>
-              {pedido.canal && pedido.canal !== 'WhatsApp' && (
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{pedido.canal}</span>
-              )}
-            </div>
-          </div>
+    <>
+      <div className="topbar">
+        <div className="topbar-inner">
           <button
-            onClick={onClose}
-            style={{ background: 'none', border: 'none', fontSize: 22, color: 'var(--text-tertiary)', cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}
-          >×</button>
+            onClick={onBack}
+            style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0 }}
+          >← voltar</button>
+          <div style={{ textAlign: 'right' }}>
+            <div className="topbar-title">{pedido.id}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="page-inner" style={{ paddingTop: 16 }}>
+        {/* Header */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{pedido.cliente}</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            {urg && <Badge label={urg.label} style={urg} />}
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              Entrega: {fmtDate(pedido.dataEntrega)}
+            </span>
+            {pedido.canal && <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{pedido.canal}</span>}
+          </div>
         </div>
 
-        {/* WhatsApp link */}
+        {/* WhatsApp */}
         {wa && (
           <a href={wa} target="_blank" rel="noreferrer" style={{
             display: 'flex', alignItems: 'center', gap: 8,
-            background: '#14532d', color: '#4ade80',
-            borderRadius: 8, padding: '9px 12px', marginBottom: 14,
+            background: 'var(--card-bg)', border: '1px solid #14532d', color: '#4ade80',
+            borderRadius: 10, padding: '10px 14px', marginBottom: 14,
             textDecoration: 'none', fontSize: 13, fontWeight: 500,
           }}>
             <span>📲</span>
@@ -148,7 +190,7 @@ function PedidoModal({ pedido, alertMap, onClose, onSaved }) {
           </a>
         )}
 
-        {/* Items */}
+        {/* Itens */}
         <div className="section-label">Itens</div>
         <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
           {(pedido.itens || []).map((it, i, arr) => (
@@ -160,7 +202,7 @@ function PedidoModal({ pedido, alertMap, onClose, onSaved }) {
               <div>
                 <span style={{ fontSize: 13 }}>{it.produto}</span>
                 {alertMap[it.produto] && (
-                  <span style={{ marginLeft: 6, fontSize: 11, color: '#f59e0b' }} title="Ingrediente com estoque crítico">⚠️</span>
+                  <span style={{ marginLeft: 6, fontSize: 11, color: '#f59e0b' }}>⚠️</span>
                 )}
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 6 }}>× {it.quantidade}</span>
               </div>
@@ -179,10 +221,7 @@ function PedidoModal({ pedido, alertMap, onClose, onSaved }) {
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Sinal recebido</span>
             <span style={{ fontSize: 14, fontWeight: 600 }}>R$ {fmtR(pedido.sinal)}</span>
           </div>
-          <div style={{
-            display: 'flex', justifyContent: 'space-between',
-            borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4,
-          }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 4 }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>Saldo a receber</span>
             <span style={{ fontSize: 16, fontWeight: 700, color: saldo > 0 ? '#f59e0b' : 'var(--teal)' }}>
               R$ {fmtR(saldo)}
@@ -209,8 +248,9 @@ function PedidoModal({ pedido, alertMap, onClose, onSaved }) {
         {/* Obs */}
         {pedido.obs && (
           <div style={{
-            fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14,
-            background: 'var(--bg-secondary)', borderRadius: 8, padding: '9px 12px',
+            fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14,
+            background: 'var(--card-bg)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: '10px 14px',
           }}>
             {pedido.obs}
           </div>
@@ -221,12 +261,12 @@ function PedidoModal({ pedido, alertMap, onClose, onSaved }) {
         </button>
       </div>
       {toast && <div className="toast">{toast}</div>}
-    </div>
+    </>
   )
 }
 
-// ── New order modal ───────────────────────────────────────────
-function NovoPedidoModal({ produtos, alertMap, onClose, onSaved }) {
+// ── New order form ────────────────────────────────────────────
+function NovoView({ produtos, alertMap, onBack, onSaved }) {
   const { toast, show } = useToast()
   const [form, setForm] = useState({
     cliente: '', contato: '', canal: 'WhatsApp',
@@ -251,14 +291,14 @@ function NovoPedidoModal({ produtos, alertMap, onClose, onSaved }) {
   }
 
   const handleSave = async () => {
-    if (!form.cliente)    { show('Preencha o nome do cliente'); return }
-    if (!form.dataEntrega){ show('Preencha a data de entrega'); return }
+    if (!form.cliente)     { show('Preencha o nome do cliente'); return }
+    if (!form.dataEntrega) { show('Preencha a data de entrega'); return }
     if (itens.some(it => !it.produto)) { show('Selecione o produto de cada item'); return }
     setSaving(true)
     try {
       const id = await savePedido(form, itens)
       show(`Pedido ${id} salvo!`)
-      setTimeout(() => { onSaved(); onClose() }, 700)
+      setTimeout(() => { onSaved(); onBack() }, 700)
     } catch (e) {
       show('Erro: ' + e.message)
     } finally {
@@ -270,26 +310,23 @@ function NovoPedidoModal({ produtos, alertMap, onClose, onSaved }) {
   const wa = waLink(form.contato)
 
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'flex-end' }}
-      onClick={e => e.target === e.currentTarget && onClose()}
-    >
-      <div style={{
-        background: 'var(--card-bg)', borderRadius: '16px 16px 0 0',
-        width: '100%', maxWidth: 540, margin: '0 auto',
-        padding: '20px 20px 36px', maxHeight: '92vh', overflowY: 'auto',
-      }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>Novo pedido</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, color: 'var(--text-tertiary)', cursor: 'pointer', lineHeight: 1 }}>×</button>
+    <>
+      <div className="topbar">
+        <div className="topbar-inner">
+          <button
+            onClick={onBack}
+            style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0 }}
+          >← voltar</button>
+          <div className="topbar-title">Novo pedido</div>
         </div>
+      </div>
 
+      <div className="page-inner" style={{ paddingTop: 16 }}>
         {/* Cliente */}
         <div className="field-label">Cliente *</div>
         <input className="field-input" placeholder="Nome do cliente" value={form.cliente} onChange={e => setField('cliente', e.target.value)} />
 
-        {/* Telefone + WhatsApp link ao vivo */}
+        {/* Telefone */}
         <div className="field-label">Telefone</div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
           <input
@@ -303,7 +340,7 @@ function NovoPedidoModal({ produtos, alertMap, onClose, onSaved }) {
             <a href={wa} target="_blank" rel="noreferrer" style={{
               background: '#14532d', color: '#4ade80',
               padding: '9px 12px', borderRadius: 8, fontSize: 12,
-              textDecoration: 'none', whiteSpace: 'nowrap',
+              textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0,
             }}>📲 WA</a>
           )}
         </div>
@@ -389,9 +426,7 @@ function NovoPedidoModal({ produtos, alertMap, onClose, onSaved }) {
             <div className="field-label">Total</div>
             <div style={{ fontSize: 22, fontWeight: 700 }}>R$ {fmtR(total)}</div>
             {parseFloat(form.sinal) > 0 && (
-              <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 2 }}>
-                Saldo: R$ {fmtR(saldo)}
-              </div>
+              <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 2 }}>Saldo: R$ {fmtR(saldo)}</div>
             )}
           </div>
         </div>
@@ -412,49 +447,7 @@ function NovoPedidoModal({ produtos, alertMap, onClose, onSaved }) {
         </button>
       </div>
       {toast && <div className="toast">{toast}</div>}
-    </div>
-  )
-}
-
-// ── Order card in list ────────────────────────────────────────
-function PedidoCard({ pedido, alertMap, onClick }) {
-  const urg     = urgency(pedido.dataEntrega)
-  const saldo   = pedido.valor - (pedido.sinal || 0)
-  const stStyle = STATUS_STYLE[pedido.status] || STATUS_STYLE.Pendente
-  const pgStyle = PGTO_STYLE[pedido.pgto]     || PGTO_STYLE.Aguardando
-  const hasAlert = (pedido.itens || []).some(it => alertMap[it.produto])
-
-  return (
-    <div className="card" onClick={onClick} style={{ padding: '12px 14px', marginBottom: 8, cursor: 'pointer' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 3 }}>
-            {urg && <Badge label={urg.label} style={urg} />}
-            {hasAlert && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', padding: '2px 6px', background: '#3b2700', borderRadius: 10 }}>
-                ⚠️ estoque
-              </span>
-            )}
-            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{pedido.id}</span>
-          </div>
-          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{pedido.cliente}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-            {fmtDate(pedido.dataEntrega)}
-            {pedido.contato ? ` · ${pedido.contato}` : ''}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>R$ {fmtR(pedido.valor)}</div>
-          {saldo > 0 && pedido.pgto !== 'Pago' && (
-            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 1 }}>saldo R$ {fmtR(saldo)}</div>
-          )}
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-        <Badge label={pedido.status} style={stStyle} />
-        <Badge label={pedido.pgto}   style={pgStyle} />
-      </div>
-    </div>
+    </>
   )
 }
 
@@ -465,9 +458,9 @@ export default function Pedidos() {
   const { data: insumos  } = useData(getInsumos)
   const { data: receitas } = useData(getReceitas)
 
-  const [filtro, setFiltro]       = useState('Todos')
-  const [showNovo, setShowNovo]   = useState(false)
-  const [pedidoSel, setPedidoSel] = useState(null)
+  // mode: 'list' | 'novo' | pedido-object
+  const [mode, setMode] = useState('list')
+  const [filtro, setFiltro] = useState('Todos')
 
   const alertMap = useMemo(
     () => buildAlertMap(produtos || [], receitas || [], insumos || []),
@@ -481,15 +474,41 @@ export default function Pedidos() {
 
   if (loadingPed || loadingProd) return <div className="loading">Carregando...</div>
 
+  if (mode === 'novo') {
+    return (
+      <NovoView
+        produtos={produtos || []}
+        alertMap={alertMap}
+        onBack={() => setMode('list')}
+        onSaved={reloadPedidos}
+      />
+    )
+  }
+
+  if (mode !== 'list') {
+    return (
+      <DetalheView
+        pedido={mode}
+        alertMap={alertMap}
+        onBack={() => setMode('list')}
+        onSaved={reloadPedidos}
+      />
+    )
+  }
+
   return (
     <>
       <div className="topbar">
         <div className="topbar-inner">
           <div className="topbar-title">Pedidos</div>
           <button
-            className="btn-primary"
-            onClick={() => setShowNovo(true)}
-            style={{ padding: '6px 14px', fontSize: 13 }}
+            onClick={() => setMode('novo')}
+            style={{
+              background: 'var(--teal)', color: '#fff',
+              border: 'none', borderRadius: 8,
+              padding: '7px 14px', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer',
+            }}
           >+ Novo</button>
         </div>
       </div>
@@ -513,7 +532,6 @@ export default function Pedidos() {
           ))}
         </div>
 
-        {/* List */}
         {pedidosFiltrados.length === 0 ? (
           <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>
             {filtro === 'Todos' ? 'Nenhum pedido ainda' : `Nenhum pedido ${filtro.toLowerCase()}`}
@@ -524,28 +542,11 @@ export default function Pedidos() {
               key={p.id}
               pedido={p}
               alertMap={alertMap}
-              onClick={() => setPedidoSel(p)}
+              onClick={() => setMode(p)}
             />
           ))
         )}
       </div>
-
-      {showNovo && (
-        <NovoPedidoModal
-          produtos={produtos || []}
-          alertMap={alertMap}
-          onClose={() => setShowNovo(false)}
-          onSaved={reloadPedidos}
-        />
-      )}
-      {pedidoSel && (
-        <PedidoModal
-          pedido={pedidoSel}
-          alertMap={alertMap}
-          onClose={() => setPedidoSel(null)}
-          onSaved={reloadPedidos}
-        />
-      )}
     </>
   )
 }
