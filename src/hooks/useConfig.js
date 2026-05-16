@@ -1,11 +1,23 @@
 const KEY = 'guaxi_config'
 
+export const DEFAULT_ITENS = [
+  { id: 'agua',    nome: 'Água',    valor: 0 },
+  { id: 'luz',     nome: 'Luz',     valor: 0 },
+  { id: 'gas',     nome: 'Gás',     valor: 0 },
+  { id: 'aluguel', nome: 'Aluguel', valor: 0 },
+]
+
 export const CONFIG_DEFAULTS = {
-  custoFixoMensal: 0,     // R$ total de custos fixos mensais (água, luz, gás, aluguel...)
-  unidadesProjetadas: 100, // unidades projetadas de venda/mês
-  margem: 30,              // % margem de lucro
-  taxa99: 20,              // % taxa 99Food
-  taxaIfood: 27,           // % taxa iFood
+  custoItens: DEFAULT_ITENS,
+  custoFixoMensal: 0,
+  unidadesProjetadas: 100,
+  margem: 30,
+  taxa99: 20,
+  taxaIfood: 27,
+}
+
+function somaItens(itens) {
+  return (itens || []).reduce((s, i) => s + (parseFloat(i.valor) || 0), 0)
 }
 
 export function getConfig() {
@@ -13,11 +25,14 @@ export function getConfig() {
     const raw = localStorage.getItem(KEY)
     if (!raw) return { ...CONFIG_DEFAULTS }
     const saved = JSON.parse(raw)
-    // backward compat: migrate old `rateio` field if present
+    // backward compat: old rateio field
     if (saved.rateio != null && saved.custoFixoMensal == null) {
       saved.custoFixoMensal = saved.rateio * (saved.unidadesProjetadas || CONFIG_DEFAULTS.unidadesProjetadas)
     }
-    return { ...CONFIG_DEFAULTS, ...saved }
+    const custoItens = saved.custoItens || DEFAULT_ITENS
+    // always recompute custoFixoMensal from itens
+    const custoFixoMensal = somaItens(custoItens) || saved.custoFixoMensal || 0
+    return { ...CONFIG_DEFAULTS, ...saved, custoItens, custoFixoMensal }
   } catch {
     return { ...CONFIG_DEFAULTS }
   }
@@ -25,6 +40,7 @@ export function getConfig() {
 
 export function saveConfig(updates) {
   const next = { ...getConfig(), ...updates }
+  next.custoFixoMensal = somaItens(next.custoItens)
   localStorage.setItem(KEY, JSON.stringify(next))
   return next
 }
