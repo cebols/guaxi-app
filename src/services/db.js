@@ -307,24 +307,15 @@ export async function deleteProduto(id) {
 // ── Clientes ──────────────────────────────────────────────────
 
 export async function getClientes() {
-  try {
-    const { data, error } = await supabase.from('clientes').select('*').order('nome')
-    if (error) throw error
-    return data.map(r => ({ id: r.id, nome: r.nome, telefone: r.telefone || '', obs: r.obs || '' }))
-  } catch (e) {
-    if (e.message?.includes('clientes')) return []
-    throw e
-  }
+  const { data, error } = await supabase.from('clientes').select('*').order('nome')
+  if (error && error.message?.includes('does not exist')) return []
+  if (error) throw error
+  return data.map(r => ({ id: r.id, nome: r.nome, telefone: r.telefone || '', obs: r.obs || '' }))
 }
 
 export async function saveCliente(cliente) {
-  try {
-    const { error } = await supabase.from('clientes').insert({ nome: cliente.nome, telefone: cliente.telefone || '', obs: cliente.obs || '' })
-    if (error) throw error
-  } catch (e) {
-    if (e.message?.includes('clientes')) return
-    throw e
-  }
+  const { error } = await supabase.from('clientes').insert({ nome: cliente.nome, telefone: cliente.telefone || '', obs: cliente.obs || '' })
+  if (error && !error.message?.includes('does not exist')) throw error
 }
 
 // ── Encomendas ────────────────────────────────────────────────
