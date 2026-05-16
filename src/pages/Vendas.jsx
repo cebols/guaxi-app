@@ -70,20 +70,57 @@ function TendenciaSemanal({ vendas }) {
         total, inicio, byProd,
       })
     }
-    return { semanas: result, prodNomes: nomes, colorMap }
+
+    // add week-over-week change to each entry
+    const withChange = result.map((s, i) => ({
+      ...s,
+      change: i > 0 && result[i - 1].total > 0
+        ? ((s.total - result[i - 1].total) / result[i - 1].total) * 100
+        : null,
+    }))
+
+    return { semanas: withChange, prodNomes: nomes, colorMap }
   }, [vendas])
 
-  const max   = Math.max(...semanas.map(s => s.total), 0.01)
-  const maxH  = 72
-  const hoje  = isoToday()
+  const max  = Math.max(...semanas.map(s => s.total), 0.01)
+  const maxH = 72
+  const WEEK_LABEL_H = 14 // approximate px height of week label
+
+  // média das semanas completas (exceto a corrente) para linha de referência
+  const completed = semanas.slice(0, 5).filter(s => s.total > 0)
+  const media = completed.length > 0
+    ? completed.reduce((s, w) => s + w.total, 0) / completed.length
+    : 0
+  const mediaY = media > 0 ? WEEK_LABEL_H + (media / max) * maxH : 0
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: maxH + 28 }}>
+      {/* bar area — position:relative to anchor the média line */}
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 6, height: maxH + 28 }}>
+
+        {/* ── Linha de média ──────────────────────────────── */}
+        {media > 0 && (
+          <div style={{
+            position: 'absolute', left: 0, right: 0,
+            bottom: mediaY,
+            borderTop: '1.5px dashed rgba(255,255,255,0.2)',
+            pointerEvents: 'none', zIndex: 2,
+          }}>
+            <span style={{
+              position: 'absolute', right: 0, bottom: 3,
+              fontSize: 8, color: 'var(--text-tertiary)',
+              background: 'var(--bg-card)', padding: '0 3px', borderRadius: 2,
+            }}>
+              média {fmtR(media).replace('R$ ', '')}
+            </span>
+          </div>
+        )}
+
+        {/* ── Barras ──────────────────────────────────────── */}
         {semanas.map((s, i) => {
-          const barH      = s.total > 0 ? Math.max(4, (s.total / max) * maxH) : 0
+          const barH       = s.total > 0 ? Math.max(4, (s.total / max) * maxH) : 0
           const isThisWeek = i === semanas.length - 1
-          const segments  = prodNomes
+          const segments   = prodNomes
             .filter(p => (s.byProd[p] || 0) > 0)
             .map(p => ({ pct: s.byProd[p] / s.total, color: colorMap[p] }))
 
@@ -96,7 +133,7 @@ function TendenciaSemanal({ vendas }) {
                 {s.total > 0 ? segments.map((seg, si) => (
                   <div key={si} style={{ flex: seg.pct, background: seg.color }} />
                 )) : (
-                  <div style={{ flex: 1, background: 'var(--border)', height: 2, marginTop: 'auto' }} />
+                  <div style={{ height: 2, background: 'var(--border)', marginTop: 'auto', width: '100%' }} />
                 )}
               </div>
               <div style={{ fontSize: 9, color: isThisWeek ? 'var(--text-primary)' : 'var(--text-tertiary)', whiteSpace: 'nowrap', fontWeight: isThisWeek ? 700 : 400 }}>
@@ -106,6 +143,22 @@ function TendenciaSemanal({ vendas }) {
           )
         })}
       </div>
+
+      {/* ── Variação semana a semana ─────────────────────── */}
+      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+        {semanas.map((s, i) => {
+          if (s.change === null) return <div key={i} style={{ flex: 1 }} />
+          const up    = s.change > 0
+          const color = up ? 'var(--teal)' : s.change < 0 ? 'var(--alert-text)' : 'var(--text-tertiary)'
+          return (
+            <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 8, color, fontWeight: 700 }}>
+              {up ? '↑' : '↓'}{Math.abs(s.change).toFixed(0)}%
+            </div>
+          )
+        })}
+      </div>
+
+      {/* ── Legenda produtos ─────────────────────────────── */}
       {prodNomes.length > 1 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 8 }}>
           {prodNomes.map(p => (
