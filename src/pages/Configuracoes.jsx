@@ -101,6 +101,33 @@ export default function Configuracoes() {
             </div>
           ))}
 
+          {/* Nova linha inline de adição */}
+          {adicionando && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+              <input
+                style={{
+                  flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                  fontSize: 13, color: 'var(--text-primary)', fontWeight: 500,
+                }}
+                placeholder="Nome do custo (ex: Internet)"
+                value={novoNome}
+                onChange={e => setNovoNome(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addItem(); if (e.key === 'Escape') { setAdicionando(false); setNovoNome('') } }}
+                autoFocus
+              />
+              <button
+                onClick={addItem}
+                style={{ fontSize: 12, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--teal)', color: 'var(--teal)', background: 'transparent', cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                Confirmar
+              </button>
+              <button
+                onClick={() => { setAdicionando(false); setNovoNome('') }}
+                style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 18, padding: '0 2px', lineHeight: 1 }}
+              >×</button>
+            </div>
+          )}
+
           {/* Total row */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0 4px', borderTop: '1px solid var(--border)' }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Total mensal</span>
@@ -108,25 +135,7 @@ export default function Configuracoes() {
           </div>
         </div>
 
-        {/* Add item */}
-        {adicionando ? (
-          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-            <input
-              className="field-input"
-              style={{ flex: 1, marginBottom: 0 }}
-              placeholder="Nome do custo (ex: Internet)"
-              value={novoNome}
-              onChange={e => setNovoNome(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addItem(); if (e.key === 'Escape') setAdicionando(false) }}
-              autoFocus
-            />
-            <button className="btn-outline-teal" onClick={addItem} style={{ fontSize: 13, padding: '6px 12px', whiteSpace: 'nowrap' }}>
-              Adicionar
-            </button>
-            <button onClick={() => { setAdicionando(false); setNovoNome('') }}
-              style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 20 }}>×</button>
-          </div>
-        ) : (
+        {!adicionando && (
           <button className="btn-add-item" onClick={() => setAdicionando(true)} style={{ marginBottom: 12 }}>
             + Adicionar custo
           </button>
