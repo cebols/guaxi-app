@@ -164,7 +164,9 @@ export async function getProdutos() {
     return d2.map(r => ({
       id: r.id,
       nome: r.nome,
+      tipo: r.tipo || 'produto',
       custoTotal: r.custo_total || 0,
+      custoDireto: r.custo_direto ?? r.composicao?.custoDireto ?? null,
       precoSugerido: r.preco_sugerido || 0,
       precoPraticado: r.preco_praticado,
       precoDireta: r.preco_direta ?? r.composicao?.precoDireta ?? null,
@@ -178,7 +180,9 @@ export async function getProdutos() {
   return data.map(r => ({
     id: r.id,
     nome: r.nome,
+    tipo: r.tipo || 'produto',
     custoTotal: r.custo_total || 0,
+    custoDireto: r.custo_direto ?? null,
     precoSugerido: r.preco_sugerido || 0,
     precoPraticado: r.preco_praticado,
     precoDireta: r.preco_direta ?? null,
@@ -209,9 +213,15 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
 
   const toNum = (v) => v !== '' && v != null ? parseFloat(v) : null
 
+  // for avulso items, custo_total = custo_direto
+  const custoDireto = toNum(prod.custoDireto)
+  const efectivoCusto = prod.tipo === 'avulso' && custoDireto != null ? custoDireto : custoTotal
+
   const row = {
     nome: prod.nome,
-    custo_total: custoTotal,
+    tipo: prod.tipo || 'produto',
+    custo_total: efectivoCusto,
+    custo_direto: custoDireto,
     preco_sugerido: parseFloat(prod.precoSugerido) || 0,
     preco_praticado: toNum(prod.precoDireta),
     preco_direta: toNum(prod.precoDireta),
@@ -219,7 +229,7 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     preco_ifood:  toNum(prod.precoIfood),
   }
 
-  const saved = await upsert('produtos', row, prod.id || null, ['preco_direta', 'preco_99', 'preco_ifood'])
+  const saved = await upsert('produtos', row, prod.id || null, ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo'])
   const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)
@@ -238,9 +248,10 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     precoDireta: toNum(prod.precoDireta),
     preco99:     toNum(prod.preco99),
     precoIfood:  toNum(prod.precoIfood),
+    custoDireto: toNum(prod.custoDireto),
   }
   try {
-    await supabase.from('produtos').update({ composicao, custo_total: custoTotal }).eq('id', prodId)
+    await supabase.from('produtos').update({ composicao, custo_total: efectivoCusto }).eq('id', prodId)
   } catch (_) { /* composicao column may not exist yet — harmless */ }
 
   // Junction tables — skip gracefully if migration3.sql not yet run

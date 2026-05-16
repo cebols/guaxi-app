@@ -30,18 +30,23 @@ function fmtR(val) {
   return `R$ ${rounded.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-const FORM_EMPTY = { nome: '', precoDireta: '', preco99: '', precoIfood: '' }
+const TIPO_LABELS = { produto: 'Produzido', avulso: 'Avulso' }
+
+const FORM_EMPTY = { nome: '', tipo: 'produto', custoDireto: '', precoDireta: '', preco99: '', precoIfood: '' }
 
 function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item
     ? {
-        nome: item.nome,
+        nome:        item.nome,
+        tipo:        item.tipo        || 'produto',
+        custoDireto: item.custoDireto ?? '',
         precoDireta: item.precoDireta ?? '',
         preco99:     item.preco99     ?? '',
         precoIfood:  item.precoIfood  ?? '',
       }
     : { ...FORM_EMPTY }
   )
+  const isAvulso = form.tipo === 'avulso'
   const [recRows, setRecRows] = useState(
     item?.receitas?.length > 0
       ? item.receitas.map(r => ({
@@ -83,11 +88,15 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
   const addEmb = () => setEmbRows(prev => [...prev, { embalagemId: null, nome: '', quantidade: 1, custoUnit: 0 }])
   const removeEmb = i => setEmbRows(prev => prev.filter((_, idx) => idx !== i))
 
-  const custoTotal = useMemo(() => {
+  const custoComposicao = useMemo(() => {
     const rec = recRows.reduce((s, r) => s + (r.custoUnid || 0) * (parseFloat(r.quantidade) || 1), 0)
     const emb = embRows.reduce((s, e) => s + (e.custoUnit || 0) * (parseFloat(e.quantidade) || 1), 0)
     return rec + emb
   }, [recRows, embRows])
+
+  const custoTotal = isAvulso
+    ? (parseFloat(form.custoDireto) || 0)
+    : custoComposicao
 
   const cfg = getConfig()
   const precos = calcPrecos(custoTotal, cfg)
@@ -96,8 +105,8 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
     if (!form.nome) return
     setSaving(true)
     try {
-      const recItems = recRows.filter(r => r.receitaId)
-      const embItems = embRows.filter(e => e.embalagemId)
+      const recItems = isAvulso ? [] : recRows.filter(r => r.receitaId)
+      const embItems = isAvulso ? [] : embRows.filter(e => e.embalagemId)
       await onSave({ ...form, id: item?.id, precoSugerido: precos.base }, recItems, embItems)
       onClose()
     } catch (e) { alert(e.message) } finally { setSaving(false) }
@@ -111,9 +120,41 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
 
   return (
     <Sheet title={item ? 'Editar produto' : 'Novo produto'} onClose={onClose}>
-      <div className="field-label">Nome do produto *</div>
+      <div className="field-label">Nome *</div>
       <input className="field-input" placeholder="ex: Choux Craquelin" value={form.nome} onChange={e => set('nome', e.target.value)} />
 
+      {/* Tipo toggle */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {Object.entries(TIPO_LABELS).map(([val, label]) => (
+          <button key={val} onClick={() => set('tipo', val)} style={{
+            flex: 1, padding: '7px 0', borderRadius: 8, fontSize: 13, cursor: 'pointer',
+            border: `1px solid ${form.tipo === val ? 'var(--teal)' : 'var(--border)'}`,
+            background: form.tipo === val ? 'var(--teal-light)' : 'transparent',
+            color: form.tipo === val ? 'var(--teal)' : 'var(--text-secondary)',
+            fontWeight: form.tipo === val ? 600 : 400,
+          }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Avulso: apenas custo direto */}
+      {isAvulso ? (
+        <>
+          <div className="field-label">Custo de aquisição (R$)</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            Quanto você paga por unidade (preço de compra)
+          </div>
+          <input
+            className="field-input"
+            type="number" min="0" step="0.10"
+            placeholder="ex: 3.50"
+            value={form.custoDireto}
+            onChange={e => set('custoDireto', e.target.value)}
+          />
+        </>
+      ) : (
+        <>
       <div className="section-label" style={{ marginTop: 4 }}>Composição — Receitas</div>
       <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 4 }}>
         {recRows.map((row, i) => {
@@ -189,6 +230,8 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
         {(embalagens || []).map(e => <option key={e.id} value={e.nome} />)}
       </datalist>
       <button className="btn-add-item" onClick={addEmb}>+ embalagem</button>
+        </>
+      )}
 
       {custoTotal > 0 && (
         <div style={{ margin: '12px 0 4px', padding: '10px 14px', background: 'var(--teal-light)', borderRadius: 8 }}>
@@ -310,9 +353,12 @@ export default function Produtos() {
                           const p = calcPrecos(prod.custoTotal, cfg)
                           return (
                             <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })}>
-                              <td style={{ fontWeight: 600 }}>{prod.nome}</td>
+                              <td style={{ fontWeight: 600 }}>
+                                {prod.nome}
+                                {prod.tipo === 'avulso' && <span style={{ marginLeft: 6, fontSize: 10, background: '#334155', color: '#94a3b8', borderRadius: 4, padding: '1px 5px' }}>Avulso</span>}
+                              </td>
                               <td className="muted" style={{ fontSize: 12 }}>
-                                {[
+                                {prod.tipo === 'avulso' ? 'Item avulso' : [
                                   ...(prod.receitas || []).map(r => `${r.quantidade} ${r.unidadeGera} ${r.nome}`),
                                   ...(prod.embalagens || []).map(e => `${e.quantidade}× ${e.nome}`),
                                 ].join(', ') || '—'}
@@ -344,9 +390,12 @@ export default function Produtos() {
                   {(produtos || []).map(prod => (
                     <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div className="list-item-name">{prod.nome}</div>
+                        <div className="list-item-name">
+                          {prod.nome}
+                          {prod.tipo === 'avulso' && <span style={{ marginLeft: 6, fontSize: 10, background: '#334155', color: '#94a3b8', borderRadius: 4, padding: '1px 5px', verticalAlign: 'middle' }}>Avulso</span>}
+                        </div>
                         <div className="list-item-sub">
-                          {[
+                          {prod.tipo === 'avulso' ? 'Item avulso' : [
                             ...(prod.receitas || []).map(r => `${r.quantidade} ${r.unidadeGera} ${r.nome}`),
                             ...(prod.embalagens || []).map(e => `${e.quantidade}× ${e.nome}`),
                           ].join(' · ') || 'Sem composição'}
