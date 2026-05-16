@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getInsumos, getEmbalagens, updateEstoqueInsumos, updateEstoqueEmbalagens } from '../services/db'
+import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos } from '../services/db'
 
 function waLink(phone) {
   const digits = (phone || '').replace(/\D/g, '')
@@ -139,12 +139,14 @@ function StockTab({ itens, contagem, onChange }) {
 export default function Contagem() {
   const { data: insumos,    loading: loadIns } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb } = useData(getEmbalagens)
+  const { data: produtos,   loading: loadProd } = useData(getProdutos)
   const { toast, show } = useToast()
 
   const [tab, setTab] = useState('insumos')
-  const [contagemIns, setContagemIns] = useState({})
-  const [contagemEmb, setContagemEmb] = useState({})
-  const [autoSaveState, setAutoSaveState] = useState('idle') // idle | saving | saved
+  const [contagemIns,  setContagemIns]  = useState({})
+  const [contagemEmb,  setContagemEmb]  = useState({})
+  const [contagemProd, setContagemProd] = useState({})
+  const [autoSaveState, setAutoSaveState] = useState('idle')
   const debounceRef = useRef({})
 
   const autoSave = (type, id, val) => {
@@ -154,8 +156,9 @@ export default function Contagem() {
     debounceRef.current[key] = setTimeout(async () => {
       try {
         const payload = [{ id, estoqueAtual: val !== '' ? parseFloat(val) : null }]
-        if (type === 'ins') await updateEstoqueInsumos(payload)
-        else await updateEstoqueEmbalagens(payload)
+        if (type === 'ins')  await updateEstoqueInsumos(payload)
+        else if (type === 'emb') await updateEstoqueEmbalagens(payload)
+        else await updateEstoqueProdutos(payload)
         setAutoSaveState('saved')
         setTimeout(() => setAutoSaveState('idle'), 1500)
       } catch (e) {
@@ -165,10 +168,16 @@ export default function Contagem() {
     }, 700)
   }
 
-  const setIns = (id, val) => { setContagemIns(c => ({ ...c, [id]: val })); autoSave('ins', id, val) }
-  const setEmb = (id, val) => { setContagemEmb(c => ({ ...c, [id]: val })); autoSave('emb', id, val) }
+  const setIns  = (id, val) => { setContagemIns(c  => ({ ...c, [id]: val })); autoSave('ins',  id, val) }
+  const setEmb  = (id, val) => { setContagemEmb(c  => ({ ...c, [id]: val })); autoSave('emb',  id, val) }
+  const setProd = (id, val) => { setContagemProd(c => ({ ...c, [id]: val })); autoSave('prod', id, val) }
 
-  const loading = tab === 'insumos' ? loadIns : loadEmb
+  // Produtos as StockTab items (unidade = 'un', sem categoria → grupo por tipo)
+  const produtosParaContagem = (produtos || [])
+    .filter(p => p.tipo !== 'combo') // combos não têm estoque próprio
+    .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' }))
+
+  const loading = tab === 'insumos' ? loadIns : tab === 'embalagens' ? loadEmb : loadProd
 
   return (
     <>
@@ -188,6 +197,7 @@ export default function Contagem() {
         <div className="tab-bar">
           <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => setTab('insumos')}>Insumos</button>
           <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => setTab('embalagens')}>Embalagens</button>
+          <button className={`tab-btn ${tab === 'produtos'   ? 'active' : ''}`} onClick={() => setTab('produtos')}>Produtos</button>
         </div>
 
         {loading ? (
@@ -197,11 +207,13 @@ export default function Contagem() {
             <StockTab itens={insumos || []} contagem={contagemIns} onChange={setIns} />
             <ListaCompras contagem={contagemIns} itens={insumos || []} />
           </>
-        ) : (
+        ) : tab === 'embalagens' ? (
           <>
             <StockTab itens={embalagens || []} contagem={contagemEmb} onChange={setEmb} />
             <ListaCompras contagem={contagemEmb} itens={embalagens || []} />
           </>
+        ) : (
+          <StockTab itens={produtosParaContagem} contagem={contagemProd} onChange={setProd} />
         )}
       </div>
 

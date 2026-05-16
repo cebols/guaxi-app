@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
-import { getEncomendas, getInsumos, getEmbalagens, updateStatusEncomenda } from '../services/db'
+import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda } from '../services/db'
 import { useToast } from '../hooks/useToast'
 import { useNavigate } from 'react-router-dom'
 
@@ -178,8 +178,9 @@ export default function Home() {
   const { data: encomendas, loading: loadEnc, reload: reloadEnc } = useData(getEncomendas)
   const { data: insumos,    loading: loadIns, reload: reloadIns } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb, reload: reloadEmb } = useData(getEmbalagens)
+  const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
 
-  const reloadAll = () => { reloadEnc(); reloadIns(); reloadEmb() }
+  const reloadAll = () => { reloadEnc(); reloadIns(); reloadEmb(); reloadProd() }
 
   const proximas = (encomendas || [])
     .filter(e => {
@@ -204,8 +205,13 @@ export default function Home() {
     .filter(e => e.estoqueAtual !== null && e.estoqueAtual !== undefined && e.estoqueMin > 0 && nivelEstoque(e.estoqueAtual, e.estoqueMin) < 2)
     .sort((a, b) => nivelEstoque(a.estoqueAtual, a.estoqueMin) - nivelEstoque(b.estoqueAtual, b.estoqueMin))
 
-  const totalAlertas = alertasInsumos.length + alertasEmb.length
-  const criticos = [...alertasInsumos, ...alertasEmb].filter(i => nivelEstoque(i.estoqueAtual, i.estoqueMin) === 0)
+  const alertasProd = (produtos || [])
+    .filter(p => p.estoqueAtual !== null && p.estoqueAtual !== undefined && p.estoqueMin > 0 && nivelEstoque(p.estoqueAtual, p.estoqueMin) < 2)
+    .map(p => ({ ...p, unidade: 'un' }))
+    .sort((a, b) => nivelEstoque(a.estoqueAtual, a.estoqueMin) - nivelEstoque(b.estoqueAtual, b.estoqueMin))
+
+  const totalAlertas = alertasInsumos.length + alertasEmb.length + alertasProd.length
+  const criticos = [...alertasInsumos, ...alertasEmb, ...alertasProd].filter(i => nivelEstoque(i.estoqueAtual, i.estoqueMin) === 0)
 
   const handleUpdateStatus = async (enc, novoStatus, novoPgto) => {
     try {
@@ -281,17 +287,23 @@ export default function Home() {
           ))
         )}
 
-        {(alertasInsumos.length > 0 || alertasEmb.length > 0) && (
+        {(alertasInsumos.length > 0 || alertasEmb.length > 0 || alertasProd.length > 0) && (
           <div style={{ marginTop: 16 }}>
+            {alertasProd.length > 0 && (
+              <>
+                <div className="section-label">Produtos — alertas de estoque</div>
+                {alertasProd.map(item => <AlertaItem key={`prod-${item.id}`} item={item} />)}
+              </>
+            )}
             {alertasInsumos.length > 0 && (
               <>
-                <div className="section-label">Insumos — alertas de estoque</div>
+                <div className="section-label" style={{ marginTop: alertasProd.length > 0 ? 12 : 0 }}>Insumos — alertas de estoque</div>
                 {alertasInsumos.map(item => <AlertaItem key={`ins-${item.id}`} item={item} />)}
               </>
             )}
             {alertasEmb.length > 0 && (
               <>
-                <div className="section-label" style={{ marginTop: alertasInsumos.length > 0 ? 12 : 0 }}>Embalagens — alertas de estoque</div>
+                <div className="section-label" style={{ marginTop: alertasInsumos.length > 0 || alertasProd.length > 0 ? 12 : 0 }}>Embalagens — alertas de estoque</div>
                 {alertasEmb.map(item => <AlertaItem key={`emb-${item.id}`} item={{ ...item, unidade: 'un' }} />)}
               </>
             )}

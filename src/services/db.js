@@ -175,6 +175,8 @@ export async function getProdutos() {
       precoDireta: r.preco_direta ?? r.composicao?.precoDireta ?? null,
       preco99:     r.preco_99     ?? r.composicao?.preco99     ?? null,
       precoIfood:  r.preco_ifood  ?? r.composicao?.precoIfood  ?? null,
+      estoqueAtual: r.estoque_atual ?? null,
+      estoqueMin:   r.estoque_min  ?? 0,
       receitas:    (r.composicao?.receitas    || []),
       embalagens:  (r.composicao?.embalagens  || []),
       componentes: (r.composicao?.componentes || []),
@@ -195,6 +197,8 @@ export async function getProdutos() {
     precoDireta: r.preco_direta ?? null,
     preco99:     r.preco_99     ?? null,
     precoIfood:  r.preco_ifood  ?? null,
+    estoqueAtual: r.estoque_atual ?? null,
+    estoqueMin:   r.estoque_min  ?? 0,
     componentes: (r.composicao?.componentes || []),
     receitas: (r.produto_receitas || []).map(pr => ({
       id: pr.id,
@@ -297,6 +301,20 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
   } catch (e) {
     if (!e.message?.includes('produto_receitas') && !e.message?.includes('produto_embalagens')) throw e
   }
+}
+
+export async function updateEstoqueProdutos(items) {
+  await Promise.all(
+    items.map(({ id, estoqueAtual }) =>
+      supabase.from('produtos').update({ estoque_atual: estoqueAtual }).eq('id', id)
+    )
+  )
+}
+
+export async function adjustEstoqueProduto(id, delta) {
+  const { data } = await supabase.from('produtos').select('estoque_atual').eq('id', id).single()
+  const atual = data?.estoque_atual ?? 0
+  await supabase.from('produtos').update({ estoque_atual: Math.max(0, atual + delta) }).eq('id', id)
 }
 
 export async function deleteProduto(id) {
@@ -524,16 +542,21 @@ export async function getVendas() {
 }
 
 export async function saveVenda(venda) {
+  const quantidade = parseFloat(venda.quantidade) || 1
   const { data, error } = await supabase.from('vendas').insert({
     data: venda.data,
     produto_nome: venda.produtoNome,
     produto_id: venda.produtoId || null,
-    quantidade: parseFloat(venda.quantidade) || 1,
+    quantidade,
     preco_unit: parseFloat(venda.precoUnit) || 0,
     plataforma: venda.plataforma || 'Direta',
     custo_unit: parseFloat(venda.custoUnit) || 0,
   }).select().single()
   if (error) throw error
+  // Deduct from product stock
+  if (venda.produtoId) {
+    try { await adjustEstoqueProduto(venda.produtoId, -quantidade) } catch (_) {}
+  }
   return data.id
 }
 

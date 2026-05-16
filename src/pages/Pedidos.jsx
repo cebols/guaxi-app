@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, deletePedido } from '../services/db'
+import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, deletePedido, adjustEstoqueProduto } from '../services/db'
 
 // ── Constants ─────────────────────────────────────────────────
 const STATUS_OPTS = ['Pendente', 'Produzindo', 'Pronto', 'Entregue', 'Cancelado']
@@ -559,7 +559,7 @@ function fmtQty(q, unidade) {
   return `${str} ${unidade || 'un'}`
 }
 
-function ProducaoView({ pedidos, produtos, receitas }) {
+function ProducaoView({ pedidos, produtos, receitas, onEstoqueUpdated }) {
   const ativos = (pedidos || []).filter(p => !['Entregue', 'Cancelado'].includes(p.status))
 
   const receitaMap = Object.fromEntries((receitas || []).map(r => [r.id, r]))
@@ -605,6 +605,30 @@ function ProducaoView({ pedidos, produtos, receitas }) {
   const itensOrdenados    = Object.entries(itemQtd).sort((a, b) => b[1] - a[1])
   const receitasOrdenadas = Object.entries(receitaQtd).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
 
+  // "Marcar como produzido" state
+  const [produzido, setProduzido] = useState({})
+  const [savingProd, setSavingProd] = useState(false)
+  const { toast, show } = useToast()
+
+  const handleConfirmarProducao = async () => {
+    const entries = Object.entries(produzido).filter(([, q]) => parseFloat(q) > 0)
+    if (entries.length === 0) return
+    setSavingProd(true)
+    try {
+      await Promise.all(entries.map(([nome, q]) => {
+        const prod = prodMap[nome]
+        if (prod?.id) return adjustEstoqueProduto(prod.id, parseFloat(q))
+      }))
+      setProduzido({})
+      show('Estoque atualizado!')
+      onEstoqueUpdated()
+    } catch (e) {
+      show('Erro: ' + e.message)
+    } finally {
+      setSavingProd(false)
+    }
+  }
+
   if (ativos.length === 0) {
     return (
       <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>
@@ -648,16 +672,65 @@ function ProducaoView({ pedidos, produtos, receitas }) {
         </div>
       </div>
 
-      <SectionTable
-        title="Itens a produzir"
-        rows={itensOrdenados.map(([nome, qty]) => [nome, { quantidade: qty, unidade: 'un' }])}
-        emptyMsg="Nenhum item"
-      />
+      <div className="section-label" style={{ marginTop: 16 }}>Itens a produzir</div>
+      <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 6 }}>
+        {itensOrdenados.map(([nome, needed], i, arr) => {
+          const prod = prodMap[nome]
+          const emEstoque = prod?.estoqueAtual ?? null
+          const falta = emEstoque !== null ? Math.max(0, needed - emEstoque) : null
+          return (
+            <div key={nome} style={{
+              padding: '10px 0',
+              borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <span style={{ fontSize: 13, fontWeight: 500 }}>{nome}</span>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{needed} un</span>
+                  {emEstoque !== null && (
+                    <div style={{ fontSize: 11, color: falta === 0 ? 'var(--teal)' : 'var(--text-secondary)', marginTop: 1 }}>
+                      {falta === 0
+                        ? `✓ em estoque (${emEstoque})`
+                        : `estoque: ${emEstoque} · produzir: ${falta}`}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {prod?.id && falta !== 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Produziu hoje:</span>
+                  <input
+                    type="number" min="0"
+                    className="item-qty"
+                    style={{ width: 64 }}
+                    placeholder="0"
+                    value={produzido[nome] || ''}
+                    onChange={e => setProduzido(p => ({ ...p, [nome]: e.target.value }))}
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>un</span>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      {Object.values(produzido).some(q => parseFloat(q) > 0) && (
+        <button
+          className="btn-primary"
+          onClick={handleConfirmarProducao}
+          disabled={savingProd}
+          style={{ marginBottom: 8 }}
+        >
+          {savingProd ? 'Salvando...' : 'Confirmar produção → estoque'}
+        </button>
+      )}
+
       <SectionTable
         title="Receitas necessárias"
         rows={receitasOrdenadas}
         emptyMsg="Sem receitas vinculadas — itens podem ser avulsos ou personalizados"
       />
+      {toast && <div className="toast">{toast}</div>}
     </>
   )
 }
@@ -665,7 +738,7 @@ function ProducaoView({ pedidos, produtos, receitas }) {
 // ── Main page ─────────────────────────────────────────────────
 export default function Pedidos() {
   const { data: pedidos,  loading: loadingPed, reload: reloadPedidos } = useData(getEncomendas)
-  const { data: produtos, loading: loadingProd } = useData(getProdutos)
+  const { data: produtos, loading: loadingProd, reload: reloadProdutos } = useData(getProdutos)
   const { data: insumos  } = useData(getInsumos)
   const { data: receitas } = useData(getReceitas)
   const { data: clientes, reload: reloadClientes } = useData(getClientes)
@@ -746,7 +819,7 @@ export default function Pedidos() {
         </div>
 
         {aba === 'producao' ? (
-          <ProducaoView pedidos={pedidos} produtos={produtos} receitas={receitas} />
+          <ProducaoView pedidos={pedidos} produtos={produtos} receitas={receitas} onEstoqueUpdated={reloadProdutos} />
         ) : (
           <>
             {/* Filtros */}
