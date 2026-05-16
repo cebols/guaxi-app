@@ -562,48 +562,48 @@ function fmtQty(q, unidade) {
 function ProducaoView({ pedidos, produtos, receitas }) {
   const ativos = (pedidos || []).filter(p => !['Entregue', 'Cancelado'].includes(p.status))
 
-  // 1. Aggregate item quantities across active orders
-  const itemQtd = {}
-  for (const ped of ativos) {
-    for (const it of (ped.itens || [])) {
-      itemQtd[it.produto] = (itemQtd[it.produto] || 0) + (Number(it.quantidade) || 1)
-    }
-  }
-
   const receitaMap = Object.fromEntries((receitas || []).map(r => [r.id, r]))
   const prodMap    = Object.fromEntries((produtos  || []).map(p => [p.nome, p]))
 
-  // 2. Expand into sub-receitas and ingredients
-  const receitaQtd = {}     // { nome: { quantidade, unidade } }
-  const ingredienteQtd = {} // { nome: { quantidade, unidade } }
-
-  for (const [nomeProd, qty] of Object.entries(itemQtd)) {
+  // Expand a product (expanding combos into components) and accumulate into targets
+  function addProd(nomeProd, qty, itemAcc, receitaAcc, depth = 0) {
+    if (depth > 5) return
     const prod = prodMap[nomeProd]
-    if (!prod || !prod.receitas?.length) continue
 
-    for (const pr of prod.receitas) {
-      const totalRec = (Number(pr.quantidade) || 1) * qty
-      const unidade  = pr.unidadeGera || pr.unidade || 'un'
-      const key = pr.nome
+    if (prod?.tipo === 'combo' && prod.componentes?.length > 0) {
+      // Expand each combo component recursively
+      for (const comp of prod.componentes) {
+        const compNome = comp.nome || comp.produtoNome || ''
+        const compQty  = (Number(comp.quantidade) || 1) * qty
+        addProd(compNome, compQty, itemAcc, receitaAcc, depth + 1)
+      }
+    } else {
+      // Leaf item: count in itens
+      itemAcc[nomeProd] = (itemAcc[nomeProd] || 0) + qty
 
-      if (!receitaQtd[key]) receitaQtd[key] = { quantidade: 0, unidade }
-      receitaQtd[key].quantidade += totalRec
-
-      // Expand into ingredients via the full receita
-      const rec = receitaMap[pr.receitaId]
-      if (!rec || !rec.rendimento) continue
-      const fator = totalRec / rec.rendimento
-      for (const ing of (rec.ingredientes || [])) {
-        const ingKey = ing.nome
-        if (!ingredienteQtd[ingKey]) ingredienteQtd[ingKey] = { quantidade: 0, unidade: ing.unidade || 'g' }
-        ingredienteQtd[ingKey].quantidade += (Number(ing.quantidade) || 0) * fator
+      // Expand into receitas
+      if (!prod?.receitas?.length) return
+      for (const pr of prod.receitas) {
+        const totalRec = (Number(pr.quantidade) || 1) * qty
+        const unidade  = pr.unidadeGera || pr.unidade || 'un'
+        const key = pr.nome
+        if (!receitaAcc[key]) receitaAcc[key] = { quantidade: 0, unidade }
+        receitaAcc[key].quantidade += totalRec
       }
     }
   }
 
-  const itensOrdenados = Object.entries(itemQtd).sort((a, b) => b[1] - a[1])
+  const itemQtd    = {}
+  const receitaQtd = {}
+
+  for (const ped of ativos) {
+    for (const it of (ped.itens || [])) {
+      addProd(it.produto, Number(it.quantidade) || 1, itemQtd, receitaQtd)
+    }
+  }
+
+  const itensOrdenados    = Object.entries(itemQtd).sort((a, b) => b[1] - a[1])
   const receitasOrdenadas = Object.entries(receitaQtd).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
-  const ingredientesOrdenados = Object.entries(ingredienteQtd).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
 
   if (ativos.length === 0) {
     return (
@@ -657,11 +657,6 @@ function ProducaoView({ pedidos, produtos, receitas }) {
         title="Receitas necessárias"
         rows={receitasOrdenadas}
         emptyMsg="Sem receitas vinculadas — itens podem ser avulsos ou personalizados"
-      />
-      <SectionTable
-        title="Ingredientes"
-        rows={ingredientesOrdenados}
-        emptyMsg="Sem ingredientes — rode as receitas para calcular"
       />
     </>
   )
