@@ -383,6 +383,12 @@ export async function savePedido(pedido, itens) {
   return id
 }
 
+export async function deletePedido(id) {
+  await supabase.from('encomenda_itens').delete().eq('encomenda_id', id)
+  const { error } = await supabase.from('encomendas').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function updateStatusEncomenda(id, status, pgto) {
   const { error } = await supabase
     .from('encomendas')

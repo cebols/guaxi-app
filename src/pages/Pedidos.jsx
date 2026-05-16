@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getProdutos, getInsumos, getReceitas, getEncomendas, savePedido, updateStatusEncomenda } from '../services/db'
+import { getProdutos, getInsumos, getReceitas, getEncomendas, savePedido, updateStatusEncomenda, deletePedido } from '../services/db'
 
 // ── Constants ─────────────────────────────────────────────────
 const STATUS_OPTS = ['Pendente', 'Produzindo', 'Pronto', 'Entregue', 'Cancelado']
@@ -173,9 +173,10 @@ function PedidoCard({ pedido, alertMap, onClick }) {
 // ── Detail view ───────────────────────────────────────────────
 function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const { toast, show } = useToast()
-  const [status, setStatus] = useState(pedido.status)
-  const [pgto, setPgto]     = useState(pedido.pgto)
-  const [saving, setSaving] = useState(false)
+  const [status, setStatus]   = useState(pedido.status)
+  const [pgto, setPgto]       = useState(pedido.pgto)
+  const [saving, setSaving]   = useState(false)
+  const [confirm, setConfirm] = useState(false)
 
   const saldo = pedido.valor - (pedido.sinal || 0)
   const urg   = urgency(pedido.dataEntrega)
@@ -304,6 +305,41 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
         <button className="btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Salvando...' : 'Salvar alterações'}
         </button>
+
+        {!confirm ? (
+          <button
+            onClick={() => setConfirm(true)}
+            style={{
+              width: '100%', marginTop: 10, padding: '11px',
+              background: 'transparent', border: '1px solid #7f1d1d',
+              color: '#ef4444', borderRadius: 10, fontSize: 14,
+              fontWeight: 600, cursor: 'pointer',
+            }}
+          >Apagar pedido</button>
+        ) : (
+          <div style={{ marginTop: 10, padding: '12px 14px', background: '#1a0a0a', borderRadius: 10, border: '1px solid #7f1d1d' }}>
+            <div style={{ fontSize: 13, color: '#fca5a5', marginBottom: 10 }}>
+              Tem certeza? Isso apaga {pedido.id} ({pedido.cliente}) permanentemente.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={async () => {
+                  setSaving(true)
+                  try {
+                    await deletePedido(pedido.id)
+                    onSaved(); onBack()
+                  } catch (e) { show('Erro: ' + e.message); setSaving(false) }
+                }}
+                style={{ flex: 1, padding: '9px', background: '#7f1d1d', color: '#fca5a5', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
+                disabled={saving}
+              >Apagar</button>
+              <button
+                onClick={() => setConfirm(false)}
+                style={{ flex: 1, padding: '9px', background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}
+              >Cancelar</button>
+            </div>
+          </div>
+        )}
       </div>
       {toast && <div className="toast">{toast}</div>}
     </>
