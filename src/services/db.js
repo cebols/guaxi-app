@@ -167,13 +167,17 @@ export async function getProdutos() {
       tipo: r.tipo || 'produto',
       custoTotal: r.custo_total || 0,
       custoDireto: r.custo_direto ?? r.composicao?.custoDireto ?? null,
+      fornecedor: r.fornecedor || r.composicao?.fornecedor || '',
+      whatsapp:   r.whatsapp   || r.composicao?.whatsapp   || '',
+      linkCompra: r.link_compra || r.composicao?.linkCompra || '',
       precoSugerido: r.preco_sugerido || 0,
       precoPraticado: r.preco_praticado,
       precoDireta: r.preco_direta ?? r.composicao?.precoDireta ?? null,
       preco99:     r.preco_99     ?? r.composicao?.preco99     ?? null,
       precoIfood:  r.preco_ifood  ?? r.composicao?.precoIfood  ?? null,
-      receitas:   (r.composicao?.receitas   || []),
-      embalagens: (r.composicao?.embalagens || []),
+      receitas:    (r.composicao?.receitas    || []),
+      embalagens:  (r.composicao?.embalagens  || []),
+      componentes: (r.composicao?.componentes || []),
     }))
   }
 
@@ -183,11 +187,15 @@ export async function getProdutos() {
     tipo: r.tipo || 'produto',
     custoTotal: r.custo_total || 0,
     custoDireto: r.custo_direto ?? null,
+    fornecedor: r.fornecedor || '',
+    whatsapp:   r.whatsapp   || '',
+    linkCompra: r.link_compra || '',
     precoSugerido: r.preco_sugerido || 0,
     precoPraticado: r.preco_praticado,
     precoDireta: r.preco_direta ?? null,
     preco99:     r.preco_99     ?? null,
     precoIfood:  r.preco_ifood  ?? null,
+    componentes: (r.composicao?.componentes || []),
     receitas: (r.produto_receitas || []).map(pr => ({
       id: pr.id,
       receitaId: pr.receita_id,
@@ -213,23 +221,29 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
 
   const toNum = (v) => v !== '' && v != null ? parseFloat(v) : null
 
-  // for avulso items, custo_total = custo_direto
-  const custoDireto = toNum(prod.custoDireto)
-  const efectivoCusto = prod.tipo === 'avulso' && custoDireto != null ? custoDireto : custoTotal
+  const custoDireto   = toNum(prod.custoDireto)
+  const custoCombo    = (prod.componentes || []).reduce((s, c) => s + (parseFloat(c.custoUnit) || 0) * (parseFloat(c.quantidade) || 1), 0)
+  const efectivoCusto = prod.tipo === 'avulso' ? (custoDireto ?? 0)
+                      : prod.tipo === 'combo'  ? custoCombo
+                      : custoTotal
 
   const row = {
-    nome: prod.nome,
-    tipo: prod.tipo || 'produto',
-    custo_total: efectivoCusto,
-    custo_direto: custoDireto,
+    nome:           prod.nome,
+    tipo:           prod.tipo || 'produto',
+    custo_total:    efectivoCusto,
+    custo_direto:   custoDireto,
+    fornecedor:     prod.fornecedor  || '',
+    whatsapp:       prod.whatsapp    || '',
+    link_compra:    prod.linkCompra  || '',
     preco_sugerido: parseFloat(prod.precoSugerido) || 0,
     preco_praticado: toNum(prod.precoDireta),
-    preco_direta: toNum(prod.precoDireta),
-    preco_99:     toNum(prod.preco99),
-    preco_ifood:  toNum(prod.precoIfood),
+    preco_direta:   toNum(prod.precoDireta),
+    preco_99:       toNum(prod.preco99),
+    preco_ifood:    toNum(prod.precoIfood),
   }
 
-  const saved = await upsert('produtos', row, prod.id || null, ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo'])
+  const saved = await upsert('produtos', row, prod.id || null,
+    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fornecedor', 'whatsapp', 'link_compra'])
   const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)
@@ -245,10 +259,18 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
       quantidade: parseFloat(e.quantidade) || 1,
       custoUnit: parseFloat(e.custoUnit) || 0,
     })),
+    componentes: (prod.componentes || []).map(c => ({
+      produtoId: c.produtoId, produtoNome: c.nome,
+      quantidade: parseFloat(c.quantidade) || 1,
+      custoUnit: parseFloat(c.custoUnit) || 0,
+    })),
     precoDireta: toNum(prod.precoDireta),
     preco99:     toNum(prod.preco99),
     precoIfood:  toNum(prod.precoIfood),
     custoDireto: toNum(prod.custoDireto),
+    fornecedor:  prod.fornecedor  || '',
+    whatsapp:    prod.whatsapp    || '',
+    linkCompra:  prod.linkCompra  || '',
   }
   try {
     await supabase.from('produtos').update({ composicao, custo_total: efectivoCusto }).eq('id', prodId)
