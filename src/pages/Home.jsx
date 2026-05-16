@@ -6,7 +6,7 @@ import { useToast } from '../hooks/useToast'
 import { useNavigate } from 'react-router-dom'
 
 const STATUS_PROD = ['Pendente', 'Produzindo', 'Pronto', 'Entregue', 'Cancelado']
-const STATUS_PGTO = ['Aguardando', 'Pago parcial', 'Pago']
+const STATUS_PGTO = ['Aguardando', 'Pago', 'Atrasado']
 
 const PROD_BADGE = {
   'Pendente':   'badge-warn',
@@ -16,9 +16,9 @@ const PROD_BADGE = {
   'Cancelado':  '',
 }
 const PGTO_BADGE = {
-  'Aguardando':   'badge-alert',
-  'Pago parcial': 'badge-warn',
-  'Pago':         'badge-ok',
+  'Aguardando': 'badge-alert',
+  'Pago':       'badge-ok',
+  'Atrasado':   'badge-alert',
 }
 
 function formatDate(val) {

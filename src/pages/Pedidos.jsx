@@ -65,6 +65,51 @@ function buildAlertMap(produtos, receitas, insumos) {
   return map
 }
 
+// ── DateInput — accepts dd/mm/aaaa, stores YYYY-MM-DD ─────────
+function DateInput({ value, onChange, className, style }) {
+  // Display stored ISO value (YYYY-MM-DD) as dd/mm/aaaa
+  function toDisplay(iso) {
+    if (!iso) return ''
+    const [y, m, d] = iso.split('-')
+    return y && m && d ? `${d}/${m}/${y}` : iso
+  }
+  // Parse dd/mm/aaaa → YYYY-MM-DD
+  function toISO(raw) {
+    const clean = raw.replace(/\D/g, '')
+    if (clean.length === 8) {
+      return `${clean.slice(4)}-${clean.slice(2, 4)}-${clean.slice(0, 2)}`
+    }
+    return ''
+  }
+  const [display, setDisplay] = useState(toDisplay(value))
+
+  const handleChange = (e) => {
+    let raw = e.target.value
+    // Auto-insert slashes
+    const digits = raw.replace(/\D/g, '').slice(0, 8)
+    let formatted = digits
+    if (digits.length > 2) formatted = digits.slice(0, 2) + '/' + digits.slice(2)
+    if (digits.length > 4) formatted = digits.slice(0, 2) + '/' + digits.slice(2, 4) + '/' + digits.slice(4)
+    setDisplay(formatted)
+    const iso = toISO(digits)
+    if (iso) onChange(iso)
+    else if (digits.length === 0) onChange('')
+  }
+
+  return (
+    <input
+      className={className}
+      style={style}
+      type="text"
+      inputMode="numeric"
+      placeholder="dd/mm/aaaa"
+      value={display}
+      onChange={handleChange}
+      maxLength={10}
+    />
+  )
+}
+
 // ── Badge ─────────────────────────────────────────────────────
 function Badge({ label, style }) {
   return (
@@ -355,7 +400,7 @@ function NovoView({ produtos, alertMap, onBack, onSaved }) {
           </div>
           <div>
             <div className="field-label">Entrega *</div>
-            <input className="field-input" type="date" value={form.dataEntrega} onChange={e => setField('dataEntrega', e.target.value)} />
+            <DateInput className="field-input" value={form.dataEntrega} onChange={v => setField('dataEntrega', v)} />
           </div>
         </div>
 
