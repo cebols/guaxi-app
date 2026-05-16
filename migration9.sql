@@ -1,45 +1,33 @@
--- migration9.sql — RLS em todas as tabelas
--- Executa no SQL Editor do Supabase
--- Safe to re-run (IF NOT EXISTS nos policies)
+-- migration9b.sql — cria policies RLS (corrige migration9 que falhou)
+-- Safe to re-run: usa DROP IF EXISTS antes de CREATE
 
--- Habilita RLS
-ALTER TABLE insumos              ENABLE ROW LEVEL SECURITY;
-ALTER TABLE embalagens           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE produtos             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE receitas             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE receita_ingredientes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE encomendas           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE encomenda_itens      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE vendas               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE clientes             ENABLE ROW LEVEL SECURITY;
-
--- Políticas: só usuários autenticados têm acesso total
-DO $$ 
+DO $$
 DECLARE t text;
 BEGIN
-  FOR t IN SELECT unnest(ARRAY[
+  FOREACH t IN ARRAY ARRAY[
     'insumos','embalagens','produtos','receitas',
     'receita_ingredientes','encomendas','encomenda_itens',
     'vendas','clientes'
-  ]) LOOP
+  ] LOOP
+    EXECUTE format('DROP POLICY IF EXISTS "auth_all" ON %I', t);
     EXECUTE format(
-      'CREATE POLICY IF NOT EXISTS "auth_all" ON %I FOR ALL TO authenticated USING (true) WITH CHECK (true)',
+      'CREATE POLICY "auth_all" ON %I FOR ALL TO authenticated USING (true) WITH CHECK (true)',
       t
     );
   END LOOP;
 END $$;
 
--- Tabelas de junção (podem existir ou não)
+-- Junction tables (podem não existir)
 DO $$
 BEGIN
   BEGIN
-    ALTER TABLE produto_receitas   ENABLE ROW LEVEL SECURITY;
-    CREATE POLICY IF NOT EXISTS "auth_all" ON produto_receitas   FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    DROP POLICY IF EXISTS "auth_all" ON produto_receitas;
+    CREATE POLICY "auth_all" ON produto_receitas FOR ALL TO authenticated USING (true) WITH CHECK (true);
   EXCEPTION WHEN undefined_table THEN NULL;
   END;
   BEGIN
-    ALTER TABLE produto_embalagens ENABLE ROW LEVEL SECURITY;
-    CREATE POLICY IF NOT EXISTS "auth_all" ON produto_embalagens FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    DROP POLICY IF EXISTS "auth_all" ON produto_embalagens;
+    CREATE POLICY "auth_all" ON produto_embalagens FOR ALL TO authenticated USING (true) WITH CHECK (true);
   EXCEPTION WHEN undefined_table THEN NULL;
   END;
 END $$;
