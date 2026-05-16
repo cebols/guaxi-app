@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getProdutos, getInsumos, getReceitas, getEncomendas, savePedido, updateStatusEncomenda, deletePedido } from '../services/db'
+import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, deletePedido } from '../services/db'
 
 // ── Constants ─────────────────────────────────────────────────
 const STATUS_OPTS = ['Pendente', 'Produzindo', 'Pronto', 'Entregue', 'Cancelado']
@@ -338,14 +338,15 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
 }
 
 // ── New order form ────────────────────────────────────────────
-function NovoView({ produtos, alertMap, onBack, onSaved }) {
+function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
   const { toast, show } = useToast()
   const [form, setForm] = useState({
     cliente: '', contato: '', canal: 'WhatsApp',
     dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
   })
-  const [itens, setItens] = useState([{ produto: '', quantidade: 1, precoUnit: '' }])
-  const [saving, setSaving] = useState(false)
+  const [itens, setItens]           = useState([{ produto: '', quantidade: 1, precoUnit: '' }])
+  const [saving, setSaving]         = useState(false)
+  const [salvarCliente, setSalvarCliente] = useState(false)
 
   const setField   = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const setItem    = (i, k, v) => setItens(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
@@ -354,19 +355,36 @@ function NovoView({ produtos, alertMap, onBack, onSaved }) {
 
   const total = itens.reduce((s, it) => s + (parseFloat(it.precoUnit) || 0) * (parseFloat(it.quantidade) || 1), 0)
 
+  const handleClienteChange = (nome) => {
+    setField('cliente', nome)
+    const existing = (clientes || []).find(c => c.nome.toLowerCase() === nome.toLowerCase())
+    if (existing) {
+      if (existing.telefone && !form.contato) setField('contato', existing.telefone)
+      setSalvarCliente(false)
+    } else {
+      setSalvarCliente(nome.trim().length > 1)
+    }
+  }
+
   const handleProdutoChange = (i, nome) => {
-    const prod = (produtos || []).find(p => p.nome === nome)
     setItem(i, 'produto', nome)
-    const preco = prod?.precoDireta ?? prod?.precoPraticado ?? prod?.precoSugerido ?? ''
-    if (preco) setItem(i, 'precoUnit', String(preco))
+    const prod = (produtos || []).find(p => p.nome === nome)
+    if (prod) {
+      const preco = prod.precoDireta ?? prod.precoPraticado ?? prod.precoSugerido ?? ''
+      if (preco) setItem(i, 'precoUnit', String(preco))
+    }
   }
 
   const handleSave = async () => {
     if (!form.cliente)     { show('Preencha o nome do cliente'); return }
     if (!form.dataEntrega) { show('Preencha a data de entrega'); return }
-    if (itens.some(it => !it.produto)) { show('Selecione o produto de cada item'); return }
+    if (itens.some(it => !it.produto)) { show('Preencha todos os itens'); return }
     setSaving(true)
     try {
+      if (salvarCliente) {
+        const exists = (clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
+        if (!exists) await saveCliente({ nome: form.cliente, telefone: form.contato })
+      }
       const id = await savePedido(form, itens)
       show(`Pedido ${id} salvo!`)
       setTimeout(() => { onSaved(); onBack() }, 700)
@@ -377,7 +395,9 @@ function NovoView({ produtos, alertMap, onBack, onSaved }) {
     }
   }
 
-  const prodNames = (produtos || []).map(p => p.nome)
+  const isClienteNovo = form.cliente.trim().length > 1 &&
+    !(clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
+
   const wa = waLink(form.contato)
 
   return (
@@ -393,9 +413,32 @@ function NovoView({ produtos, alertMap, onBack, onSaved }) {
       </div>
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
-        {/* Cliente */}
+        {/* Cliente com autocomplete */}
         <div className="field-label">Cliente *</div>
-        <input className="field-input" placeholder="Nome do cliente" value={form.cliente} onChange={e => setField('cliente', e.target.value)} />
+        <input
+          className="field-input"
+          list="clientes-list"
+          placeholder="Nome do cliente"
+          value={form.cliente}
+          onChange={e => handleClienteChange(e.target.value)}
+          autoComplete="off"
+        />
+        <datalist id="clientes-list">
+          {(clientes || []).map(c => <option key={c.id} value={c.nome} />)}
+        </datalist>
+
+        {/* Salvar como cliente novo */}
+        {isClienteNovo && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--teal)', marginTop: -4, marginBottom: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={salvarCliente}
+              onChange={e => setSalvarCliente(e.target.checked)}
+              style={{ accentColor: 'var(--teal)', width: 14, height: 14 }}
+            />
+            Salvar {form.cliente} como cliente
+          </label>
+        )}
 
         {/* Telefone */}
         <div className="field-label">Telefone</div>
@@ -446,21 +489,23 @@ function NovoView({ produtos, alertMap, onBack, onSaved }) {
           </div>
         </div>
 
-        {/* Itens */}
+        {/* Itens — texto livre com sugestões */}
         <div className="section-label">Itens do pedido</div>
+        <datalist id="produtos-list">
+          {(produtos || []).map(p => <option key={p.id} value={p.nome} />)}
+        </datalist>
         <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 6 }}>
           {itens.map((it, i) => (
             <div key={i} className="item-row">
-              <select
+              <input
                 className="item-select"
+                list="produtos-list"
+                placeholder="Produto ou item personalizado"
                 value={it.produto}
                 onChange={e => handleProdutoChange(i, e.target.value)}
-              >
-                <option value="">Selecionar produto</option>
-                {prodNames.map(p => (
-                  <option key={p} value={p}>{alertMap[p] ? '⚠️ ' : ''}{p}</option>
-                ))}
-              </select>
+                autoComplete="off"
+                style={{ fontFamily: 'inherit' }}
+              />
               <input
                 className="item-qty"
                 type="number" min="1"
@@ -513,6 +558,7 @@ export default function Pedidos() {
   const { data: produtos, loading: loadingProd } = useData(getProdutos)
   const { data: insumos  } = useData(getInsumos)
   const { data: receitas } = useData(getReceitas)
+  const { data: clientes, reload: reloadClientes } = useData(getClientes)
 
   // mode: 'list' | 'novo' | pedido-object
   const [mode, setMode] = useState('list')
@@ -534,9 +580,10 @@ export default function Pedidos() {
     return (
       <NovoView
         produtos={produtos || []}
+        clientes={clientes || []}
         alertMap={alertMap}
         onBack={() => setMode('list')}
-        onSaved={reloadPedidos}
+        onSaved={() => { reloadPedidos(); reloadClientes() }}
       />
     )
   }

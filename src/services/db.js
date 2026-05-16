@@ -304,6 +304,29 @@ export async function deleteProduto(id) {
   if (error) throw error
 }
 
+// ── Clientes ──────────────────────────────────────────────────
+
+export async function getClientes() {
+  try {
+    const { data, error } = await supabase.from('clientes').select('*').order('nome')
+    if (error) throw error
+    return data.map(r => ({ id: r.id, nome: r.nome, telefone: r.telefone || '', obs: r.obs || '' }))
+  } catch (e) {
+    if (e.message?.includes('clientes')) return []
+    throw e
+  }
+}
+
+export async function saveCliente(cliente) {
+  try {
+    const { error } = await supabase.from('clientes').insert({ nome: cliente.nome, telefone: cliente.telefone || '', obs: cliente.obs || '' })
+    if (error) throw error
+  } catch (e) {
+    if (e.message?.includes('clientes')) return
+    throw e
+  }
+}
+
 // ── Encomendas ────────────────────────────────────────────────
 
 export async function getEncomendas() {
