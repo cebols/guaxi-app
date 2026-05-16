@@ -5,7 +5,8 @@ import { getConfig } from '../hooks/useConfig'
 import { getProdutos, getVendas, saveVenda, deleteVenda } from '../services/db'
 
 const PLATAFORMAS = ['Direta', '99Food', 'iFood']
-const PLAT_COLOR = { 'Direta': 'var(--teal)', '99Food': '#f59e0b', 'iFood': '#ef4444' }
+const PLAT_COLOR  = { 'Direta': 'var(--teal)', '99Food': '#f59e0b', 'iFood': '#ef4444' }
+const PROD_COLORS = ['#14b8a6','#f59e0b','#6366f1','#ec4899','#10b981','#f97316','#8b5cf6','#06b6d4','#84cc16','#e11d48']
 
 function fmtR(val) {
   if (!val && val !== 0) return '—'
@@ -17,7 +18,15 @@ function fmtN(v, dec = 1) {
 }
 function isoToday() { return new Date().toISOString().split('T')[0] }
 
-// ── Simple horizontal bar chart ──────────────────────────────
+function precoForPlat(prod, plat) {
+  if (!prod) return ''
+  if (plat === 'Direta') return prod.precoDireta ?? prod.precoPraticado ?? prod.precoSugerido ?? ''
+  if (plat === '99Food') return prod.preco99     ?? prod.precoPraticado ?? prod.precoSugerido ?? ''
+  if (plat === 'iFood')  return prod.precoIfood  ?? prod.precoPraticado ?? prod.precoSugerido ?? ''
+  return prod.precoPraticado ?? prod.precoSugerido ?? ''
+}
+
+// ── Horizontal bar chart ─────────────────────────────────────
 function Barras({ itens }) {
   const max = Math.max(...itens.map(i => i.valor), 0.01)
   return (
@@ -35,9 +44,12 @@ function Barras({ itens }) {
   )
 }
 
-// ── Weekly trend (vertical bars) ────────────────────────────
+// ── Weekly stacked bar chart (per product) ───────────────────
 function TendenciaSemanal({ vendas }) {
-  const semanas = useMemo(() => {
+  const { semanas, prodNomes, colorMap } = useMemo(() => {
+    const nomes = [...new Set(vendas.map(v => v.produtoNome))]
+    const colorMap = Object.fromEntries(nomes.map((n, i) => [n, PROD_COLORS[i % PROD_COLORS.length]]))
+
     const result = []
     const hoje = new Date()
     for (let w = 5; w >= 0; w--) {
@@ -46,29 +58,64 @@ function TendenciaSemanal({ vendas }) {
       const dom = new Date(seg); dom.setDate(seg.getDate() + 6)
       const inicio = seg.toISOString().split('T')[0]
       const fim    = dom.toISOString().split('T')[0]
-      const total  = vendas.filter(v => v.data >= inicio && v.data <= fim)
-        .reduce((s, v) => s + v.quantidade * v.precoUnit, 0)
-      result.push({ label: seg.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }), total, inicio })
+      const weekV  = vendas.filter(v => v.data >= inicio && v.data <= fim)
+
+      const byProd = {}
+      weekV.forEach(v => {
+        byProd[v.produtoNome] = (byProd[v.produtoNome] || 0) + v.quantidade * v.precoUnit
+      })
+      const total = Object.values(byProd).reduce((s, x) => s + x, 0)
+      result.push({
+        label: seg.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }),
+        total, inicio, byProd,
+      })
     }
-    return result
+    return { semanas: result, prodNomes: nomes, colorMap }
   }, [vendas])
 
-  const max = Math.max(...semanas.map(s => s.total), 0.01)
-  const hoje = isoToday()
+  const max   = Math.max(...semanas.map(s => s.total), 0.01)
+  const maxH  = 72
+  const hoje  = isoToday()
 
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 80, paddingBottom: 20 }}>
-      {semanas.map((s, i) => {
-        const h = Math.max(4, (s.total / max) * 64)
-        const isThisWeek = hoje >= s.inicio && i === semanas.length - 1
-        return (
-          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-            <div style={{ fontSize: 9, color: 'var(--teal)' }}>{s.total > 0 ? fmtR(s.total).replace('R$ ', '') : ''}</div>
-            <div style={{ width: '100%', height: h, background: isThisWeek ? 'var(--teal)' : 'var(--border)', borderRadius: '3px 3px 0 0' }} />
-            <div style={{ fontSize: 9, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{s.label}</div>
-          </div>
-        )
-      })}
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: maxH + 28 }}>
+        {semanas.map((s, i) => {
+          const barH      = s.total > 0 ? Math.max(4, (s.total / max) * maxH) : 0
+          const isThisWeek = i === semanas.length - 1
+          const segments  = prodNomes
+            .filter(p => (s.byProd[p] || 0) > 0)
+            .map(p => ({ pct: s.byProd[p] / s.total, color: colorMap[p] }))
+
+          return (
+            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+              <div style={{ fontSize: 9, color: 'var(--text-secondary)', height: 12, display: 'flex', alignItems: 'flex-end' }}>
+                {s.total > 0 ? fmtR(s.total).replace('R$ ', '') : ''}
+              </div>
+              <div style={{ width: '100%', height: barH, borderRadius: '3px 3px 0 0', overflow: 'hidden', display: 'flex', flexDirection: 'column', opacity: isThisWeek ? 1 : 0.65 }}>
+                {s.total > 0 ? segments.map((seg, si) => (
+                  <div key={si} style={{ flex: seg.pct, background: seg.color }} />
+                )) : (
+                  <div style={{ flex: 1, background: 'var(--border)', height: 2, marginTop: 'auto' }} />
+                )}
+              </div>
+              <div style={{ fontSize: 9, color: isThisWeek ? 'var(--text-primary)' : 'var(--text-tertiary)', whiteSpace: 'nowrap', fontWeight: isThisWeek ? 700 : 400 }}>
+                {s.label}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {prodNomes.length > 1 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 8 }}>
+          {prodNomes.map(p => (
+            <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-secondary)' }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: colorMap[p], flexShrink: 0 }} />
+              <span>{p}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -91,32 +138,39 @@ function Sheet({ title, children, onClose }) {
 
 function VendaForm({ produtos, prefill, onSave, onClose }) {
   const cfg = getConfig()
+  const [selectedProd, setSelectedProd] = useState(prefill || null)
   const [form, setForm] = useState({
-    data: isoToday(),
+    data:        isoToday(),
     produtoNome: prefill?.nome || '',
     produtoId:   prefill?.id   || null,
     quantidade:  1,
     plataforma:  'Direta',
-    precoUnit:   prefill?.precoPraticado || prefill?.precoSugerido || '',
-    custoUnit:   prefill?.custoTotal     || '',
+    precoUnit:   prefill ? (precoForPlat(prefill, 'Direta') || '') : '',
+    custoUnit:   prefill?.custoTotal || '',
   })
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const handleProdSelect = (nome) => {
-    const prod = produtos?.find(p => p.nome === nome)
+    const prod = produtos?.find(p => p.nome === nome) || null
+    setSelectedProd(prod)
     set('produtoNome', nome)
     set('produtoId',   prod?.id  || null)
-    set('precoUnit',   prod?.precoPraticado || prod?.precoSugerido || '')
-    set('custoUnit',   prod?.custoTotal     || '')
+    set('custoUnit',   prod?.custoTotal || '')
+    if (prod) set('precoUnit', precoForPlat(prod, form.plataforma) || '')
   }
 
-  const fee       = form.plataforma === '99Food' ? cfg.taxa99 / 100 : form.plataforma === 'iFood' ? cfg.taxaIfood / 100 : 0
-  const revenue   = (parseFloat(form.precoUnit) || 0) * (parseFloat(form.quantidade) || 1)
-  const revNet    = revenue * (1 - fee)
-  const cost      = (parseFloat(form.custoUnit) || 0) * (parseFloat(form.quantidade) || 1)
-  const profit    = revNet - cost
-  const margin    = revNet > 0 ? (profit / revNet) * 100 : null
+  const handlePlatChange = (plat) => {
+    set('plataforma', plat)
+    if (selectedProd) set('precoUnit', precoForPlat(selectedProd, plat) || '')
+  }
+
+  const fee     = form.plataforma === '99Food' ? cfg.taxa99 / 100 : form.plataforma === 'iFood' ? cfg.taxaIfood / 100 : 0
+  const revenue = (parseFloat(form.precoUnit) || 0) * (parseFloat(form.quantidade) || 1)
+  const revNet  = revenue * (1 - fee)
+  const cost    = (parseFloat(form.custoUnit) || 0) * (parseFloat(form.quantidade) || 1)
+  const profit  = revNet - cost
+  const margin  = revNet > 0 ? (profit / revNet) * 100 : null
 
   const handle = async () => {
     if (!form.produtoNome || !form.precoUnit) return
@@ -139,7 +193,7 @@ function VendaForm({ produtos, prefill, onSave, onClose }) {
         </div>
         <div>
           <div className="field-label">Plataforma</div>
-          <select className="field-input" value={form.plataforma} onChange={e => set('plataforma', e.target.value)}>
+          <select className="field-input" value={form.plataforma} onChange={e => handlePlatChange(e.target.value)}>
             {PLATAFORMAS.map(p => <option key={p}>{p}</option>)}
           </select>
         </div>
@@ -166,10 +220,10 @@ function VendaForm({ produtos, prefill, onSave, onClose }) {
 }
 
 function LancamentoRapido({ produtos, onSave, onClose }) {
-  const [data, setData] = useState(isoToday())
+  const [data, setData]           = useState(isoToday())
   const [plataforma, setPlataforma] = useState('Direta')
-  const [qtds, setQtds] = useState({})
-  const [saving, setSaving] = useState(false)
+  const [qtds, setQtds]           = useState({})
+  const [saving, setSaving]       = useState(false)
 
   const comVenda = (produtos || []).filter(p => qtds[p.id] && parseFloat(qtds[p.id]) > 0)
 
@@ -179,11 +233,13 @@ function LancamentoRapido({ produtos, onSave, onClose }) {
     try {
       for (const prod of comVenda) {
         await onSave({
-          data, produtoNome: prod.nome, produtoId: prod.id,
-          quantidade: parseFloat(qtds[prod.id]),
+          data,
+          produtoNome: prod.nome,
+          produtoId:   prod.id,
+          quantidade:  parseFloat(qtds[prod.id]),
           plataforma,
-          precoUnit: prod.precoPraticado || prod.precoSugerido || 0,
-          custoUnit: prod.custoTotal || 0,
+          precoUnit:   precoForPlat(prod, plataforma) || 0,
+          custoUnit:   prod.custoTotal || 0,
         })
       }
       onClose()
@@ -208,24 +264,24 @@ function LancamentoRapido({ produtos, onSave, onClose }) {
         </div>
       </div>
       <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
-        {(produtos || []).map((prod, i) => (
-          <div key={prod.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < produtos.length - 1 ? '1px solid var(--border)' : 'none' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>{prod.nome}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{fmtR(prod.precoPraticado || prod.precoSugerido)}</div>
+        {(produtos || []).map((prod, i) => {
+          const preco = precoForPlat(prod, plataforma)
+          return (
+            <div key={prod.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < produtos.length - 1 ? '1px solid var(--border)' : 'none' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>{prod.nome}</div>
+                <div style={{ fontSize: 11, color: PLAT_COLOR[plataforma] || 'var(--teal)' }}>{fmtR(preco)}</div>
+              </div>
+              <input
+                className="item-qty"
+                type="number" min="0" step="1" placeholder="0"
+                value={qtds[prod.id] || ''}
+                onChange={e => setQtds(prev => ({ ...prev, [prod.id]: e.target.value }))}
+                style={{ width: 64 }}
+              />
             </div>
-            <input
-              className="item-qty"
-              type="number"
-              min="0"
-              step="1"
-              placeholder="0"
-              value={qtds[prod.id] || ''}
-              onChange={e => setQtds(prev => ({ ...prev, [prod.id]: e.target.value }))}
-              style={{ width: 64 }}
-            />
-          </div>
-        ))}
+          )
+        })}
       </div>
       {comVenda.length > 0 && (
         <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 8 }}>
@@ -241,10 +297,10 @@ function LancamentoRapido({ produtos, onSave, onClose }) {
 
 // ── Main ─────────────────────────────────────────────────────
 export default function Vendas() {
-  const [periodo, setPeriodo]   = useState('mes')
-  const [tab, setTab]           = useState('performance')
-  const [sheet, setSheet]       = useState(null)
-  const { toast, show }         = useToast()
+  const [periodo, setPeriodo] = useState('mes')
+  const [tab, setTab]         = useState('performance')
+  const [sheet, setSheet]     = useState(null)
+  const { toast, show }       = useToast()
 
   const { data: produtos, loading: lProd }               = useData(getProdutos)
   const { data: vendas,   loading: lVend, reload: rVend } = useData(getVendas)
@@ -270,7 +326,7 @@ export default function Vendas() {
       const k = v.produtoNome
       if (!map[k]) map[k] = { units: 0, revenue: 0, revNet: 0, cost: 0 }
       const fee = feeFor(v.plataforma)
-      map[k].units  += v.quantidade
+      map[k].units   += v.quantidade
       map[k].revenue += v.quantidade * v.precoUnit
       map[k].revNet  += v.quantidade * v.precoUnit * (1 - fee)
       map[k].cost    += v.quantidade * (v.custoUnit || 0)
@@ -298,8 +354,8 @@ export default function Vendas() {
   const pctProj      = unidadesProj > 0 ? (totalUnits / unidadesProj) * 100 : null
   const rateioReal   = totalUnits > 0 && periodo === 'mes' ? (cfg.custoFixoMensal || 0) / totalUnits : null
 
-  const handleSave = async (venda) => { await saveVenda(venda); rVend(); show('Venda registrada!') }
-  const handleDelete = async (id)   => { await deleteVenda(id);  rVend(); show('Removido!') }
+  const handleSave   = async (v) => { await saveVenda(v); rVend(); show('Venda registrada!') }
+  const handleDelete = async (id) => { await deleteVenda(id); rVend(); show('Removido!') }
 
   const historicoGrupos = useMemo(() => {
     const map = {}
@@ -311,8 +367,7 @@ export default function Vendas() {
   }, [vendas])
 
   const fmtDate = (iso) => {
-    const today = isoToday()
-    if (iso === today) return 'Hoje'
+    if (iso === isoToday()) return 'Hoje'
     return new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', weekday: 'short' })
   }
 
@@ -320,7 +375,7 @@ export default function Vendas() {
 
   const barrasProduto = useMemo(() =>
     Object.entries(statsPerProd)
-      .map(([nome, s]) => ({ label: nome, valor: s.revNet, cor: 'var(--teal)' }))
+      .map(([nome, s], i) => ({ label: nome, valor: s.revNet, cor: PROD_COLORS[i % PROD_COLORS.length] }))
       .sort((a, b) => b.valor - a.valor)
       .slice(0, 8),
     [statsPerProd]
@@ -337,18 +392,14 @@ export default function Vendas() {
         <div className="topbar-inner">
           <div className="topbar-title">Vendas</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="btn-ghost desktop-only" onClick={() => setSheet({ type: 'rapido' })}
-              style={{ fontSize: 13, padding: '6px 12px', color: 'var(--text-secondary)' }}>
+            <button className="btn-ghost desktop-only" onClick={() => setSheet({ type: 'rapido' })} style={{ fontSize: 13, padding: '6px 12px', color: 'var(--text-secondary)' }}>
               ⚡ Rápido
             </button>
-            <button className="btn-outline-teal desktop-only" onClick={() => setSheet({ type: 'venda' })}
-              style={{ fontSize: 13, padding: '6px 14px' }}>
+            <button className="btn-outline-teal desktop-only" onClick={() => setSheet({ type: 'venda' })} style={{ fontSize: 13, padding: '6px 14px' }}>
               + Lançar venda
             </button>
-            <button className="btn-ghost mobile-only" onClick={() => setSheet({ type: 'rapido' })}
-              style={{ fontSize: 18, padding: '4px 10px', border: 'none', color: 'var(--text-secondary)' }}>⚡</button>
-            <button className="btn-ghost mobile-only" onClick={() => setSheet({ type: 'venda' })}
-              style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}>+</button>
+            <button className="btn-ghost mobile-only" onClick={() => setSheet({ type: 'rapido' })} style={{ fontSize: 18, padding: '4px 10px', border: 'none', color: 'var(--text-secondary)' }}>⚡</button>
+            <button className="btn-ghost mobile-only" onClick={() => setSheet({ type: 'venda' })} style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}>+</button>
           </div>
         </div>
       </div>
@@ -369,8 +420,7 @@ export default function Vendas() {
                   fontSize: 13, padding: '5px 14px', borderRadius: 20,
                   border: '1px solid var(--border)',
                   background: periodo === p ? 'var(--teal)' : 'transparent',
-                  color: periodo === p ? '#fff' : 'var(--text-secondary)',
-                  cursor: 'pointer',
+                  color: periodo === p ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
                 }}>
                   {p === 'semana' ? 'Esta semana' : 'Este mês'}
                 </button>
@@ -437,7 +487,7 @@ export default function Vendas() {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 600, fontSize: 14 }}>{prod.nome}</div>
                           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                            Custo: {fmtR(prod.custoTotal)} · Preço: {fmtR(prod.precoPraticado || prod.precoSugerido)}
+                            Custo: {fmtR(prod.custoTotal)}
                           </div>
                           {s ? (
                             <div style={{ fontSize: 12, marginTop: 4 }}>

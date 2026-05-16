@@ -167,6 +167,9 @@ export async function getProdutos() {
       custoTotal: r.custo_total || 0,
       precoSugerido: r.preco_sugerido || 0,
       precoPraticado: r.preco_praticado,
+      precoDireta: r.preco_direta ?? r.composicao?.precoDireta ?? null,
+      preco99:     r.preco_99     ?? r.composicao?.preco99     ?? null,
+      precoIfood:  r.preco_ifood  ?? r.composicao?.precoIfood  ?? null,
       receitas:   (r.composicao?.receitas   || []),
       embalagens: (r.composicao?.embalagens || []),
     }))
@@ -178,6 +181,9 @@ export async function getProdutos() {
     custoTotal: r.custo_total || 0,
     precoSugerido: r.preco_sugerido || 0,
     precoPraticado: r.preco_praticado,
+    precoDireta: r.preco_direta ?? null,
+    preco99:     r.preco_99     ?? null,
+    precoIfood:  r.preco_ifood  ?? null,
     receitas: (r.produto_receitas || []).map(pr => ({
       id: pr.id,
       receitaId: pr.receita_id,
@@ -201,23 +207,20 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     receitaItems.reduce((s, r) => s + (parseFloat(r.custoUnid) || 0) * (parseFloat(r.quantidade) || 1), 0) +
     embalagemItems.reduce((s, e) => s + (parseFloat(e.custoUnit) || 0) * (parseFloat(e.quantidade) || 1), 0)
 
+  const toNum = (v) => v !== '' && v != null ? parseFloat(v) : null
+
   const row = {
     nome: prod.nome,
     custo_total: custoTotal,
     preco_sugerido: parseFloat(prod.precoSugerido) || 0,
-    preco_praticado: prod.precoPraticado !== '' && prod.precoPraticado != null
-      ? parseFloat(prod.precoPraticado) : null,
+    preco_praticado: toNum(prod.precoDireta),
+    preco_direta: toNum(prod.precoDireta),
+    preco_99:     toNum(prod.preco99),
+    preco_ifood:  toNum(prod.precoIfood),
   }
 
-  let prodId = prod.id
-  if (prod.id) {
-    const { error } = await supabase.from('produtos').update(row).eq('id', prod.id)
-    if (error) throw error
-  } else {
-    const { data, error } = await supabase.from('produtos').insert(row).select().single()
-    if (error) throw error
-    prodId = data.id
-  }
+  const saved = await upsert('produtos', row, prod.id || null, ['preco_direta', 'preco_99', 'preco_ifood'])
+  const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)
   const composicao = {
@@ -232,6 +235,9 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
       quantidade: parseFloat(e.quantidade) || 1,
       custoUnit: parseFloat(e.custoUnit) || 0,
     })),
+    precoDireta: toNum(prod.precoDireta),
+    preco99:     toNum(prod.preco99),
+    precoIfood:  toNum(prod.precoIfood),
   }
   try {
     await supabase.from('produtos').update({ composicao, custo_total: custoTotal }).eq('id', prodId)

@@ -80,12 +80,12 @@ function StatusSelect({ value, options, badgeMap, onChange }) {
   )
 }
 
-// 0=crítico (<min), 1=atenção (min..1.5×min), 2=ok
+// 0=crítico (≤50% do mínimo), 1=atenção (50–100%), 2=ok (≥100%)
 function nivelEstoque(atual, min) {
   if (atual === null || atual === undefined || !min || min <= 0) return 2
   const ratio = atual / min
-  if (ratio < 1)   return 0
-  if (ratio < 1.5) return 1
+  if (ratio <= 0.5) return 0
+  if (ratio < 1)    return 1
   return 2
 }
 

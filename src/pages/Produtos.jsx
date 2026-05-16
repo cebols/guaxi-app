@@ -7,6 +7,8 @@ import {
   getReceitas, getEmbalagens,
 } from '../services/db'
 
+const PLAT_COLOR = { Direta: 'var(--teal)', '99Food': '#f59e0b', iFood: '#ef4444' }
+
 function Sheet({ title, children, onClose }) {
   return (
     <>
@@ -28,12 +30,17 @@ function fmtR(val) {
   return `R$ ${rounded.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-const PROD_EMPTY = { nome: '', precoPraticado: '' }
+const FORM_EMPTY = { nome: '', precoDireta: '', preco99: '', precoIfood: '' }
 
 function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item
-    ? { nome: item.nome, precoPraticado: item.precoPraticado ?? '' }
-    : { ...PROD_EMPTY }
+    ? {
+        nome: item.nome,
+        precoDireta: item.precoDireta ?? '',
+        preco99:     item.preco99     ?? '',
+        precoIfood:  item.precoIfood  ?? '',
+      }
+    : { ...FORM_EMPTY }
   )
   const [recRows, setRecRows] = useState(
     item?.receitas?.length > 0
@@ -96,6 +103,12 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
     } catch (e) { alert(e.message) } finally { setSaving(false) }
   }
 
+  const platFields = [
+    { key: 'precoDireta', label: 'Direta',  sugerido: precos.base,   color: PLAT_COLOR.Direta  },
+    { key: 'preco99',     label: '99Food',  sugerido: precos.p99,    color: PLAT_COLOR['99Food'] },
+    { key: 'precoIfood',  label: 'iFood',   sugerido: precos.pIfood, color: PLAT_COLOR.iFood   },
+  ]
+
   return (
     <Sheet title={item ? 'Editar produto' : 'Novo produto'} onClose={onClose}>
       <div className="field-label">Nome do produto *</div>
@@ -118,10 +131,7 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
                 />
                 <input
                   className="item-qty"
-                  type="number"
-                  min="0"
-                  step="0.5"
-                  placeholder="Qtd"
+                  type="number" min="0" step="0.5" placeholder="Qtd"
                   value={row.quantidade}
                   onChange={e => setRecField(i, 'quantidade', e.target.value)}
                 />
@@ -164,10 +174,7 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
             />
             <input
               className="item-qty"
-              type="number"
-              min="0"
-              step="1"
-              placeholder="Qtd"
+              type="number" min="0" step="1" placeholder="Qtd"
               value={row.quantidade}
               onChange={e => setEmbField(i, 'quantidade', e.target.value)}
             />
@@ -185,34 +192,36 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
 
       {custoTotal > 0 && (
         <div style={{ margin: '12px 0 4px', padding: '10px 14px', background: 'var(--teal-light)', borderRadius: 8 }}>
-          <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 6 }}>
+          <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 4 }}>
             Custo total: <strong>R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
           </div>
-          <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>
-            Venda direta: {fmtR(precos.base)}
-          </div>
-          <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 3 }}>
-            99Food: {fmtR(precos.p99)}
-          </div>
-          <div style={{ fontSize: 12, color: '#ef4444', marginTop: 2 }}>
-            iFood: {fmtR(precos.pIfood)}
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+            Sugerido → <span style={{ color: PLAT_COLOR.Direta }}>Direta {fmtR(precos.base)}</span>
+            {' · '}<span style={{ color: PLAT_COLOR['99Food'] }}>99Food {fmtR(precos.p99)}</span>
+            {' · '}<span style={{ color: PLAT_COLOR.iFood }}>iFood {fmtR(precos.pIfood)}</span>
           </div>
         </div>
       )}
 
-      <div className="section-label" style={{ marginTop: 8 }}>Preço praticado (opcional)</div>
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-        Deixe em branco para usar o preço sugerido. Preencha se cobrar diferente.
+      <div className="section-label" style={{ marginTop: 10 }}>Preços praticados por plataforma</div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+        Deixe em branco para usar o preço sugerido.
       </div>
-      <input
-        className="field-input"
-        type="number"
-        min="0"
-        step="0.50"
-        placeholder={custoTotal > 0 ? `Sugerido: ${fmtR(precos.base)}` : 'Preço praticado (R$)'}
-        value={form.precoPraticado}
-        onChange={e => set('precoPraticado', e.target.value)}
-      />
+      <div style={{ display: 'flex', gap: 8 }}>
+        {platFields.map(({ key, label, sugerido, color }) => (
+          <div key={key} style={{ flex: 1 }}>
+            <div className="field-label" style={{ color, marginBottom: 4 }}>{label}</div>
+            <input
+              className="field-input"
+              type="number" min="0" step="0.50"
+              placeholder={custoTotal > 0 ? fmtR(sugerido).replace('R$ ', '') : '—'}
+              value={form[key]}
+              onChange={e => set(key, e.target.value)}
+              style={{ fontSize: 13 }}
+            />
+          </div>
+        ))}
+      </div>
 
       <button className="btn-primary" onClick={handle} disabled={saving || !form.nome}>
         {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar produto'}
@@ -226,9 +235,23 @@ function ProdutoForm({ item, receitas, embalagens, onSave, onDelete, onClose }) 
   )
 }
 
+function PlatPrecos({ prod, cfg }) {
+  const precos = calcPrecos(prod.custoTotal, cfg)
+  return (
+    <div style={{ fontSize: 11, marginTop: 2 }}>
+      <span style={{ color: PLAT_COLOR.Direta }}>D {fmtR(prod.precoDireta ?? precos.base)}</span>
+      {' · '}
+      <span style={{ color: PLAT_COLOR['99Food'] }}>99 {fmtR(prod.preco99 ?? precos.p99)}</span>
+      {' · '}
+      <span style={{ color: PLAT_COLOR.iFood }}>iF {fmtR(prod.precoIfood ?? precos.pIfood)}</span>
+    </div>
+  )
+}
+
 export default function Produtos() {
   const [sheet, setSheet] = useState(null)
   const { toast, show } = useToast()
+  const cfg = getConfig()
 
   const { data: produtos,   loading: lProd, reload: rProd } = useData(getProdutos)
   const { data: receitas,   loading: lRec  } = useData(getReceitas)
@@ -253,18 +276,10 @@ export default function Produtos() {
         <div className="topbar-inner">
           <div className="topbar-title">Produtos</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              className="btn-outline-teal desktop-only"
-              onClick={() => setSheet({ type: 'produto' })}
-              style={{ fontSize: 13, padding: '6px 14px' }}
-            >
+            <button className="btn-outline-teal desktop-only" onClick={() => setSheet({ type: 'produto' })} style={{ fontSize: 13, padding: '6px 14px' }}>
               + Novo produto
             </button>
-            <button
-              className="btn-ghost mobile-only"
-              onClick={() => setSheet({ type: 'produto' })}
-              style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
-            >
+            <button className="btn-ghost mobile-only" onClick={() => setSheet({ type: 'produto' })} style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}>
               +
             </button>
           </div>
@@ -276,6 +291,7 @@ export default function Produtos() {
           <div className="loading">Carregando...</div>
         ) : (
           <>
+            {/* Desktop table */}
             <div className="desktop-only">
               <div className="card card-flush">
                 {(produtos || []).length === 0
@@ -284,31 +300,37 @@ export default function Produtos() {
                       <thead><tr>
                         <th>Nome</th>
                         <th>Composição</th>
-                        <th>Custo total</th>
-                        <th>Preço sugerido</th>
-                        <th>Preço praticado</th>
+                        <th>Custo</th>
+                        <th style={{ color: PLAT_COLOR.Direta }}>Direta</th>
+                        <th style={{ color: PLAT_COLOR['99Food'] }}>99Food</th>
+                        <th style={{ color: PLAT_COLOR.iFood }}>iFood</th>
                       </tr></thead>
                       <tbody>
-                        {(produtos || []).map(prod => (
-                          <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })}>
-                            <td style={{ fontWeight: 600 }}>{prod.nome}</td>
-                            <td className="muted" style={{ fontSize: 12 }}>
-                              {[
-                                ...(prod.receitas || []).map(r => `${r.quantidade} ${r.unidadeGera} ${r.nome}`),
-                                ...(prod.embalagens || []).map(e => `${e.quantidade}× ${e.nome}`),
-                              ].join(', ') || '—'}
-                            </td>
-                            <td className="muted">{prod.custoTotal > 0 ? fmtR(prod.custoTotal) : '—'}</td>
-                            <td className="teal">{prod.precoSugerido > 0 ? fmtR(prod.precoSugerido) : '—'}</td>
-                            <td>{prod.precoPraticado != null ? fmtR(prod.precoPraticado) : <span className="muted">—</span>}</td>
-                          </tr>
-                        ))}
+                        {(produtos || []).map(prod => {
+                          const p = calcPrecos(prod.custoTotal, cfg)
+                          return (
+                            <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })}>
+                              <td style={{ fontWeight: 600 }}>{prod.nome}</td>
+                              <td className="muted" style={{ fontSize: 12 }}>
+                                {[
+                                  ...(prod.receitas || []).map(r => `${r.quantidade} ${r.unidadeGera} ${r.nome}`),
+                                  ...(prod.embalagens || []).map(e => `${e.quantidade}× ${e.nome}`),
+                                ].join(', ') || '—'}
+                              </td>
+                              <td className="muted">{prod.custoTotal > 0 ? fmtR(prod.custoTotal) : '—'}</td>
+                              <td style={{ color: PLAT_COLOR.Direta }}>{fmtR(prod.precoDireta ?? p.base)}</td>
+                              <td style={{ color: PLAT_COLOR['99Food'] }}>{fmtR(prod.preco99 ?? p.p99)}</td>
+                              <td style={{ color: PLAT_COLOR.iFood }}>{fmtR(prod.precoIfood ?? p.pIfood)}</td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                 }
               </div>
             </div>
 
+            {/* Mobile list */}
             <div className="mobile-only">
               {(produtos || []).length === 0 ? (
                 <div className="empty">
@@ -321,7 +343,7 @@ export default function Produtos() {
                 <div className="card card-flush" style={{ padding: '0 14px' }}>
                   {(produtos || []).map(prod => (
                     <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
-                      <div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
                         <div className="list-item-name">{prod.nome}</div>
                         <div className="list-item-sub">
                           {[
@@ -329,15 +351,13 @@ export default function Produtos() {
                             ...(prod.embalagens || []).map(e => `${e.quantidade}× ${e.nome}`),
                           ].join(' · ') || 'Sem composição'}
                         </div>
+                        <PlatPrecos prod={prod} cfg={cfg} />
                       </div>
-                      <div className="list-item-right">
-                        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal)' }}>
-                          {prod.precoPraticado != null ? fmtR(prod.precoPraticado) : fmtR(prod.precoSugerido)}
+                      {prod.custoTotal > 0 && (
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0, textAlign: 'right' }}>
+                          custo<br />{fmtR(prod.custoTotal)}
                         </div>
-                        {prod.custoTotal > 0 && (
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>custo {fmtR(prod.custoTotal)}</div>
-                        )}
-                      </div>
+                      )}
                     </div>
                   ))}
                 </div>
