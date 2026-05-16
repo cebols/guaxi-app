@@ -244,10 +244,11 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     preco_direta:   toNum(prod.precoDireta),
     preco_99:       toNum(prod.preco99),
     preco_ifood:    toNum(prod.precoIfood),
+    estoque_min:    parseFloat(prod.estoqueMin) || 0,
   }
 
   const saved = await upsert('produtos', row, prod.id || null,
-    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fornecedor', 'whatsapp', 'link_compra'])
+    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min'])
   const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)
@@ -307,6 +308,14 @@ export async function updateEstoqueProdutos(items) {
   await Promise.all(
     items.map(({ id, estoqueAtual }) =>
       supabase.from('produtos').update({ estoque_atual: estoqueAtual }).eq('id', id)
+    )
+  )
+}
+
+export async function updateEstoqueMinProdutos(items) {
+  await Promise.all(
+    items.map(({ id, estoqueMin }) =>
+      supabase.from('produtos').update({ estoque_min: parseFloat(estoqueMin) || 0 }).eq('id', id)
     )
   )
 }

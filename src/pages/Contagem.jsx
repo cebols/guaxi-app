@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos } from '../services/db'
+import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos } from '../services/db'
 
 function waLink(phone) {
   const digits = (phone || '').replace(/\D/g, '')
@@ -97,7 +97,7 @@ function ListaCompras({ contagem, itens }) {
   )
 }
 
-function StockTab({ itens, contagem, onChange }) {
+function StockTab({ itens, contagem, onChange, minValues, onChangeMin }) {
   const grupos = groupBy(itens, 'categoria')
   return (
     <>
@@ -107,12 +107,28 @@ function StockTab({ itens, contagem, onChange }) {
           <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
             {items.map(item => {
               const val = contagem[item.id] ?? (item.estoqueAtual ?? '')
-              const falta = val !== '' ? calcPedir(val, item.estoqueMin) : null
+              const effectiveMin = onChangeMin ? (minValues?.[item.id] ?? item.estoqueMin) : item.estoqueMin
+              const falta = val !== '' ? calcPedir(val, effectiveMin) : null
               return (
                 <div key={item.id} className="stock-row">
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín. {item.estoqueMin} {item.unidade}</div>
+                    {onChangeMin ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín.</span>
+                        <input
+                          className="stock-input"
+                          type="number"
+                          min="0"
+                          style={{ width: 52 }}
+                          value={minValues?.[item.id] ?? item.estoqueMin}
+                          onChange={e => onChangeMin(item.id, e.target.value)}
+                        />
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{item.unidade}</span>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín. {item.estoqueMin} {item.unidade}</div>
+                    )}
                   </div>
                   <div>
                     <input
@@ -146,6 +162,7 @@ export default function Contagem() {
   const [contagemIns,  setContagemIns]  = useState({})
   const [contagemEmb,  setContagemEmb]  = useState({})
   const [contagemProd, setContagemProd] = useState({})
+  const [minProd,      setMinProd]      = useState({})
   const [autoSaveState, setAutoSaveState] = useState('idle')
   const debounceRef = useRef({})
 
@@ -168,9 +185,26 @@ export default function Contagem() {
     }, 700)
   }
 
-  const setIns  = (id, val) => { setContagemIns(c  => ({ ...c, [id]: val })); autoSave('ins',  id, val) }
-  const setEmb  = (id, val) => { setContagemEmb(c  => ({ ...c, [id]: val })); autoSave('emb',  id, val) }
-  const setProd = (id, val) => { setContagemProd(c => ({ ...c, [id]: val })); autoSave('prod', id, val) }
+  const autoSaveMin = (id, val) => {
+    const key = `min-prod-${id}`
+    if (debounceRef.current[key]) clearTimeout(debounceRef.current[key])
+    setAutoSaveState('saving')
+    debounceRef.current[key] = setTimeout(async () => {
+      try {
+        await updateEstoqueMinProdutos([{ id, estoqueMin: val }])
+        setAutoSaveState('saved')
+        setTimeout(() => setAutoSaveState('idle'), 1500)
+      } catch (e) {
+        show('Erro ao salvar: ' + e.message)
+        setAutoSaveState('idle')
+      }
+    }, 700)
+  }
+
+  const setIns    = (id, val) => { setContagemIns(c  => ({ ...c, [id]: val })); autoSave('ins',  id, val) }
+  const setEmb    = (id, val) => { setContagemEmb(c  => ({ ...c, [id]: val })); autoSave('emb',  id, val) }
+  const setProd   = (id, val) => { setContagemProd(c => ({ ...c, [id]: val })); autoSave('prod', id, val) }
+  const setMinP   = (id, val) => { setMinProd(m => ({ ...m, [id]: val })); autoSaveMin(id, val) }
 
   // Produtos as StockTab items (unidade = 'un', sem categoria → grupo por tipo)
   const produtosParaContagem = (produtos || [])
@@ -213,7 +247,7 @@ export default function Contagem() {
             <ListaCompras contagem={contagemEmb} itens={embalagens || []} />
           </>
         ) : (
-          <StockTab itens={produtosParaContagem} contagem={contagemProd} onChange={setProd} />
+          <StockTab itens={produtosParaContagem} contagem={contagemProd} onChange={setProd} minValues={minProd} onChangeMin={setMinP} />
         )}
       </div>
 

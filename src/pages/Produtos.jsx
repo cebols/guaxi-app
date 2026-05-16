@@ -38,7 +38,7 @@ function TipoBadge({ tipo }) {
   return <span style={{ marginLeft: 6, fontSize: 10, background: b.bg, color: b.color, borderRadius: 4, padding: '1px 5px', verticalAlign: 'middle' }}>{b.label}</span>
 }
 
-const FORM_EMPTY = { nome: '', tipo: 'produto', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '' }
+const FORM_EMPTY = { nome: '', tipo: 'produto', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '' }
 
 function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item
@@ -52,6 +52,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
         precoDireta: item.precoDireta ?? '',
         preco99:     item.preco99     ?? '',
         precoIfood:  item.precoIfood  ?? '',
+        estoqueMin:  item.estoqueMin  ?? '',
       }
     : { ...FORM_EMPTY }
   )
@@ -291,6 +292,11 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
           </div>
         ))}
       </div>
+
+      <div className="section-label" style={{ marginTop: 10 }}>Estoque mínimo</div>
+      <input className="field-input" type="number" min="0" step="1"
+        placeholder="ex: 5 (deixe em branco para sem mínimo)"
+        value={form.estoqueMin} onChange={e => set('estoqueMin', e.target.value)} />
 
       <button className="btn-primary" onClick={handle} disabled={saving || !form.nome}>
         {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar produto'}
