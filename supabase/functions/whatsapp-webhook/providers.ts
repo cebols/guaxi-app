@@ -1,70 +1,68 @@
-// WhatsApp provider — Evolution API (padrão no Brasil)
+// WhatsApp provider — Meta Cloud API (graph.facebook.com)
 
 export interface IncomingMessage {
-  from: string      // número com DDI, ex: 5511999999999
+  from: string       // número com DDI, ex: 5511999999999
   body: string
-  pushName?: string // nome do contato no WhatsApp
+  msgId: string
+  pushName?: string
 }
 
-export function parseEvolutionWebhook(payload: unknown): IncomingMessage | null {
+export function parseMetaWebhook(payload: unknown): IncomingMessage | null {
   try {
     const p = payload as Record<string, unknown>
+    if (p.object !== 'whatsapp_business_account') return null
 
-    // Evolution API v2
-    if (p.event === 'messages.upsert' || p.event === 'MESSAGES_UPSERT') {
-      const data = p.data as Record<string, unknown>
-      const key  = data?.key  as Record<string, unknown>
-      const msg  = data?.message as Record<string, unknown>
+    const entry   = (p.entry as unknown[])?.[0] as Record<string, unknown>
+    const changes = (entry?.changes as unknown[])?.[0] as Record<string, unknown>
+    const value   = changes?.value as Record<string, unknown>
+    const messages = value?.messages as unknown[]
 
-      // Ignora mensagens enviadas pelo próprio bot
-      if (key?.fromMe) return null
+    if (!messages?.length) return null
 
-      const body =
-        (msg?.conversation as string) ||
-        (msg?.extendedTextMessage as Record<string, unknown>)?.text as string ||
-        ''
+    const msg = messages[0] as Record<string, unknown>
 
-      if (!body.trim()) return null
+    // Só processa mensagens de texto
+    if (msg.type !== 'text') return null
 
-      return {
-        from:     (key?.remoteJid as string)?.replace('@s.whatsapp.net', '') || '',
-        body:     body.trim(),
-        pushName: (data?.pushName as string) || undefined,
-      }
+    const text = (msg.text as Record<string, unknown>)?.body as string
+    if (!text?.trim()) return null
+
+    const contacts = value?.contacts as unknown[]
+    const contact  = (contacts?.[0] as Record<string, unknown>)
+    const pushName = (contact?.profile as Record<string, unknown>)?.name as string | undefined
+
+    return {
+      from:     String(msg.from),
+      body:     text.trim(),
+      msgId:    String(msg.id),
+      pushName,
     }
-
-    // Formato legado / webhook simples
-    if (p.from && p.body) {
-      return {
-        from:     String(p.from).replace('@s.whatsapp.net', ''),
-        body:     String(p.body).trim(),
-        pushName: p.pushName ? String(p.pushName) : undefined,
-      }
-    }
-
-    return null
   } catch {
     return null
   }
 }
 
-export async function sendEvolutionMessage(
+export async function sendMetaMessage(
   phone: string,
-  text:  string,
-  opts: { baseUrl: string; apiKey: string; instance: string }
+  text: string,
+  opts: { phoneNumberId: string; accessToken: string }
 ) {
-  const url = `${opts.baseUrl}/message/sendText/${opts.instance}`
+  const url = `https://graph.facebook.com/v19.0/${opts.phoneNumberId}/messages`
   const res = await fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', apikey: opts.apiKey },
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${opts.accessToken}`,
+    },
     body: JSON.stringify({
-      number:  phone,
-      options: { delay: 300 },
-      textMessage: { text },
+      messaging_product: 'whatsapp',
+      to: phone,
+      type: 'text',
+      text: { body: text },
     }),
   })
   if (!res.ok) {
     const detail = await res.text().catch(() => '')
-    throw new Error(`Evolution API error ${res.status}: ${detail}`)
+    throw new Error(`Meta API error ${res.status}: ${detail}`)
   }
 }
