@@ -530,12 +530,21 @@ export async function deletePedido(id) {
   if (error) throw error
 }
 
-export async function updateStatusEncomenda(id, status, pgto) {
-  const { error } = await supabase
-    .from('encomendas')
-    .update({ status, pgto })
-    .eq('id', id)
-  if (error) throw error
+export async function updateStatusEncomenda(id, status, pgto, tipoEntrega, frete, valor) {
+  const update = { status, pgto }
+  if (tipoEntrega !== undefined) update.tipo_entrega = tipoEntrega
+  if (frete !== undefined) update.frete = parseFloat(frete) || 0
+  if (valor !== undefined) update.valor = valor
+  const { error } = await supabase.from('encomendas').update(update).eq('id', id)
+  if (error) {
+    if (error.message?.includes('tipo_entrega') || error.message?.includes('frete')) {
+      const { tipo_entrega: _t, frete: _f, ...reduced } = update
+      const { error: e2 } = await supabase.from('encomendas').update(reduced).eq('id', id)
+      if (e2) throw e2
+    } else {
+      throw error
+    }
+  }
 }
 
 // ── Receitas ──────────────────────────────────────────────────

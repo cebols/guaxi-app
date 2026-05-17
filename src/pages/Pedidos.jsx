@@ -169,18 +169,23 @@ function PedidoCard({ pedido, alertMap, onClick }) {
 // ── Detail view ───────────────────────────────────────────────
 function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const { toast, show } = useToast()
-  const [status, setStatus]   = useState(pedido.status)
-  const [pgto, setPgto]       = useState(pedido.pgto)
-  const [saving, setSaving]   = useState(false)
-  const [confirm, setConfirm] = useState(false)
+  const [status, setStatus]           = useState(pedido.status)
+  const [pgto, setPgto]               = useState(pedido.pgto)
+  const [tipoEntrega, setTipoEntrega] = useState(pedido.tipoEntrega || 'Retirada')
+  const [frete, setFrete]             = useState(pedido.frete > 0 ? String(pedido.frete) : '')
+  const [saving, setSaving]           = useState(false)
+  const [confirm, setConfirm]         = useState(false)
 
   const urg = urgency(pedido.dataEntrega)
-  const wa    = waLink(pedido.contato)
+  const wa  = waLink(pedido.contato)
+  const itensSubtotal = (pedido.itens || []).reduce((s, it) => s + (it.precoUnit || 0) * (it.quantidade || 1), 0)
+  const freteNum = tipoEntrega === 'Entrega' ? (parseFloat(frete) || 0) : 0
+  const totalAtual = itensSubtotal + freteNum
 
   const handleSave = async () => {
     setSaving(true)
     try {
-      await updateStatusEncomenda(pedido.id, status, pgto)
+      await updateStatusEncomenda(pedido.id, status, pgto, tipoEntrega, frete, totalAtual)
       show('Salvo!')
       setTimeout(() => { onSaved(); onBack() }, 700)
     } catch (e) {
@@ -254,21 +259,35 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
 
         {/* Financeiro */}
         <div className="card" style={{ padding: '12px 14px', marginBottom: 14 }}>
-          {pedido.tipoEntrega === 'Entrega' && pedido.frete > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Frete ({pedido.tipoEntrega})</span>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>R$ {fmtR(pedido.frete)}</span>
+          <div className="field-row" style={{ marginBottom: 10 }}>
+            <div>
+              <div className="field-label">Tipo</div>
+              <select className="field-input" value={tipoEntrega} onChange={e => setTipoEntrega(e.target.value)}>
+                <option>Retirada</option>
+                <option>Entrega</option>
+              </select>
             </div>
-          )}
-          {pedido.tipoEntrega && pedido.tipoEntrega !== 'Entrega' && (
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6 }}>
-              {pedido.tipoEntrega}
+            {tipoEntrega === 'Entrega' && (
+              <div>
+                <div className="field-label">Frete (R$)</div>
+                <input
+                  className="field-input"
+                  type="number" inputMode="decimal" placeholder="0,00"
+                  value={frete}
+                  onChange={e => setFrete(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+          {tipoEntrega === 'Entrega' && freteNum > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              Itens R$ {fmtR(itensSubtotal)} + frete R$ {fmtR(freteNum)}
             </div>
           )}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>Total a receber</span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: pedido.pgto === 'Pago' ? 'var(--teal)' : '#f59e0b' }}>
-              R$ {fmtR(pedido.valor)}
+            <span style={{ fontSize: 16, fontWeight: 700, color: pgto === 'Pago' ? 'var(--teal)' : '#f59e0b' }}>
+              R$ {fmtR(totalAtual)}
             </span>
           </div>
         </div>
