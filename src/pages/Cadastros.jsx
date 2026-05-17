@@ -414,7 +414,6 @@ function fmtR(val) {
 export default function Cadastros() {
   const [tab, setTab] = useState('insumos')
   const [sheet, setSheet] = useState(null)
-  const [expandedFornecedor, setExpandedFornecedor] = useState(null)
   const { toast, show } = useToast()
 
   const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
@@ -461,6 +460,19 @@ export default function Cadastros() {
       rIns(); rFontes(); show('Salvo!')
     },
     del: withReload(deleteInsumo, rIns),
+    swapPrimary: async (ins, selectedIdx) => {
+      const fontes = fontesMap[ins.id] || []
+      const all = [
+        { marca: ins.marca || '', fornecedor: ins.fornecedor || '', pesoEmb: ins.pesoEmb > 0 ? String(ins.pesoEmb) : '', custoEmb: ins.custoEmb > 0 ? String(ins.custoEmb) : '', linkCompra: ins.linkCompra || '', telefone: ins.whatsapp || '' },
+        ...fontes.map(f => ({ marca: f.marca || '', fornecedor: f.fornecedor || '', pesoEmb: f.pesoEmb > 0 ? String(f.pesoEmb) : '', custoEmb: f.custoEmb > 0 ? String(f.custoEmb) : '', linkCompra: f.linkCompra || '', telefone: f.telefone || '' })),
+      ]
+      const primary = all[selectedIdx]
+      const others = all.filter((_, i) => i !== selectedIdx)
+      const formWithPrimary = { ...ins, marca: primary.marca, fornecedor: primary.fornecedor, pesoEmb: primary.pesoEmb, custoEmb: primary.custoEmb, linkCompra: primary.linkCompra, whatsapp: primary.telefone }
+      await saveInsumo(formWithPrimary)
+      await saveInsumoFornecedores(ins.id, others, calcCustoUnitInsumo(formWithPrimary) || 0)
+      rIns(); rFontes(); show('Prioritário atualizado!')
+    },
   }
   const embActions = { save: withReload(saveEmbalagem, rEmb), del: withReload(deleteEmbalagem, rEmb) }
 
@@ -506,6 +518,10 @@ export default function Cadastros() {
                           const fontes = fontesMap[ins.id] || []
                           const fornecedorLabel = ins.fornecedor || '—'
                           const marcaLabel = ins.marca || '—'
+                          const allOpts = [
+                            { marca: ins.marca || '', fornecedor: ins.fornecedor || '' },
+                            ...fontes.map(f => ({ marca: f.marca || '', fornecedor: f.fornecedor || '' })),
+                          ]
                           return (
                             <tr key={ins.id} onClick={() => setSheet({ type: 'insumo', item: ins })}>
                               <td style={{ fontWeight: 600 }}>{ins.nome}</td>
@@ -521,9 +537,21 @@ export default function Cadastros() {
                                     </span>
                                   : <span className="muted">—</span>}
                               </td>
-                              <td className="muted">
-                                {fornecedorLabel}
-                                {fontes.length > 0 && <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 4 }}>+{fontes.length}</span>}
+                              <td onClick={e => e.stopPropagation()}>
+                                {allOpts.length > 1 ? (
+                                  <select
+                                    value={0}
+                                    onChange={e => insActions.swapPrimary(ins, parseInt(e.target.value))}
+                                    style={{ fontSize: 12, background: 'transparent', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', padding: '2px 4px', cursor: 'pointer' }}
+                                  >
+                                    {allOpts.map((o, i) => (
+                                      <option key={i} value={i}>
+                                        {[o.marca, o.fornecedor].filter(Boolean).join(' · ') || '—'}
+                                        {i === 0 ? ' ✓' : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : <span className="muted">{fornecedorLabel}</span>}
                               </td>
                               <td onClick={e => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
                                 {ins.linkCompra && (
@@ -551,89 +579,51 @@ export default function Cadastros() {
                   ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum insumo cadastrado</div>
                   : (insumos || []).map(ins => {
                     const fontes = fontesMap[ins.id] || []
-                    const marcaAtual = ins.marca || null
-                    const fornecedorAtual = ins.fornecedor || null
-                    const isExpanded = expandedFornecedor === ins.id
-                    const totalOpcoes = fontes.length + (ins.fornecedor ? 1 : 0)
-
+                    const allOpts = [
+                      { marca: ins.marca || '', fornecedor: ins.fornecedor || '' },
+                      ...fontes.map(f => ({ marca: f.marca || '', fornecedor: f.fornecedor || '' })),
+                    ]
+                    const hasMany = allOpts.length > 1
                     return (
-                      <div key={ins.id}>
-                        <div className="list-item" onClick={() => setSheet({ type: 'insumo', item: ins })}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div className="list-item-name">{ins.nome}</div>
-                            <div className="list-item-sub">
-                              {marcaAtual && `${marcaAtual} · `}
-                              {ins.pesoEmb > 0 ? `${ins.pesoEmb}${ins.unidade}` : ins.categoria || ''}
-                            </div>
-                            {(fornecedorAtual || fontes.length > 0) && (
-                              <button
-                                onClick={e => { e.stopPropagation(); setExpandedFornecedor(isExpanded ? null : ins.id) }}
-                                style={{
-                                  marginTop: 4, fontSize: 11, padding: '2px 8px', borderRadius: 10,
-                                  border: '1px solid var(--border)', background: 'transparent',
-                                  color: 'var(--text-secondary)', cursor: 'pointer',
-                                }}
-                              >
-                                {fornecedorAtual || '—'}
-                                {totalOpcoes > 1 && ` · ${totalOpcoes} opções ▾`}
-                              </button>
-                            )}
+                      <div key={ins.id} className="list-item" onClick={() => setSheet({ type: 'insumo', item: ins })}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="list-item-name">{ins.nome}</div>
+                          <div className="list-item-sub">
+                            {ins.pesoEmb > 0 ? `${ins.pesoEmb}${ins.unidade}` : ins.categoria || ''}
                           </div>
-                          <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 10 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
-                              {ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/${ins.unidade}` : '—'}
+                          {hasMany ? (
+                            <select
+                              value={0}
+                              onClick={e => e.stopPropagation()}
+                              onChange={e => { e.stopPropagation(); insActions.swapPrimary(ins, parseInt(e.target.value)) }}
+                              style={{
+                                marginTop: 4, fontSize: 11, padding: '2px 6px', borderRadius: 8,
+                                border: '1px solid var(--border)', background: 'var(--card-bg)',
+                                color: 'var(--text-secondary)', cursor: 'pointer', maxWidth: 180,
+                              }}
+                            >
+                              {allOpts.map((o, i) => (
+                                <option key={i} value={i}>
+                                  {[o.marca, o.fornecedor].filter(Boolean).join(' · ') || '—'}
+                                  {i === 0 ? ' ✓' : ''}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (ins.marca || ins.fornecedor) ? (
+                            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                              {[ins.marca, ins.fornecedor].filter(Boolean).join(' · ')}
                             </div>
-                            {ins.linkCompra && (
-                              <a href={ins.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                                style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>Loja</a>
-                            )}
-                          </div>
+                          ) : null}
                         </div>
-
-                        {isExpanded && (
-                          <div style={{ background: 'var(--card-bg)', borderBottom: '1px solid var(--border)', padding: '6px 14px 8px' }}>
-                            {ins.fornecedor && (
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', fontSize: 12 }}>
-                                <div>
-                                  {ins.marca && <span style={{ color: 'var(--text-secondary)' }}>{ins.marca} · </span>}
-                                  <span>{ins.fornecedor}</span>
-                                  <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>(principal)</span>
-                                  {waLink(ins.whatsapp) && (
-                                    <a href={waLink(ins.whatsapp)} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                                      style={{ marginLeft: 6, color: 'var(--teal)', fontSize: 11 }}>Tel</a>
-                                  )}
-                                </div>
-                                {ins.custoUnit > 0 && ins.pesoEmb > 0 && (
-                                  <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>
-                                    R$ {calcCustoUnitInsumo(ins)?.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{ins.unidade}
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                            {fontes.map((f, i) => (
-                              <div key={i} style={{
-                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                padding: '5px 0', fontSize: 12, borderTop: '1px solid var(--border)',
-                              }}>
-                                <div>
-                                  {f.marca && <span style={{ color: 'var(--text-secondary)' }}>{f.marca} · </span>}
-                                  <span>{f.fornecedor || '—'}</span>
-                                  {f.linkCompra && (
-                                    <a href={f.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                                      style={{ marginLeft: 6, color: 'var(--teal)', fontSize: 11 }}>Loja</a>
-                                  )}
-                                  {f.telefone && (
-                                    <a href={`tel:${f.telefone}`} onClick={e => e.stopPropagation()}
-                                      style={{ marginLeft: 6, color: 'var(--teal)', fontSize: 11 }}>Tel</a>
-                                  )}
-                                </div>
-                                <span style={{ color: f.custoUnit > 0 ? 'var(--teal)' : 'var(--text-tertiary)', fontSize: 11 }}>
-                                  {f.custoUnit > 0 ? `R$ ${f.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/${ins.unidade}` : '—'}
-                                </span>
-                              </div>
-                            ))}
+                        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 10 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
+                            {ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/${ins.unidade}` : '—'}
                           </div>
-                        )}
+                          {ins.linkCompra && (
+                            <a href={ins.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                              style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>Loja</a>
+                          )}
+                        </div>
                       </div>
                     )
                   })
