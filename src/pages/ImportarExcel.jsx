@@ -35,12 +35,17 @@ function Sheet({ title, children, onClose }) {
   )
 }
 
-// Converte índice de coluna (0-based) para letra (A, B, ... Z, AA...)
 function colLetter(i) {
-  let s = ''
-  i++
-  while (i > 0) { s = String.fromCharCode(65 + (i - 1) % 26) + s; i = Math.floor((i - 1) / 26) }
+  let s = '', n = i + 1
+  while (n > 0) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26) }
   return s
+}
+
+function letterToCol(s) {
+  const upper = (s || '').toUpperCase().trim()
+  let n = 0
+  for (const c of upper) n = n * 26 + (c.charCodeAt(0) - 64)
+  return n - 1
 }
 
 const STEP_UPLOAD   = 'upload'
@@ -228,14 +233,14 @@ export default function ImportarExcel({ onClose, onImported }) {
               value={previewSheet?.name || ''}
               onChange={e => setPreviewSheet(allSheets.find(s => s.name === e.target.value))}
             >
-              {allSheets.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+              {allSheets.filter(s => selected.includes(s.name)).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
             </select>
           </div>
           <div style={{ overflowX: 'auto', marginBottom: 14, border: '1px solid var(--border)', borderRadius: 8 }}>
             <table style={{ borderCollapse: 'collapse', fontSize: 11, minWidth: '100%' }}>
               <thead>
                 <tr style={{ background: 'var(--card-bg)' }}>
-                  <th style={thStyle}>#</th>
+                  <th style={thStyle}>linha</th>
                   {Array.from({ length: maxCols }, (_, i) => (
                     <th key={i} style={{ ...thStyle, color: 'var(--teal)' }}>{colLetter(i)}</th>
                   ))}
@@ -268,14 +273,14 @@ export default function ImportarExcel({ onClose, onImported }) {
             {map.nomeMode === 'cell' && (
               <>
                 <div>
-                  <div className="field-label">Linha do nome (ex: 1)</div>
+                  <div className="field-label">Linha do nome</div>
                   <input className="field-input" type="number" min="0" value={map.nomeRow}
                     onChange={e => setM('nomeRow', parseInt(e.target.value) || 0)} />
                 </div>
                 <div>
-                  <div className="field-label">Coluna do nome (ex: D=3)</div>
-                  <input className="field-input" type="number" min="0" value={map.nomeCol}
-                    onChange={e => setM('nomeCol', parseInt(e.target.value) || 0)} />
+                  <div className="field-label">Coluna do nome</div>
+                  <input className="field-input" placeholder="ex: D" value={colLetter(map.nomeCol)}
+                    onChange={e => { const v = letterToCol(e.target.value); if (v >= 0) setM('nomeCol', v) }} />
                 </div>
               </>
             )}
@@ -288,21 +293,28 @@ export default function ImportarExcel({ onClose, onImported }) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
             {[
-              { k: 'colIng',   label: 'Col ingrediente (ex: A=0)' },
-              { k: 'colQtd',   label: 'Col quantidade (ex: F=5)' },
-              { k: 'colUnid',  label: 'Col unidade (ex: G=6, -1=nenhuma)' },
-              { k: 'colCusto', label: 'Col custo (ex: I=8, -1=nenhuma)' },
-            ].map(({ k, label }) => (
+              { k: 'colIng',   label: 'Col ingrediente', none: false },
+              { k: 'colQtd',   label: 'Col quantidade',  none: false },
+              { k: 'colUnid',  label: 'Col unidade',      none: true  },
+              { k: 'colCusto', label: 'Col custo',        none: true  },
+            ].map(({ k, label, none }) => (
               <div key={k}>
-                <div className="field-label">{label}</div>
-                <input className="field-input" type="number" min="-1" value={map[k]}
-                  onChange={e => setM(k, parseInt(e.target.value))} />
+                <div className="field-label">{label}{none ? ' (opcional)' : ''}</div>
+                <input className="field-input" placeholder={none ? '— vazio p/ ignorar' : 'ex: A'}
+                  value={map[k] < 0 ? '' : colLetter(map[k])}
+                  onChange={e => {
+                    const raw = e.target.value.trim()
+                    if (raw === '' && none) { setM(k, -1); return }
+                    const v = letterToCol(raw)
+                    if (v >= 0) setM(k, v)
+                  }}
+                />
               </div>
             ))}
           </div>
 
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
-            {selected.length} aba(s) selecionada(s) · Use o índice da coluna (A=0, B=1, C=2...)
+            {selected.length} aba(s) selecionada(s)
           </div>
           <button className="btn-primary" disabled={!selected.length} onClick={buildPreview}>
             Ver preview →
