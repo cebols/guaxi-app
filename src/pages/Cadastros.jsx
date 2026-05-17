@@ -4,7 +4,7 @@ import { useToast } from '../hooks/useToast'
 import {
   getInsumos, saveInsumo, deleteInsumo,
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
-  getInsumoFornecedores, saveInsumoFornecedores,
+  getInsumoFornecedores, saveInsumoFornecedores, getAllInsumoFornecedores,
 } from '../services/db'
 
 const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
@@ -42,14 +42,13 @@ function CalcBadge({ label, value }) {
 // ── Insumos ───────────────────────────────────────────────────
 
 const INSUMO_EMPTY = {
-  nome: '', categoria: '', unidade: 'g',
+  nome: '', marca: '', categoria: '', unidade: 'g',
   pesoEmb: '', custoEmb: '', pesoUn: '',
-  linkCompra: '',
-  estoqueAtual: '', estoqueMin: '',
+  linkCompra: '', estoqueAtual: '', estoqueMin: '',
   fornecedor: '', whatsapp: '',
 }
 
-const FONTE_EMPTY = { marca: '', fornecedor: '', pesoEmb: '', custoEmb: '' }
+const FONTE_EMPTY = { marca: '', pesoEmb: '', custoEmb: '', fornecedor: '', linkCompra: '', telefone: '' }
 
 function calcCustoUnitInsumo(form) {
   const pesoEmb = parseFloat(form.pesoEmb) || 0
@@ -66,6 +65,7 @@ function calcCustoUnitInsumo(form) {
 function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item ? {
     ...item,
+    marca: item.marca || '',
     pesoEmb: item.pesoEmb || '',
     custoEmb: item.custoEmb || '',
     pesoUn: item.pesoUn ?? '',
@@ -79,10 +79,17 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
 
   useEffect(() => {
     if (!item?.id) return
-    getInsumoFornecedores(item.id).then(setFontes).catch(() => {})
+    getInsumoFornecedores(item.id).then(fs => setFontes(fs.map(f => ({
+      ...f,
+      pesoEmb: f.pesoEmb || '',
+      custoEmb: f.custoEmb || '',
+      linkCompra: f.linkCompra || '',
+      telefone: f.telefone || '',
+    })))).catch(() => {})
   }, [item?.id])
 
   const custoUnitCalc = calcCustoUnitInsumo(form)
+  const pesoUnNum = parseFloat(form.pesoUn) || 0
 
   const setFonte = (i, k, v) => setFontes(prev => prev.map((f, idx) => idx === i ? { ...f, [k]: v } : f))
   const addFonte = () => setFontes(prev => [...prev, { ...FONTE_EMPTY }])
@@ -101,22 +108,18 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
   return (
     <Sheet title={item ? 'Editar insumo' : 'Novo insumo'} onClose={onClose}>
       {!item && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>Só o nome é obrigatório — complete o resto quando tiver.</div>}
+
       <div className="field-label">Nome *</div>
       <input className="field-input" placeholder="ex: Farinha de trigo" value={form.nome} onChange={e => set('nome', e.target.value)} />
+
+      <div className="field-label">Marca</div>
+      <input className="field-input" placeholder="ex: Anaconda" value={form.marca} onChange={e => set('marca', e.target.value)} />
 
       <div className="field-row">
         <div>
           <div className="field-label">Categoria</div>
-          <input
-            className="field-input"
-            list="cats-insumo"
-            placeholder="ex: Farinhas"
-            value={form.categoria}
-            onChange={e => set('categoria', e.target.value)}
-          />
-          <datalist id="cats-insumo">
-            {(categorias || []).map(c => <option key={c} value={c} />)}
-          </datalist>
+          <input className="field-input" list="cats-insumo" placeholder="ex: Farinhas" value={form.categoria} onChange={e => set('categoria', e.target.value)} />
+          <datalist id="cats-insumo">{(categorias || []).map(c => <option key={c} value={c} />)}</datalist>
         </div>
         <div>
           <div className="field-label">Unidade de uso</div>
@@ -127,7 +130,6 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
       </div>
 
       <div className="section-label" style={{ marginTop: 4 }}>Precificação</div>
-
       <div className="field-row">
         <div>
           <div className="field-label">
@@ -150,7 +152,7 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
 
       {custoUnitCalc !== null && (
         <CalcBadge
-          label={`Custo por ${form.unidade === 'un' && pesoUn > 0 ? 'g' : form.unidade}`}
+          label={`Custo por ${form.unidade === 'un' && pesoUnNum > 0 ? 'g' : form.unidade}`}
           value={custoUnitCalc}
         />
       )}
@@ -170,7 +172,7 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
         </div>
       </div>
 
-      <div className="section-label" style={{ marginTop: 4 }}>Fornecedor</div>
+      <div className="section-label" style={{ marginTop: 4 }}>Fornecedor principal</div>
       <input
         className="field-input"
         list="fornecedores-list"
@@ -186,70 +188,57 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
       <datalist id="fornecedores-list">
         {(fornecedores || []).map(f => <option key={f.nome} value={f.nome} />)}
       </datalist>
-      <div className="field-label">WhatsApp <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(DDD + número, sem +55)</span></div>
+      <div className="field-label">Telefone</div>
       <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
 
-      {/* Fontes de compra / marcas */}
-      <div className="section-label" style={{ marginTop: 8 }}>Fontes de compra</div>
-      <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>
-        Registre marcas ou fornecedores diferentes. O menor custo/unidade será usado nas receitas.
-      </div>
-      {fontes.length > 0 && (
-        <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 6 }}>
+      {/* Outros fornecedores — edição only */}
+      {item && (
+        <>
+          <div className="section-label" style={{ marginTop: 8 }}>Outros fornecedores</div>
           {fontes.map((f, i) => {
-            const pu = parseFloat(f.pesoEmb) || 0
-            const cu = parseFloat(f.custoEmb) || 0
-            const cu_unit = pu > 0 && cu > 0 ? cu / pu : null
+            const cu = parseFloat(f.pesoEmb) > 0 && parseFloat(f.custoEmb) > 0
+              ? parseFloat(f.custoEmb) / parseFloat(f.pesoEmb) : null
             return (
-              <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
-                  <input
-                    className="field-input"
-                    style={{ flex: 1, marginBottom: 0, fontSize: 12 }}
-                    placeholder="Marca"
-                    value={f.marca}
-                    onChange={e => setFonte(i, 'marca', e.target.value)}
-                  />
-                  <input
-                    className="field-input"
-                    style={{ flex: 1, marginBottom: 0, fontSize: 12 }}
-                    placeholder="Fornecedor"
-                    value={f.fornecedor}
-                    onChange={e => setFonte(i, 'fornecedor', e.target.value)}
-                  />
-                  <button className="item-rm" onClick={() => removeFonte(i)}>&#215;</button>
+              <div key={i} className="card" style={{ padding: '10px 14px', marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Fornecedor {i + 1}</span>
+                  <button className="item-rm" onClick={() => removeFonte(i)}>×</button>
                 </div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  <div style={{ flex: 1 }}>
-                    <input
-                      className="field-input"
-                      style={{ marginBottom: 0, fontSize: 12 }}
-                      type="number" inputMode="decimal" min="0" placeholder={`Peso emb (${form.unidade})`}
-                      value={f.pesoEmb}
-                      onChange={e => setFonte(i, 'pesoEmb', e.target.value)}
-                    />
+                <div className="field-row">
+                  <div>
+                    <div className="field-label">Marca</div>
+                    <input className="field-input" placeholder="ex: Anaconda" value={f.marca} onChange={e => setFonte(i, 'marca', e.target.value)} />
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <input
-                      className="field-input"
-                      style={{ marginBottom: 0, fontSize: 12 }}
-                      type="number" inputMode="decimal" min="0" placeholder="Custo (R$)"
-                      value={f.custoEmb}
-                      onChange={e => setFonte(i, 'custoEmb', e.target.value)}
-                    />
+                  <div>
+                    <div className="field-label">Fornecedor</div>
+                    <input className="field-input" placeholder="Nome" value={f.fornecedor} onChange={e => setFonte(i, 'fornecedor', e.target.value)} />
                   </div>
-                  {cu_unit !== null && (
-                    <div style={{ fontSize: 11, color: 'var(--teal)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                      R$ {cu_unit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{form.unidade}
-                    </div>
-                  )}
                 </div>
+                <div className="field-row">
+                  <div>
+                    <div className="field-label">Peso emb. ({form.unidade})</div>
+                    <input className="field-input" type="number" inputMode="decimal" min="0" placeholder="ex: 1000" value={f.pesoEmb} onChange={e => setFonte(i, 'pesoEmb', e.target.value)} />
+                  </div>
+                  <div>
+                    <div className="field-label">Custo (R$)</div>
+                    <input className="field-input" type="number" inputMode="decimal" min="0" placeholder="0,00" value={f.custoEmb} onChange={e => setFonte(i, 'custoEmb', e.target.value)} />
+                  </div>
+                </div>
+                {cu !== null && (
+                  <div style={{ fontSize: 11, color: 'var(--teal)', marginBottom: 6 }}>
+                    R$ {cu.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{form.unidade}
+                  </div>
+                )}
+                <div className="field-label">Link da loja</div>
+                <input className="field-input" type="url" placeholder="https://..." value={f.linkCompra} onChange={e => setFonte(i, 'linkCompra', e.target.value)} />
+                <div className="field-label">Telefone</div>
+                <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={f.telefone} onChange={e => setFonte(i, 'telefone', e.target.value)} />
               </div>
             )
           })}
-        </div>
+          <button className="btn-add-item" style={{ marginBottom: 12 }} onClick={addFonte}>+ novo fornecedor</button>
+        </>
       )}
-      <button className="btn-add-item" style={{ marginBottom: 12 }} onClick={addFonte}>+ adicionar fonte</button>
 
       <button className="btn-primary" onClick={() => handle(false)} disabled={saving || !form.nome}>
         {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar insumo'}
@@ -308,16 +297,8 @@ function EmbalagemForm({ item, categorias, onSave, onDelete, onClose }) {
       <input className="field-input" placeholder="ex: Caixinha 15×15cm" value={form.nome} onChange={e => set('nome', e.target.value)} />
 
       <div className="field-label">Categoria</div>
-      <input
-        className="field-input"
-        list="cats-embalagem"
-        placeholder="ex: Caixas"
-        value={form.categoria}
-        onChange={e => set('categoria', e.target.value)}
-      />
-      <datalist id="cats-embalagem">
-        {(categorias || []).map(c => <option key={c} value={c} />)}
-      </datalist>
+      <input className="field-input" list="cats-embalagem" placeholder="ex: Caixas" value={form.categoria} onChange={e => set('categoria', e.target.value)} />
+      <datalist id="cats-embalagem">{(categorias || []).map(c => <option key={c} value={c} />)}</datalist>
 
       <div className="section-label" style={{ marginTop: 4 }}>Precificação</div>
       <div className="field-row">
@@ -331,9 +312,7 @@ function EmbalagemForm({ item, categorias, onSave, onDelete, onClose }) {
         </div>
       </div>
 
-      {custoUnitCalc !== null && (
-        <CalcBadge label="Custo por unidade" value={custoUnitCalc} />
-      )}
+      {custoUnitCalc !== null && <CalcBadge label="Custo por unidade" value={custoUnitCalc} />}
 
       <div className="field-label">Link da Shopee / loja</div>
       <input className="field-input" type="url" placeholder="https://shopee.com.br/..." value={form.linkCompra} onChange={e => set('linkCompra', e.target.value)} />
@@ -352,7 +331,7 @@ function EmbalagemForm({ item, categorias, onSave, onDelete, onClose }) {
 
       <div className="section-label" style={{ marginTop: 4 }}>Fornecedor</div>
       <input className="field-input" placeholder="Nome do fornecedor" value={form.fornecedor} onChange={e => set('fornecedor', e.target.value)} />
-      <div className="field-label">WhatsApp <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(DDD + número, sem +55)</span></div>
+      <div className="field-label">Telefone</div>
       <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
 
       <button className="btn-primary" onClick={() => handle(false)} disabled={saving || !form.nome}>
@@ -382,10 +361,21 @@ function fmtR(val) {
 export default function Cadastros() {
   const [tab, setTab] = useState('insumos')
   const [sheet, setSheet] = useState(null)
+  const [expandedFornecedor, setExpandedFornecedor] = useState(null)
   const { toast, show } = useToast()
 
   const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
   const { data: embalagens, loading: lEmb, reload: rEmb } = useData(getEmbalagens)
+  const { data: todasFontes, reload: rFontes } = useData(getAllInsumoFornecedores)
+
+  const fontesMap = useMemo(() => {
+    const map = {}
+    for (const f of todasFontes || []) {
+      if (!map[f.insumoId]) map[f.insumoId] = []
+      map[f.insumoId].push(f)
+    }
+    return map
+  }, [todasFontes])
 
   const catsInsumo = useMemo(() =>
     [...new Set((insumos || []).map(i => i.categoria).filter(Boolean))].sort(),
@@ -401,6 +391,7 @@ export default function Cadastros() {
     })
     return Object.values(map).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   }, [insumos, embalagens])
+
   const catsEmbalagem = useMemo(() =>
     [...new Set((embalagens || []).map(e => e.categoria).filter(Boolean))].sort(),
     [embalagens]
@@ -412,7 +403,7 @@ export default function Cadastros() {
     save: async (form, fontes) => {
       const data = await saveInsumo(form)
       if (fontes?.length > 0 || (form.id && fontes)) await saveInsumoFornecedores(data.id, fontes || [])
-      rIns(); show('Salvo!')
+      rIns(); rFontes(); show('Salvo!')
     },
     del: withReload(deleteInsumo, rIns),
   }
@@ -430,9 +421,7 @@ export default function Cadastros() {
             className="btn-ghost"
             onClick={openNew}
             style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
-          >
-            +
-          </button>
+          >+</button>
         </div>
       </div>
 
@@ -446,81 +435,163 @@ export default function Cadastros() {
           <div className="loading">Carregando...</div>
         ) : tab === 'insumos' ? (
           <>
+            {/* Desktop */}
             <div className="desktop-only">
               <div className="card card-flush">
                 {(insumos || []).length === 0
                   ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum insumo cadastrado</div>
                   : <table className="dt">
                       <thead><tr>
-                        <th>Nome</th><th>Categoria</th><th>Unidade</th>
+                        <th>Nome</th><th>Marca</th><th>Categoria</th>
                         <th>Emb.</th><th>Custo emb.</th><th>Custo/un</th>
                         <th>Estoque</th><th>Fornecedor</th><th></th>
                       </tr></thead>
                       <tbody>
-                        {(insumos || []).map(ins => (
-                          <tr key={ins.id} onClick={() => setSheet({ type: 'insumo', item: ins })}>
-                            <td style={{ fontWeight: 600 }}>{ins.nome}</td>
-                            <td className="muted">{ins.categoria || '—'}</td>
-                            <td className="muted">{ins.unidade}</td>
-                            <td className="muted">{ins.pesoEmb > 0 ? `${ins.pesoEmb} ${ins.unidade}` : '—'}</td>
-                            <td className="muted">{fmtR(ins.custoEmb)}</td>
-                            <td className="teal">{ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : '—'}</td>
-                            <td>
-                              {ins.estoqueAtual !== null && ins.estoqueAtual !== undefined
-                                ? <span style={{ color: ins.estoqueAtual < ins.estoqueMin ? 'var(--alert-text)' : 'var(--ok-text)', fontWeight: 600, fontSize: 13 }}>
-                                    {ins.estoqueAtual} {ins.unidade}
-                                  </span>
-                                : <span className="muted">—</span>}
-                            </td>
-                            <td className="muted">{ins.fornecedor || '—'}</td>
-                            <td onClick={e => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
-                              {ins.linkCompra && (
-                                <a href={ins.linkCompra} target="_blank" rel="noreferrer"
-                                  style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', marginRight: 8 }}>Loja</a>
-                              )}
-                              {waLink(ins.whatsapp) && (
-                                <a href={waLink(ins.whatsapp)} target="_blank" rel="noreferrer"
-                                  style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>WA</a>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
+                        {(insumos || []).map(ins => {
+                          const fontes = fontesMap[ins.id] || []
+                          const cheapest = fontes.length > 0 ? fontes[0] : null
+                          const fornecedorLabel = cheapest?.fornecedor || ins.fornecedor || '—'
+                          const marcaLabel = cheapest?.marca || ins.marca || '—'
+                          return (
+                            <tr key={ins.id} onClick={() => setSheet({ type: 'insumo', item: ins })}>
+                              <td style={{ fontWeight: 600 }}>{ins.nome}</td>
+                              <td className="muted">{marcaLabel}</td>
+                              <td className="muted">{ins.categoria || '—'}</td>
+                              <td className="muted">{ins.pesoEmb > 0 ? `${ins.pesoEmb} ${ins.unidade}` : '—'}</td>
+                              <td className="muted">{fmtR(ins.custoEmb)}</td>
+                              <td className="teal">{ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : '—'}</td>
+                              <td>
+                                {ins.estoqueAtual !== null && ins.estoqueAtual !== undefined
+                                  ? <span style={{ color: ins.estoqueAtual < ins.estoqueMin ? 'var(--alert-text)' : 'var(--ok-text)', fontWeight: 600, fontSize: 13 }}>
+                                      {ins.estoqueAtual} {ins.unidade}
+                                    </span>
+                                  : <span className="muted">—</span>}
+                              </td>
+                              <td className="muted">
+                                {fornecedorLabel}
+                                {fontes.length > 0 && <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 4 }}>+{fontes.length}</span>}
+                              </td>
+                              <td onClick={e => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
+                                {ins.linkCompra && (
+                                  <a href={ins.linkCompra} target="_blank" rel="noreferrer"
+                                    style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', marginRight: 8 }}>Loja</a>
+                                )}
+                                {waLink(ins.whatsapp) && (
+                                  <a href={waLink(ins.whatsapp)} target="_blank" rel="noreferrer"
+                                    style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>WA</a>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                 }
               </div>
             </div>
+
+            {/* Mobile */}
             <div className="mobile-only">
               <div className="card card-flush" style={{ padding: '0 14px' }}>
                 {(insumos || []).length === 0
                   ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum insumo cadastrado</div>
-                  : (insumos || []).map(ins => (
-                    <div key={ins.id} className="list-item" onClick={() => setSheet({ type: 'insumo', item: ins })}>
-                      <div>
-                        <div className="list-item-name">{ins.nome}</div>
-                        <div className="list-item-sub">{ins.categoria} · {ins.unidade}{ins.fornecedor ? ` · ${ins.fornecedor}` : ''}</div>
-                      </div>
-                      <div className="list-item-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
-                          {ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/${ins.unidade}` : '—'}
+                  : (insumos || []).map(ins => {
+                    const fontes = fontesMap[ins.id] || []
+                    // fontes already sorted cheapest first from DB query
+                    const cheapest = fontes.length > 0 ? fontes[0] : null
+                    const marcaAtual = cheapest?.marca || ins.marca || null
+                    const fornecedorAtual = cheapest?.fornecedor || ins.fornecedor || null
+                    const isExpanded = expandedFornecedor === ins.id
+                    const totalOpcoes = fontes.length + (ins.fornecedor ? 1 : 0)
+
+                    return (
+                      <div key={ins.id}>
+                        <div className="list-item" onClick={() => setSheet({ type: 'insumo', item: ins })}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="list-item-name">{ins.nome}</div>
+                            <div className="list-item-sub">
+                              {marcaAtual && `${marcaAtual} · `}
+                              {ins.pesoEmb > 0 ? `${ins.pesoEmb}${ins.unidade}` : ins.categoria || ''}
+                            </div>
+                            {(fornecedorAtual || fontes.length > 0) && (
+                              <button
+                                onClick={e => { e.stopPropagation(); setExpandedFornecedor(isExpanded ? null : ins.id) }}
+                                style={{
+                                  marginTop: 4, fontSize: 11, padding: '2px 8px', borderRadius: 10,
+                                  border: '1px solid var(--border)', background: 'transparent',
+                                  color: 'var(--text-secondary)', cursor: 'pointer',
+                                }}
+                              >
+                                {fornecedorAtual || '—'}
+                                {totalOpcoes > 1 && ` · ${totalOpcoes} opções ▾`}
+                              </button>
+                            )}
+                          </div>
+                          <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 10 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
+                              {ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/${ins.unidade}` : '—'}
+                            </div>
+                            {ins.linkCompra && (
+                              <a href={ins.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                                style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>Loja</a>
+                            )}
+                          </div>
                         </div>
-                        {ins.linkCompra && (
-                          <a href={ins.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                            style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>Loja</a>
-                        )}
-                        {waLink(ins.whatsapp) && (
-                          <a href={waLink(ins.whatsapp)} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
-                            style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>WhatsApp</a>
+
+                        {isExpanded && (
+                          <div style={{ background: 'var(--card-bg)', borderBottom: '1px solid var(--border)', padding: '6px 14px 8px' }}>
+                            {ins.fornecedor && (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 0', fontSize: 12 }}>
+                                <div>
+                                  {ins.marca && <span style={{ color: 'var(--text-secondary)' }}>{ins.marca} · </span>}
+                                  <span>{ins.fornecedor}</span>
+                                  <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>(principal)</span>
+                                  {waLink(ins.whatsapp) && (
+                                    <a href={waLink(ins.whatsapp)} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                                      style={{ marginLeft: 6, color: 'var(--teal)', fontSize: 11 }}>Tel</a>
+                                  )}
+                                </div>
+                                {ins.custoUnit > 0 && ins.pesoEmb > 0 && (
+                                  <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>
+                                    R$ {calcCustoUnitInsumo(ins)?.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{ins.unidade}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {fontes.map((f, i) => (
+                              <div key={i} style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                padding: '5px 0', fontSize: 12, borderTop: '1px solid var(--border)',
+                              }}>
+                                <div>
+                                  {f.marca && <span style={{ color: 'var(--text-secondary)' }}>{f.marca} · </span>}
+                                  <span>{f.fornecedor || '—'}</span>
+                                  {f.linkCompra && (
+                                    <a href={f.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                                      style={{ marginLeft: 6, color: 'var(--teal)', fontSize: 11 }}>Loja</a>
+                                  )}
+                                  {f.telefone && (
+                                    <a href={`tel:${f.telefone}`} onClick={e => e.stopPropagation()}
+                                      style={{ marginLeft: 6, color: 'var(--teal)', fontSize: 11 }}>Tel</a>
+                                  )}
+                                </div>
+                                <span style={{ color: f.custoUnit > 0 ? 'var(--teal)' : 'var(--text-tertiary)', fontSize: 11 }}>
+                                  {f.custoUnit > 0 ? `R$ ${f.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/${ins.unidade}` : '—'}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
                 }
               </div>
             </div>
           </>
         ) : (
           <>
+            {/* Desktop */}
             <div className="desktop-only">
               <div className="card card-flush">
                 {(embalagens || []).length === 0
@@ -563,6 +634,8 @@ export default function Cadastros() {
                 }
               </div>
             </div>
+
+            {/* Mobile */}
             <div className="mobile-only">
               <div className="card card-flush" style={{ padding: '0 14px' }}>
                 {(embalagens || []).length === 0

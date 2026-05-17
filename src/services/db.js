@@ -30,6 +30,7 @@ export async function getInsumos() {
   return data.map(r => ({
     id: r.id,
     nome: r.nome,
+    marca: r.marca || '',
     categoria: r.categoria || '',
     unidade: r.unidade || 'g',
     pesoEmb: r.peso_emb || 0,
@@ -61,6 +62,7 @@ export async function saveInsumo(insumo) {
 
   const row = {
     nome: insumo.nome,
+    marca: insumo.marca || '',
     categoria: insumo.categoria || '',
     unidade: insumo.unidade || 'g',
     peso_emb: pesoEmb,
@@ -74,7 +76,7 @@ export async function saveInsumo(insumo) {
     telefone: insumo.telefone || '',
     whatsapp: insumo.whatsapp || '',
   }
-  const data = await upsert('insumos', row, insumo.id || null, ['link_compra'])
+  const data = await upsert('insumos', row, insumo.id || null, ['link_compra', 'marca'])
   return data
 }
 
@@ -84,11 +86,14 @@ export async function getInsumoFornecedores(insumoId) {
   if (error) throw error
   return (data || []).map(f => ({
     id: f.id,
+    insumoId: f.insumo_id,
     marca: f.marca || '',
     fornecedor: f.fornecedor || '',
     pesoEmb: f.peso_emb || 0,
     custoEmb: f.custo_emb || 0,
     custoUnit: f.custo_unit || 0,
+    linkCompra: f.link_compra || '',
+    telefone: f.telefone || '',
   }))
 }
 
@@ -103,7 +108,7 @@ export async function saveInsumoFornecedores(insumoId, fontes) {
     const pesoEmb  = parseFloat(f.pesoEmb)  || 0
     const custoEmb = parseFloat(f.custoEmb) || 0
     const custoUnit = pesoEmb > 0 && custoEmb > 0 ? custoEmb / pesoEmb : 0
-    return { insumo_id: insumoId, marca: f.marca || '', fornecedor: f.fornecedor || '', peso_emb: pesoEmb, custo_emb: custoEmb, custo_unit: custoUnit }
+    return { insumo_id: insumoId, marca: f.marca || '', fornecedor: f.fornecedor || '', peso_emb: pesoEmb, custo_emb: custoEmb, custo_unit: custoUnit, link_compra: f.linkCompra || '', telefone: f.telefone || '' }
   })
 
   const { error: insErr } = await supabase.from('insumo_fornecedores').insert(rows)
@@ -114,6 +119,23 @@ export async function saveInsumoFornecedores(insumoId, fontes) {
   if (costs.length > 0) {
     await supabase.from('insumos').update({ custo_unit: Math.min(...costs) }).eq('id', insumoId)
   }
+}
+
+export async function getAllInsumoFornecedores() {
+  const { data, error } = await supabase.from('insumo_fornecedores').select('*').order('custo_unit')
+  if (error?.code === '42P01') return []
+  if (error) throw error
+  return (data || []).map(f => ({
+    id: f.id,
+    insumoId: f.insumo_id,
+    marca: f.marca || '',
+    fornecedor: f.fornecedor || '',
+    pesoEmb: f.peso_emb || 0,
+    custoEmb: f.custo_emb || 0,
+    custoUnit: f.custo_unit || 0,
+    linkCompra: f.link_compra || '',
+    telefone: f.telefone || '',
+  }))
 }
 
 export async function deleteInsumo(id) {
