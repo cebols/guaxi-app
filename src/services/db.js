@@ -144,6 +144,11 @@ export async function deleteInsumo(id) {
   if (error) throw error
 }
 
+export async function deleteInsumos(ids) {
+  const { error } = await supabase.from('insumos').delete().in('id', ids)
+  if (error) throw error
+}
+
 export async function updateEstoqueInsumos(items) {
   await Promise.all(
     items.map(({ id, estoqueAtual }) =>

@@ -3,7 +3,7 @@ import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import ImportarExcel from './ImportarExcel'
 import {
-  getInsumos, saveInsumo, deleteInsumo,
+  getInsumos, saveInsumo, deleteInsumo, deleteInsumos,
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
   getInsumoFornecedores, saveInsumoFornecedores, getAllInsumoFornecedores,
 } from '../services/db'
@@ -431,6 +431,8 @@ export default function Cadastros() {
   const [sheet, setSheet] = useState(null)
   const [busca, setBusca] = useState('')
   const [importando, setImportando] = useState(false)
+  const [bulkDelete, setBulkDelete] = useState(false)
+  const [bulkSel, setBulkSel]       = useState([])
   const { toast, show } = useToast()
 
   const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
@@ -530,6 +532,10 @@ export default function Cadastros() {
             <button onClick={() => setImportando(true)}
               style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               ↑ Excel
+            </button>
+            <button onClick={() => { setBulkSel([]); setBulkDelete(true) }}
+              style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              Excluir
             </button>
             <button className="btn-ghost" onClick={openNew}
               style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}>+</button>
@@ -777,6 +783,60 @@ export default function Cadastros() {
       )}
       {sheet?.type === 'embalagem' && (
         <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />
+      )}
+
+      {bulkDelete && (
+        <>
+          <div className="sheet-overlay" onClick={() => setBulkDelete(false)} />
+          <div className="sheet">
+            <div className="sheet-title">
+              <span>Excluir insumos</span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setBulkDelete(false)}>×</button>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                <input type="checkbox"
+                  checked={bulkSel.length === (insumos || []).length && (insumos || []).length > 0}
+                  onChange={e => setBulkSel(e.target.checked ? (insumos || []).map(i => i.id) : [])}
+                /> Todos
+              </label>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{bulkSel.length} selecionado(s)</span>
+            </div>
+
+            <div style={{ maxHeight: '55vh', overflowY: 'auto', marginBottom: 16 }}>
+              {(insumos || []).map(ins => (
+                <label key={ins.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+                  <input type="checkbox"
+                    checked={bulkSel.includes(ins.id)}
+                    onChange={e => setBulkSel(s => e.target.checked ? [...s, ins.id] : s.filter(id => id !== ins.id))}
+                  />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{ins.nome}</div>
+                    {ins.categoria && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{ins.categoria}</div>}
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <button
+              disabled={!bulkSel.length}
+              onClick={async () => {
+                if (!confirm(`Excluir ${bulkSel.length} insumo(s)? Essa ação não pode ser desfeita.`)) return
+                try {
+                  await deleteInsumos(bulkSel)
+                  rIns()
+                  setBulkDelete(false)
+                  show(`${bulkSel.length} insumo(s) excluído(s)`)
+                } catch (e) { alert(e.message) }
+              }}
+              style={{ width: '100%', padding: '12px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 700, cursor: bulkSel.length ? 'pointer' : 'not-allowed',
+                background: bulkSel.length ? 'var(--danger, #ef4444)' : 'var(--border)', color: '#fff' }}
+            >
+              {bulkSel.length ? `Excluir ${bulkSel.length} insumo(s)` : 'Selecione insumos'}
+            </button>
+          </div>
+        </>
       )}
 
       {importando && (
