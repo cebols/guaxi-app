@@ -452,6 +452,8 @@ export async function getEncomendas() {
     pgto: r.pgto || 'Aguardando',
     status: r.status || 'Pendente',
     obs: r.obs || '',
+    tipoEntrega: r.tipo_entrega || 'Retirada',
+    frete: r.frete || 0,
     itens: (r.encomenda_itens || []).map(i => ({
       id: i.id,
       produto: i.produto,
@@ -475,11 +477,13 @@ export async function savePedido(pedido, itens) {
   }
   const id = `PED-${String(nextNum).padStart(3, '0')}`
 
-  const total = itens.reduce(
+  const frete = parseFloat(pedido.frete) || 0
+  const itensTotal = itens.reduce(
     (s, it) => s + (parseFloat(it.precoUnit) || 0) * (parseFloat(it.quantidade) || 1), 0
   )
+  const total = itensTotal + (pedido.tipoEntrega === 'Entrega' ? frete : 0)
 
-  const { error } = await supabase.from('encomendas').insert({
+  const row = {
     id,
     data_entrega: pedido.dataEntrega,
     cliente: pedido.cliente,
@@ -492,7 +496,18 @@ export async function savePedido(pedido, itens) {
     pgto: pedido.pgto || 'Aguardando',
     status: pedido.status || 'Pendente',
     obs: pedido.obs || '',
-  })
+    tipo_entrega: pedido.tipoEntrega || 'Retirada',
+    frete,
+  }
+
+  // Graceful fallback if migration15 not yet run
+  const tryInsert = async (r) => supabase.from('encomendas').insert(r)
+  let { error } = await tryInsert(row)
+  if (error?.message?.includes('tipo_entrega') || error?.message?.includes('frete')) {
+    const { tipo_entrega: _t, frete: _f, ...rowFallback } = row
+    const res = await tryInsert(rowFallback)
+    error = res.error
+  }
   if (error) throw error
 
   if (itens.length > 0) {

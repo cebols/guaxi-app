@@ -254,6 +254,17 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
 
         {/* Financeiro */}
         <div className="card" style={{ padding: '12px 14px', marginBottom: 14 }}>
+          {pedido.tipoEntrega === 'Entrega' && pedido.frete > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Frete ({pedido.tipoEntrega})</span>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>R$ {fmtR(pedido.frete)}</span>
+            </div>
+          )}
+          {pedido.tipoEntrega && pedido.tipoEntrega !== 'Entrega' && (
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6 }}>
+              {pedido.tipoEntrega}
+            </div>
+          )}
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ fontSize: 14, fontWeight: 600 }}>Total a receber</span>
             <span style={{ fontSize: 16, fontWeight: 700, color: pedido.pgto === 'Pago' ? 'var(--teal)' : '#f59e0b' }}>
@@ -343,6 +354,7 @@ function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
   const [form, setForm] = useState({
     cliente: '', contato: '', canal: 'WhatsApp',
     dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
+    tipoEntrega: 'Retirada', frete: '',
   })
   const [itens, setItens]           = useState([{ produto: '', quantidade: 1, precoUnit: '' }])
   const [saving, setSaving]         = useState(false)
@@ -353,7 +365,9 @@ function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
   const addItem    = () => setItens(prev => [...prev, { produto: '', quantidade: 1, precoUnit: '' }])
   const removeItem = (i) => setItens(prev => prev.filter((_, idx) => idx !== i))
 
-  const total = itens.reduce((s, it) => s + (parseFloat(it.precoUnit) || 0) * (parseFloat(it.quantidade) || 1), 0)
+  const itensTotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit) || 0) * (parseFloat(it.quantidade) || 1), 0)
+  const frete = form.tipoEntrega === 'Entrega' ? (parseFloat(form.frete) || 0) : 0
+  const total = itensTotal + frete
 
   const handleClienteChange = (nome) => {
     setField('cliente', nome)
@@ -489,6 +503,28 @@ function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
           </div>
         </div>
 
+        {/* Tipo de entrega */}
+        <div className="field-row">
+          <div>
+            <div className="field-label">Tipo</div>
+            <select className="field-input" value={form.tipoEntrega} onChange={e => setField('tipoEntrega', e.target.value)}>
+              <option>Retirada</option>
+              <option>Entrega</option>
+            </select>
+          </div>
+          {form.tipoEntrega === 'Entrega' && (
+            <div>
+              <div className="field-label">Frete (R$)</div>
+              <input
+                className="field-input"
+                type="number" inputMode="decimal" placeholder="0,00"
+                value={form.frete}
+                onChange={e => setField('frete', e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+
         {/* Itens — texto livre com sugestões */}
         <div className="section-label">Itens do pedido</div>
         <datalist id="produtos-list">
@@ -528,6 +564,11 @@ function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
 
         {/* Total */}
         <div style={{ textAlign: 'right', marginTop: 12 }}>
+          {frete > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>
+              Itens R$ {fmtR(itensTotal)} + frete R$ {fmtR(frete)}
+            </div>
+          )}
           <div className="field-label">Total</div>
           <div style={{ fontSize: 22, fontWeight: 700 }}>R$ {fmtR(total)}</div>
         </div>
@@ -561,6 +602,7 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
   const [form, setForm] = useState({
     cliente: '', contato: '', canal: 'WhatsApp',
     dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
+    tipoEntrega: 'Retirada', frete: '',
   })
   const [itens, setItens]               = useState([{ produto: '', quantidade: 1, precoUnit: '' }])
   const [saving, setSaving]             = useState(false)
@@ -571,7 +613,9 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
   const addItem    = () => setItens(prev => [...prev, { produto: '', quantidade: 1, precoUnit: '' }])
   const removeItem = (i) => setItens(prev => prev.filter((_, idx) => idx !== i))
 
-  const total = itens.reduce((s, it) => s + (parseFloat(it.precoUnit) || 0) * (parseFloat(it.quantidade) || 1), 0)
+  const sheetItensTotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit) || 0) * (parseFloat(it.quantidade) || 1), 0)
+  const sheetFrete = form.tipoEntrega === 'Entrega' ? (parseFloat(form.frete) || 0) : 0
+  const total = sheetItensTotal + sheetFrete
 
   const handleClienteChange = (nome) => {
     setField('cliente', nome)
@@ -677,6 +721,27 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
           </div>
         </div>
 
+        <div className="field-row">
+          <div>
+            <div className="field-label">Tipo</div>
+            <select className="field-input" value={form.tipoEntrega} onChange={e => setField('tipoEntrega', e.target.value)}>
+              <option>Retirada</option>
+              <option>Entrega</option>
+            </select>
+          </div>
+          {form.tipoEntrega === 'Entrega' && (
+            <div>
+              <div className="field-label">Frete (R$)</div>
+              <input
+                className="field-input"
+                type="number" inputMode="decimal" placeholder="0,00"
+                value={form.frete}
+                onChange={e => setField('frete', e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+
         <div className="section-label">Itens do pedido</div>
         <datalist id="sheet-produtos-list">
           {(produtos || []).map(p => <option key={p.id} value={p.nome} />)}
@@ -697,6 +762,11 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
         <button className="btn-add-item" onClick={addItem}>+ adicionar item</button>
 
         <div style={{ textAlign: 'right', marginTop: 12 }}>
+          {sheetFrete > 0 && (
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>
+              Itens R$ {fmtR(sheetItensTotal)} + frete R$ {fmtR(sheetFrete)}
+            </div>
+          )}
           <div className="field-label">Total</div>
           <div style={{ fontSize: 22, fontWeight: 700 }}>R$ {fmtR(total)}</div>
         </div>
