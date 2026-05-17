@@ -4,7 +4,7 @@
 create table if not exists compras (
   id         uuid primary key default gen_random_uuid(),
   tipo       text not null,            -- 'insumo' | 'embalagem'
-  item_id    uuid,
+  item_id    text,
   item_nome  text not null,
   unidade    text default '',
   quantidade numeric not null,
