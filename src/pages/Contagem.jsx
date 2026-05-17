@@ -361,7 +361,7 @@ export default function Contagem() {
   const [minIns,  setMinIns]  = useState({})
   const [minEmb,  setMinEmb]  = useState({})
   const [minProd, setMinProd] = useState({})
-  const [modalMin, setModalMin] = useState(null)
+  const [modalMin, setModalMin] = useState(null)  // { type, itens, values, busca }
   const [savingMin, setSavingMin] = useState(false)
   const [semEstoqueAberto, setSemEstoqueAberto] = useState(false)
   const [recibo,   setRecibo]  = useState(null)
@@ -410,7 +410,7 @@ export default function Contagem() {
       const cur = minDoTab[item.id]
       values[item.id] = cur !== undefined ? String(cur) : String(item.estoqueMin ?? 0)
     })
-    setModalMin({ type: tab, itens: itensDoTab, values })
+    setModalMin({ type: tab, itens: itensDoTab, values, busca: '' })
   }
 
   async function saveModalMin() {
@@ -622,8 +622,14 @@ export default function Contagem() {
       {modalMin && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }} onClick={e => { if (e.target === e.currentTarget) setModalMin(null) }}>
           <div style={{ background: 'var(--bg-primary)', borderRadius: '16px 16px 0 0', width: '100%', maxHeight: '80vh', overflow: 'auto', padding: '20px 20px 32px' }}>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Editar Estoque Mínimo</div>
-            {modalMin.itens.map(item => (
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>Editar Estoque Mínimo</div>
+            <input
+              value={modalMin.busca}
+              onChange={e => setModalMin(m => ({ ...m, busca: e.target.value }))}
+              placeholder="Buscar..."
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box', marginBottom: 12 }}
+            />
+            {modalMin.itens.filter(i => norm(i.nome).includes(norm(modalMin.busca))).map(item => (
               <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
                 <div style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{item.nome}</div>
                 <input
