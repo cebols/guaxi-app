@@ -433,6 +433,7 @@ export default function Cadastros() {
   const [importando, setImportando] = useState(false)
   const [bulkDelete, setBulkDelete] = useState(false)
   const [bulkSel, setBulkSel]       = useState([])
+  const [bulkConfirm, setBulkConfirm] = useState(false)
   const { toast, show } = useToast()
 
   const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
@@ -821,20 +822,40 @@ export default function Cadastros() {
 
             <button
               disabled={!bulkSel.length}
-              onClick={async () => {
-                if (!confirm(`Excluir ${bulkSel.length} insumo(s)? Essa ação não pode ser desfeita.`)) return
-                try {
-                  await deleteInsumos(bulkSel)
-                  rIns()
-                  setBulkDelete(false)
-                  show(`${bulkSel.length} insumo(s) excluído(s)`)
-                } catch (e) { alert(e.message) }
-              }}
+              onClick={() => bulkSel.length && setBulkConfirm(true)}
               style={{ width: '100%', padding: '12px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 700, cursor: bulkSel.length ? 'pointer' : 'not-allowed',
                 background: bulkSel.length ? 'var(--danger, #ef4444)' : 'var(--border)', color: '#fff' }}
             >
               {bulkSel.length ? `Excluir ${bulkSel.length} insumo(s)` : 'Selecione insumos'}
             </button>
+          </div>
+        </>
+      )}
+
+      {bulkConfirm && (
+        <>
+          <div className="sheet-overlay" onClick={() => setBulkConfirm(false)} />
+          <div className="sheet" style={{ maxHeight: 'auto' }}>
+            <div style={{ padding: '8px 0 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>🗑️</div>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Excluir {bulkSel.length} insumo(s)?</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>Essa ação não pode ser desfeita.</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn-outline-teal" style={{ flex: 1 }} onClick={() => setBulkConfirm(false)}>Cancelar</button>
+                <button
+                  style={{ flex: 1, padding: '12px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 700, cursor: 'pointer', background: 'var(--danger, #ef4444)', color: '#fff' }}
+                  onClick={async () => {
+                    try {
+                      await deleteInsumos(bulkSel)
+                      rIns()
+                      setBulkConfirm(false)
+                      setBulkDelete(false)
+                      show(`${bulkSel.length} insumo(s) excluído(s)`)
+                    } catch (e) { alert(e.message) }
+                  }}
+                >Excluir</button>
+              </div>
+            </div>
           </div>
         </>
       )}
