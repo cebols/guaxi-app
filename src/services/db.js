@@ -84,23 +84,9 @@ export async function deleteInsumo(id) {
 
 export async function updateEstoqueInsumos(items) {
   await Promise.all(
-    items.map(async ({ id, estoqueAtual }) => {
-      const { data: old } = await supabase
-        .from('insumos').select('estoque_atual, custo_unit, nome, unidade').eq('id', id).single()
-      await supabase.from('insumos').update({ estoque_atual: estoqueAtual }).eq('id', id)
-      if (old && estoqueAtual !== null) {
-        const diff = parseFloat(estoqueAtual) - (old.estoque_atual ?? 0)
-        if (diff > 0) {
-          const preco = old.custo_unit || 0
-          await supabase.from('compras').insert({
-            tipo: 'insumo', item_id: id, item_nome: old.nome,
-            unidade: old.unidade || '', quantidade: diff,
-            preco_unit: preco, total: diff * preco,
-            data: new Date().toISOString().split('T')[0],
-          }).then(() => {})
-        }
-      }
-    })
+    items.map(({ id, estoqueAtual }) =>
+      supabase.from('insumos').update({ estoque_atual: estoqueAtual }).eq('id', id)
+    )
   )
 }
 
@@ -153,24 +139,15 @@ export async function deleteEmbalagem(id) {
 
 export async function updateEstoqueEmbalagens(items) {
   await Promise.all(
-    items.map(async ({ id, estoqueAtual }) => {
-      const { data: old } = await supabase
-        .from('embalagens').select('estoque_atual, custo_unit, nome').eq('id', id).single()
-      await supabase.from('embalagens').update({ estoque_atual: estoqueAtual }).eq('id', id)
-      if (old && estoqueAtual !== null) {
-        const diff = parseFloat(estoqueAtual) - (old.estoque_atual ?? 0)
-        if (diff > 0) {
-          const preco = old.custo_unit || 0
-          await supabase.from('compras').insert({
-            tipo: 'embalagem', item_id: id, item_nome: old.nome,
-            unidade: 'un', quantidade: diff,
-            preco_unit: preco, total: diff * preco,
-            data: new Date().toISOString().split('T')[0],
-          }).then(() => {})
-        }
-      }
-    })
+    items.map(({ id, estoqueAtual }) =>
+      supabase.from('embalagens').update({ estoque_atual: estoqueAtual }).eq('id', id)
+    )
   )
+}
+
+export async function registrarCompras(compras) {
+  const { error } = await supabase.from('compras').insert(compras)
+  if (error) throw error
 }
 
 export async function getCompras() {

@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, getCompras, deleteCompra } from '../services/db'
+import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra } from '../services/db'
 
 function waLink(phone) {
   const digits = (phone || '').replace(/\D/g, '')
@@ -417,13 +417,33 @@ export default function Contagem() {
     try {
       const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : produtosParaContagem
       const contagem = recibo === 'insumos' ? contagemIns : recibo === 'embalagens' ? contagemEmb : contagemProd
-      const payload = itens
-        .filter(item => contagem[item.id] !== undefined && contagem[item.id] !== '')
-        .map(item => ({ id: item.id, estoqueAtual: parseFloat(contagem[item.id]) }))
+
+      const preenchidos = itens.filter(item => contagem[item.id] !== undefined && contagem[item.id] !== '')
+      const payload = preenchidos.map(item => ({ id: item.id, estoqueAtual: parseFloat(contagem[item.id]) }))
 
       if (recibo === 'insumos')        await updateEstoqueInsumos(payload)
       else if (recibo === 'embalagens') await updateEstoqueEmbalagens(payload)
       else                              await updateEstoqueProdutos(payload)
+
+      // Registrar compras onde estoque subiu (só insumos e embalagens)
+      if (recibo !== 'produtos') {
+        const tipo = recibo === 'insumos' ? 'insumo' : 'embalagem'
+        const hoje = new Date().toISOString().split('T')[0]
+        const novasCompras = preenchidos
+          .map(item => ({ item, novo: parseFloat(contagem[item.id]), old: item.estoqueAtual ?? 0 }))
+          .filter(({ novo, old }) => novo > old)
+          .map(({ item, novo, old }) => ({
+            tipo,
+            item_id: item.id,
+            item_nome: item.nome,
+            unidade: item.unidade || '',
+            quantidade: novo - old,
+            preco_unit: item.custoUnit || 0,
+            total: (novo - old) * (item.custoUnit || 0),
+            data: hoje,
+          }))
+        if (novasCompras.length > 0) await registrarCompras(novasCompras)
+      }
 
       if (recibo === 'insumos')        setContagemIns({})
       else if (recibo === 'embalagens') setContagemEmb({})
