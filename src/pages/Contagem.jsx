@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos } from '../services/db'
+import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, getCompras, deleteCompra } from '../services/db'
 
 function waLink(phone) {
   const digits = (phone || '').replace(/\D/g, '')
@@ -152,6 +152,139 @@ function StockTab({ itens, contagem, onChange, minValues, onChangeMin, labelPedi
   )
 }
 
+function fmt(v) {
+  return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function fmtQtd(v) {
+  const n = Number(v || 0)
+  return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+}
+
+function GastosTab() {
+  const { data: compras, loading, reload } = useData(getCompras)
+  const { show, toast } = useToast()
+  const [filtro, setFiltro] = useState('todos')
+
+  const hoje = new Date()
+  const mesAtual = hoje.toISOString().slice(0, 7) // YYYY-MM
+
+  const filtradas = useMemo(() => {
+    if (!compras) return []
+    return compras.filter(c => filtro === 'todos' || c.tipo === filtro)
+  }, [compras, filtro])
+
+  const totalMes = useMemo(() =>
+    filtradas.filter(c => c.data?.startsWith(mesAtual)).reduce((s, c) => s + (c.total || 0), 0),
+    [filtradas, mesAtual]
+  )
+
+  const porMes = useMemo(() => {
+    const map = {}
+    filtradas.forEach(c => {
+      const mes = c.data?.slice(0, 7) || 'sem data'
+      if (!map[mes]) map[mes] = []
+      map[mes].push(c)
+    })
+    return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]))
+  }, [filtradas])
+
+  function fmtMes(ym) {
+    if (!ym || ym === 'sem data') return 'Sem data'
+    const [y, m] = ym.split('-')
+    const nomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+    return `${nomes[parseInt(m) - 1]} ${y}`
+  }
+
+  async function handleDelete(id) {
+    try { await deleteCompra(id); reload(); show('Removido!') }
+    catch (e) { show('Erro: ' + e.message) }
+  }
+
+  if (loading) return <div className="loading">Carregando...</div>
+
+  if (!compras || compras.length === 0) return (
+    <div className="empty" style={{ marginTop: 24 }}>
+      <span>Nenhuma compra registrada ainda</span>
+      <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
+        As compras são detectadas automaticamente quando o estoque sobe na contagem
+      </span>
+    </div>
+  )
+
+  return (
+    <>
+      {/* Resumo mês */}
+      <div className="card" style={{ background: 'var(--bg-secondary)', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Gasto este mês</div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--teal)', marginTop: 2 }}>
+          R$ {fmt(totalMes)}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+          {filtradas.filter(c => c.data?.startsWith(mesAtual)).length} compras registradas
+        </div>
+      </div>
+
+      {/* Filtro tipo */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {[['todos', 'Todos'], ['insumo', 'Insumos'], ['embalagem', 'Embalagens']].map(([val, label]) => (
+          <button key={val} onClick={() => setFiltro(val)} style={{
+            fontSize: 12, padding: '4px 12px', borderRadius: 20,
+            border: '1px solid var(--border-color)',
+            background: filtro === val ? 'var(--teal)' : 'transparent',
+            color: filtro === val ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Lista por mês */}
+      {porMes.map(([mes, itens]) => {
+        const totalGrupo = itens.reduce((s, c) => s + (c.total || 0), 0)
+        return (
+          <div key={mes}>
+            <div className="cat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>{fmtMes(mes)}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>R$ {fmt(totalGrupo)}</span>
+            </div>
+            <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
+              {itens.map((c, i) => (
+                <div key={c.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 0',
+                  borderBottom: i < itens.length - 1 ? '1px solid #222' : 'none',
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {c.itemNome}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                      {fmtQtd(c.quantidade)} {c.unidade}
+                      {c.precoUnit > 0 && ` · R$ ${fmt(c.precoUnit)}/${c.unidade || 'un'}`}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    {c.total > 0
+                      ? <div style={{ fontWeight: 600, fontSize: 14 }}>R$ {fmt(c.total)}</div>
+                      : <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>sem preço</div>
+                    }
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                      {c.data ? new Date(c.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''}
+                    </div>
+                  </div>
+                  <button onClick={() => handleDelete(c.id)} style={{
+                    background: 'none', border: 'none', color: '#555', fontSize: 16, cursor: 'pointer', padding: '4px 6px', flexShrink: 0,
+                  }} title="Remover">×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+      {toast && <div className="toast">{toast}</div>}
+    </>
+  )
+}
+
 export default function Contagem() {
   const { data: insumos,    loading: loadIns } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb } = useData(getEmbalagens)
@@ -232,6 +365,7 @@ export default function Contagem() {
           <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => setTab('insumos')}>Insumos</button>
           <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => setTab('embalagens')}>Embalagens</button>
           <button className={`tab-btn ${tab === 'produtos'   ? 'active' : ''}`} onClick={() => setTab('produtos')}>Produtos</button>
+          <button className={`tab-btn ${tab === 'gastos'     ? 'active' : ''}`} onClick={() => setTab('gastos')}>Gastos</button>
         </div>
 
         {loading ? (
@@ -246,6 +380,8 @@ export default function Contagem() {
             <StockTab itens={embalagens || []} contagem={contagemEmb} onChange={setEmb} />
             <ListaCompras contagem={contagemEmb} itens={embalagens || []} />
           </>
+        ) : tab === 'gastos' ? (
+          <GastosTab />
         ) : (
           <StockTab itens={produtosParaContagem} contagem={contagemProd} onChange={setProd} minValues={minProd} onChangeMin={setMinP} labelPedir="produzir" />
         )}

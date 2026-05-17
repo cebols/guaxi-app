@@ -84,9 +84,23 @@ export async function deleteInsumo(id) {
 
 export async function updateEstoqueInsumos(items) {
   await Promise.all(
-    items.map(({ id, estoqueAtual }) =>
-      supabase.from('insumos').update({ estoque_atual: estoqueAtual }).eq('id', id)
-    )
+    items.map(async ({ id, estoqueAtual }) => {
+      const { data: old } = await supabase
+        .from('insumos').select('estoque_atual, custo_unit, nome, unidade').eq('id', id).single()
+      await supabase.from('insumos').update({ estoque_atual: estoqueAtual }).eq('id', id)
+      if (old && estoqueAtual !== null) {
+        const diff = parseFloat(estoqueAtual) - (old.estoque_atual ?? 0)
+        if (diff > 0) {
+          const preco = old.custo_unit || 0
+          await supabase.from('compras').insert({
+            tipo: 'insumo', item_id: id, item_nome: old.nome,
+            unidade: old.unidade || '', quantidade: diff,
+            preco_unit: preco, total: diff * preco,
+            data: new Date().toISOString().split('T')[0],
+          }).then(() => {})
+        }
+      }
+    })
   )
 }
 
@@ -139,10 +153,49 @@ export async function deleteEmbalagem(id) {
 
 export async function updateEstoqueEmbalagens(items) {
   await Promise.all(
-    items.map(({ id, estoqueAtual }) =>
-      supabase.from('embalagens').update({ estoque_atual: estoqueAtual }).eq('id', id)
-    )
+    items.map(async ({ id, estoqueAtual }) => {
+      const { data: old } = await supabase
+        .from('embalagens').select('estoque_atual, custo_unit, nome').eq('id', id).single()
+      await supabase.from('embalagens').update({ estoque_atual: estoqueAtual }).eq('id', id)
+      if (old && estoqueAtual !== null) {
+        const diff = parseFloat(estoqueAtual) - (old.estoque_atual ?? 0)
+        if (diff > 0) {
+          const preco = old.custo_unit || 0
+          await supabase.from('compras').insert({
+            tipo: 'embalagem', item_id: id, item_nome: old.nome,
+            unidade: 'un', quantidade: diff,
+            preco_unit: preco, total: diff * preco,
+            data: new Date().toISOString().split('T')[0],
+          }).then(() => {})
+        }
+      }
+    })
   )
+}
+
+export async function getCompras() {
+  const { data, error } = await supabase
+    .from('compras').select('*').order('created_at', { ascending: false })
+  if (error) {
+    if (error.message?.includes('compras') || error.code === '42P01') return []
+    throw error
+  }
+  return data.map(r => ({
+    id: r.id,
+    tipo: r.tipo,
+    itemNome: r.item_nome,
+    unidade: r.unidade || '',
+    quantidade: r.quantidade,
+    precoUnit: r.preco_unit,
+    total: r.total,
+    data: r.data,
+    createdAt: r.created_at,
+  }))
+}
+
+export async function deleteCompra(id) {
+  const { error } = await supabase.from('compras').delete().eq('id', id)
+  if (error) throw error
 }
 
 // ── Produtos ──────────────────────────────────────────────────
