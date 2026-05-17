@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { getReceitas } from '../services/db'
+import ImportarExcel from './ImportarExcel'
 
 const TIPO_COLOR = {
   'Bolo':          'badge-warn',
@@ -20,8 +21,9 @@ function fmt(val) {
 
 export default function Fichas() {
   const navigate = useNavigate()
-  const { data: receitas, loading } = useData(getReceitas)
+  const { data: receitas, loading, reload } = useData(getReceitas)
   const [busca, setBusca] = useState('')
+  const [importando, setImportando] = useState(false)
 
   const filtradas = (receitas || []).filter(r =>
     r.nome.toLowerCase().includes(busca.toLowerCase())
@@ -32,10 +34,16 @@ export default function Fichas() {
       <div className="topbar">
         <div className="topbar-inner">
           <div className="topbar-title">Receitas</div>
-          <button
-            onClick={() => navigate('/fichas/nova')}
-            style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >+ Nova</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => setImportando(true)}
+              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >↑ Excel</button>
+            <button
+              onClick={() => navigate('/fichas/nova')}
+              style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >+ Nova</button>
+          </div>
         </div>
       </div>
 
@@ -121,6 +129,13 @@ export default function Fichas() {
           </>
         )}
       </div>
+
+      {importando && (
+        <ImportarExcel
+          onClose={() => setImportando(false)}
+          onImported={() => { reload(); setImportando(false) }}
+        />
+      )}
     </>
   )
 }
