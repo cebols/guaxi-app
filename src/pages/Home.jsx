@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
-import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda } from '../services/db'
+import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda, getCompras } from '../services/db'
 import { useToast } from '../hooks/useToast'
 import { useNavigate } from 'react-router-dom'
 
@@ -180,6 +180,10 @@ export default function Home() {
   const { data: insumos,    loading: loadIns, reload: reloadIns } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb, reload: reloadEmb } = useData(getEmbalagens)
   const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
+  const { data: compras } = useData(getCompras)
+
+  const mesAtual = new Date().toISOString().slice(0, 7)
+  const comprasMes = (compras || []).filter(c => c.data?.startsWith(mesAtual)).reduce((s, c) => s + (c.total || 0), 0)
 
   const reloadAll = () => { reloadEnc(); reloadIns(); reloadEmb(); reloadProd() }
 
@@ -265,9 +269,9 @@ export default function Home() {
             </div>
           </div>
           <div className="metric-card">
-            <div className="metric-label">Alertas estoque</div>
-            <div className="metric-value" style={{ color: criticos.length > 0 ? 'var(--alert-text)' : totalAlertas > 0 ? '#f59e0b' : 'var(--text-primary)' }}>
-              {(loadIns || loadEmb) ? '—' : totalAlertas}
+            <div className="metric-label">Compras mês</div>
+            <div className="metric-value" style={{ fontSize: 14, color: comprasMes > 0 ? 'var(--alert-text)' : 'var(--text-primary)' }}>
+              {compras === null ? '—' : comprasMes > 0 ? `R$ ${comprasMes.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : 'R$ 0'}
             </div>
           </div>
         </div>

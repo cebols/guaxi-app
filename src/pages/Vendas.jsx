@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getConfig } from '../hooks/useConfig'
-import { getProdutos, getVendas, saveVenda, deleteVenda } from '../services/db'
+import { getProdutos, getVendas, saveVenda, deleteVenda, getCompras } from '../services/db'
 
 function DateInput({ value, onChange, className, style }) {
   function toDisplay(iso) {
@@ -402,6 +402,7 @@ export default function Vendas() {
 
   const { data: produtos, loading: lProd }               = useData(getProdutos)
   const { data: vendas,   loading: lVend, reload: rVend } = useData(getVendas)
+  const { data: compras }                                 = useData(getCompras)
   const cfg = getConfig()
 
   const inicio = useMemo(() => {
@@ -447,6 +448,12 @@ export default function Vendas() {
   const totalProfit = totalRevNet - totalCost
   const totalMargin = totalRevNet > 0 ? (totalProfit / totalRevNet) * 100 : 0
   const totalUnits  = Object.values(statsPerProd).reduce((s, p) => s + p.units, 0)
+
+  const totalComprasPeriodo = useMemo(() =>
+    (compras || []).filter(c => c.data >= inicio).reduce((s, c) => s + (c.total || 0), 0),
+    [compras, inicio]
+  )
+  const lucroReal = totalRevNet - totalCost - totalComprasPeriodo
 
   const unidadesProj = cfg.unidadesProjetadas || 0
   const pctProj      = unidadesProj > 0 ? (totalUnits / unidadesProj) * 100 : null
@@ -539,15 +546,15 @@ export default function Vendas() {
                 <div className="metric-value" style={{ fontSize: 14 }}>{loading ? '—' : fmtR(totalRevNet)}</div>
               </div>
               <div className="metric-card">
-                <div className="metric-label">Lucro</div>
-                <div className="metric-value" style={{ fontSize: 14, color: totalProfit >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>
-                  {loading ? '—' : fmtR(totalProfit)}
+                <div className="metric-label">Lucro real</div>
+                <div className="metric-value" style={{ fontSize: 14, color: lucroReal >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>
+                  {loading ? '—' : fmtR(lucroReal)}
                 </div>
               </div>
               <div className="metric-card">
-                <div className="metric-label">Margem</div>
-                <div className="metric-value" style={{ color: totalMargin >= cfg.margem ? 'var(--teal)' : totalMargin > 0 ? '#f59e0b' : 'var(--text-primary)' }}>
-                  {loading ? '—' : totalRevNet > 0 ? `${fmtN(totalMargin)}%` : '—'}
+                <div className="metric-label">Margem real</div>
+                <div className="metric-value" style={{ color: totalRevNet > 0 && (lucroReal/totalRevNet)*100 >= cfg.margem ? 'var(--teal)' : lucroReal > 0 ? '#f59e0b' : 'var(--alert-text)' }}>
+                  {loading ? '—' : totalRevNet > 0 ? `${fmtN((lucroReal/totalRevNet)*100)}%` : '—'}
                 </div>
               </div>
               <div className="metric-card">
@@ -555,6 +562,38 @@ export default function Vendas() {
                 <div className="metric-value">{loading ? '—' : totalUnits || '0'}</div>
               </div>
             </div>
+
+            {/* Breakdown financeiro */}
+            {!loading && totalRevNet > 0 && (
+              <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Composição do resultado</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Faturamento líq.</span>
+                    <span style={{ fontWeight: 600 }}>{fmtR(totalRevNet)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>− Custo das receitas</span>
+                    <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalCost)}</span>
+                  </div>
+                  {totalComprasPeriodo > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>− Compras do período</span>
+                      <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalComprasPeriodo)}</span>
+                    </div>
+                  )}
+                  <div style={{ borderTop: '1px solid #333', paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700 }}>
+                    <span>Lucro real</span>
+                    <span style={{ color: lucroReal >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>{fmtR(lucroReal)}</span>
+                  </div>
+                  {totalComprasPeriodo === 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                      Sem compras registradas neste período — faça contagens para incluir gastos reais
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {periodo === 'mes' && unidadesProj > 0 && !loading && (
               <div className="card" style={{ padding: '10px 14px', marginBottom: 12 }}>
