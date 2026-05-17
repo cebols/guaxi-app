@@ -426,11 +426,16 @@ export default function Contagem() {
       else                              await updateEstoqueProdutos(payload)
 
       // Registrar compras onde estoque subiu (só insumos e embalagens)
+      let comprasRegistradas = 0
       if (recibo !== 'produtos') {
         const tipo = recibo === 'insumos' ? 'insumo' : 'embalagem'
         const hoje = new Date().toISOString().split('T')[0]
-        const novasCompras = preenchidos
-          .map(item => ({ item, novo: parseFloat(contagem[item.id]), old: item.estoqueAtual ?? 0 }))
+        const diffs = preenchidos.map(item => ({
+          item,
+          novo: parseFloat(contagem[item.id]),
+          old: parseFloat(item.estoqueAtual ?? 0),
+        }))
+        const novasCompras = diffs
           .filter(({ novo, old }) => novo > old)
           .map(({ item, novo, old }) => ({
             tipo,
@@ -442,6 +447,7 @@ export default function Contagem() {
             total: (novo - old) * (item.custoUnit || 0),
             data: hoje,
           }))
+        comprasRegistradas = novasCompras.length
         if (novasCompras.length > 0) await registrarCompras(novasCompras)
       }
 
@@ -450,7 +456,10 @@ export default function Contagem() {
       else                              setContagemProd({})
 
       setRecibo(null)
-      show('Contagem salva!')
+      show(comprasRegistradas > 0
+        ? `Contagem salva! ${comprasRegistradas} compra(s) registrada(s)`
+        : 'Contagem salva! Nenhuma compra detectada'
+      )
     } catch (e) {
       show('Erro: ' + e.message)
     } finally {
