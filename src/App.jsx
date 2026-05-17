@@ -1,5 +1,7 @@
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuth } from './contexts/AuthContext'
+import { initConfig } from './hooks/useConfig'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import Pedidos from './pages/Pedidos'
@@ -68,9 +70,13 @@ function Sidebar() {
 }
 
 export default function App() {
-  const { isAuthenticated, loading } = useAuth()
+  const { isAuthenticated, loading, session } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    initConfig(session?.user?.id ?? null)
+  }, [session?.user?.id])
 
   if (loading) return <div className="loading" style={{ minHeight: '100dvh' }}>Carregando...</div>
   if (!isAuthenticated) return <Login />

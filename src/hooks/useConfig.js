@@ -1,4 +1,14 @@
-const KEY = 'guaxi_config'
+let _key = 'guaxi_config'
+
+// Chamado uma vez após login (App.jsx). Migra dados da chave genérica se necessário.
+export function initConfig(userId) {
+  const userKey = userId ? `guaxi_config_${userId}` : 'guaxi_config'
+  if (userId && !localStorage.getItem(userKey)) {
+    const legacy = localStorage.getItem('guaxi_config')
+    if (legacy) localStorage.setItem(userKey, legacy)
+  }
+  _key = userKey
+}
 
 export const DEFAULT_ITENS = [
   { id: 'agua',    nome: 'Água',    valor: 0 },
@@ -22,15 +32,13 @@ function somaItens(itens) {
 
 export function getConfig() {
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(_key)
     if (!raw) return { ...CONFIG_DEFAULTS }
     const saved = JSON.parse(raw)
-    // backward compat: old rateio field
     if (saved.rateio != null && saved.custoFixoMensal == null) {
       saved.custoFixoMensal = saved.rateio * (saved.unidadesProjetadas || CONFIG_DEFAULTS.unidadesProjetadas)
     }
     const custoItens = saved.custoItens || DEFAULT_ITENS
-    // always recompute custoFixoMensal from itens
     const custoFixoMensal = somaItens(custoItens) || saved.custoFixoMensal || 0
     return { ...CONFIG_DEFAULTS, ...saved, custoItens, custoFixoMensal }
   } catch {
@@ -41,7 +49,7 @@ export function getConfig() {
 export function saveConfig(updates) {
   const next = { ...getConfig(), ...updates }
   next.custoFixoMensal = somaItens(next.custoItens)
-  localStorage.setItem(KEY, JSON.stringify(next))
+  localStorage.setItem(_key, JSON.stringify(next))
   return next
 }
 
