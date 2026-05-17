@@ -33,12 +33,9 @@ export default function Fichas() {
         <div className="topbar-inner">
           <div className="topbar-title">Receitas</div>
           <button
-            className="btn-ghost"
             onClick={() => navigate('/fichas/nova')}
-            style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
-          >
-            +
-          </button>
+            style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >+ Nova</button>
         </div>
       </div>
 

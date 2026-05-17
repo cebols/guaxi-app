@@ -364,11 +364,8 @@ export default function Produtos() {
         <div className="topbar-inner">
           <div className="topbar-title">Produtos</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="btn-outline-teal desktop-only" onClick={() => setSheet({ type: 'produto' })} style={{ fontSize: 13, padding: '6px 14px' }}>
-              + Novo produto
-            </button>
-            <button className="btn-ghost mobile-only" onClick={() => setSheet({ type: 'produto' })} style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}>
-              +
+            <button onClick={() => setSheet({ type: 'produto' })} style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              + Novo
             </button>
           </div>
         </div>

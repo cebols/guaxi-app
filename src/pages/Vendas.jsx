@@ -504,8 +504,8 @@ export default function Vendas() {
             <button className="btn-outline-teal desktop-only" onClick={() => setSheet({ type: 'venda' })} style={{ fontSize: 13, padding: '6px 14px' }}>
               + Lançar venda
             </button>
-            <button className="btn-ghost mobile-only" onClick={() => setSheet({ type: 'rapido' })} style={{ fontSize: 18, padding: '4px 10px', border: 'none', color: 'var(--text-secondary)' }}>⚡</button>
-            <button className="btn-ghost mobile-only" onClick={() => setSheet({ type: 'venda' })} style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}>+</button>
+            <button className="mobile-only" onClick={() => setSheet({ type: 'rapido' })} style={{ background: 'none', border: 'none', fontSize: 18, padding: '4px 8px', color: 'var(--text-secondary)', cursor: 'pointer' }}>⚡</button>
+            <button className="mobile-only" onClick={() => setSheet({ type: 'venda' })} style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Nova</button>
           </div>
         </div>
       </div>
@@ -720,7 +720,7 @@ export default function Vendas() {
         )}
       </div>
 
-      <button className="fab mobile-only" onClick={() => setSheet({ type: 'rapido' })}>⚡</button>
+      <button className="fab mobile-only" onClick={() => setSheet({ type: 'venda' })}>+</button>
 
       {sheet?.type === 'venda'  && <VendaForm    produtos={produtos} prefill={sheet.produto} onSave={handleSave} onClose={() => setSheet(null)} />}
       {sheet?.type === 'rapido' && <LancamentoRapido produtos={produtos} onSave={handleSave} onClose={() => setSheet(null)} />}

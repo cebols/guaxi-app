@@ -233,16 +233,16 @@ export default function Home() {
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <div>
-            <div className="topbar-title">Olá, {primeiroNome}</div>
-            <div className="topbar-sub">{diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1)}, {dataStr}</div>
-          </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="btn-ghost" onClick={reloadAll} style={{ fontSize: 18, padding: '4px 10px', border: 'none', color: 'var(--text-secondary)' }} title="Atualizar">↻</button>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <button className="avatar mobile-only" onClick={signOut} title="Sair">
               {primeiroNome.charAt(0).toUpperCase()}
             </button>
+            <div>
+              <div className="topbar-title">Olá, {primeiroNome}</div>
+              <div className="topbar-sub">{diaSemana.charAt(0).toUpperCase() + diaSemana.slice(1)}, {dataStr}</div>
+            </div>
           </div>
+          <button className="btn-ghost" onClick={reloadAll} style={{ fontSize: 18, padding: '4px 10px', border: 'none', color: 'var(--text-secondary)' }} title="Atualizar">↻</button>
         </div>
       </div>
 
