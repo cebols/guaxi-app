@@ -402,7 +402,9 @@ export default function Cadastros() {
   const insActions = {
     save: async (form, fontes) => {
       const data = await saveInsumo(form)
-      if (fontes?.length > 0 || (form.id && fontes)) await saveInsumoFornecedores(data.id, fontes || [])
+      if (fontes?.length > 0 || (form.id && fontes)) {
+        await saveInsumoFornecedores(data.id, fontes || [], calcCustoUnitInsumo(form) || 0)
+      }
       rIns(); rFontes(); show('Salvo!')
     },
     del: withReload(deleteInsumo, rIns),
@@ -449,9 +451,11 @@ export default function Cadastros() {
                       <tbody>
                         {(insumos || []).map(ins => {
                           const fontes = fontesMap[ins.id] || []
-                          const cheapest = fontes.length > 0 ? fontes[0] : null
-                          const fornecedorLabel = cheapest?.fornecedor || ins.fornecedor || '—'
-                          const marcaLabel = cheapest?.marca || ins.marca || '—'
+                          const mainCost = calcCustoUnitInsumo(ins) || 0
+                          const cheapestFonte = fontes.length > 0 ? fontes[0] : null
+                          const useMain = !cheapestFonte || (mainCost > 0 && mainCost <= (cheapestFonte.custoUnit || Infinity))
+                          const fornecedorLabel = useMain ? (ins.fornecedor || '—') : (cheapestFonte?.fornecedor || '—')
+                          const marcaLabel = useMain ? (ins.marca || '—') : (cheapestFonte?.marca || '—')
                           return (
                             <tr key={ins.id} onClick={() => setSheet({ type: 'insumo', item: ins })}>
                               <td style={{ fontWeight: 600 }}>{ins.nome}</td>
@@ -497,10 +501,12 @@ export default function Cadastros() {
                   ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum insumo cadastrado</div>
                   : (insumos || []).map(ins => {
                     const fontes = fontesMap[ins.id] || []
-                    // fontes already sorted cheapest first from DB query
-                    const cheapest = fontes.length > 0 ? fontes[0] : null
-                    const marcaAtual = cheapest?.marca || ins.marca || null
-                    const fornecedorAtual = cheapest?.fornecedor || ins.fornecedor || null
+                    // Determine which source (main or fonte) has the cheapest cost
+                    const mainCost = calcCustoUnitInsumo(ins) || 0
+                    const cheapestFonte = fontes.length > 0 ? fontes[0] : null
+                    const useMain = !cheapestFonte || (mainCost > 0 && mainCost <= (cheapestFonte.custoUnit || Infinity))
+                    const marcaAtual = useMain ? (ins.marca || null) : (cheapestFonte?.marca || null)
+                    const fornecedorAtual = useMain ? (ins.fornecedor || null) : (cheapestFonte?.fornecedor || null)
                     const isExpanded = expandedFornecedor === ins.id
                     const totalOpcoes = fontes.length + (ins.fornecedor ? 1 : 0)
 

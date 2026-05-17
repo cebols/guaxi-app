@@ -97,7 +97,7 @@ export async function getInsumoFornecedores(insumoId) {
   }))
 }
 
-export async function saveInsumoFornecedores(insumoId, fontes) {
+export async function saveInsumoFornecedores(insumoId, fontes, mainCustoUnit = 0) {
   const { error: delErr } = await supabase.from('insumo_fornecedores').delete().eq('insumo_id', insumoId)
   if (delErr?.code !== '42P01' && delErr) throw delErr
 
@@ -114,8 +114,9 @@ export async function saveInsumoFornecedores(insumoId, fontes) {
   const { error: insErr } = await supabase.from('insumo_fornecedores').insert(rows)
   if (insErr?.code !== '42P01' && insErr) throw insErr
 
-  // Update effective custo_unit on insumo to cheapest valid fonte
+  // Update effective custo_unit to cheapest across all suppliers (fontes + main)
   const costs = rows.filter(r => r.custo_unit > 0).map(r => r.custo_unit)
+  if (mainCustoUnit > 0) costs.push(mainCustoUnit)
   if (costs.length > 0) {
     await supabase.from('insumos').update({ custo_unit: Math.min(...costs) }).eq('id', insumoId)
   }
