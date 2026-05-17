@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getConfig } from '../hooks/useConfig'
-import { getProdutos, getVendas, saveVenda, deleteVenda, getCompras } from '../services/db'
+import { getProdutos, getVendas, saveVenda, deleteVenda, getCompras, getEncomendas } from '../services/db'
 
 function DateInput({ value, onChange, className, style }) {
   function toDisplay(iso) {
@@ -33,6 +33,7 @@ function DateInput({ value, onChange, className, style }) {
 
 const PLATAFORMAS = ['Direta', '99Food', 'iFood']
 const PLAT_COLOR  = { 'Direta': 'var(--teal)', '99Food': '#f59e0b', 'iFood': '#ef4444' }
+const CANAL_TO_PLAT = { 'iFood': 'iFood', '99Food': '99Food' } // others → 'Direta'
 const PROD_COLORS = ['#14b8a6','#f59e0b','#6366f1','#ec4899','#10b981','#f97316','#8b5cf6','#06b6d4','#84cc16','#e11d48']
 
 function fmtR(val) {
@@ -400,9 +401,10 @@ export default function Vendas() {
   const [sheet, setSheet]     = useState(null)
   const { toast, show }       = useToast()
 
-  const { data: produtos, loading: lProd }               = useData(getProdutos)
-  const { data: vendas,   loading: lVend, reload: rVend } = useData(getVendas)
-  const { data: compras }                                 = useData(getCompras)
+  const { data: produtos,   loading: lProd }               = useData(getProdutos)
+  const { data: vendas,     loading: lVend, reload: rVend } = useData(getVendas)
+  const { data: compras }                                   = useData(getCompras)
+  const { data: encomendas, loading: lEnc }                 = useData(getEncomendas)
   const cfg = getConfig()
 
   const inicio = useMemo(() => {
@@ -419,7 +421,62 @@ export default function Vendas() {
 
   const vendasPeriodo = useMemo(() => (vendas || []).filter(v => v.data >= inicio), [vendas, inicio])
 
+  // Expand pedido items into flat events (period-filtered)
+  const pedidoEventos = useMemo(() => {
+    const prodMap = Object.fromEntries((produtos || []).map(p => [p.nome, p]))
+    return (encomendas || [])
+      .filter(e => e.status !== 'Cancelado' && e.dataEntrega >= inicio)
+      .flatMap(e => e.itens.map(item => ({
+        id: `${e.id}-${item.id || item.produto}`,
+        pedidoId: e.id,
+        data: e.dataEntrega,
+        produtoNome: item.produto,
+        quantidade: item.quantidade,
+        precoUnit: item.precoUnit,
+        plataforma: CANAL_TO_PLAT[e.canal] || 'Direta',
+        custoUnit: prodMap[item.produto]?.custoTotal || 0,
+        isPedido: true,
+        cliente: e.cliente,
+        canal: e.canal,
+      })))
+  }, [encomendas, inicio, produtos])
+
+  // All pedidos without period filter (for TendenciaSemanal)
+  const pedidoEventosTodos = useMemo(() => {
+    const prodMap = Object.fromEntries((produtos || []).map(p => [p.nome, p]))
+    return (encomendas || [])
+      .filter(e => e.status !== 'Cancelado')
+      .flatMap(e => e.itens.map(item => ({
+        id: `${e.id}-${item.id || item.produto}`,
+        data: e.dataEntrega,
+        produtoNome: item.produto,
+        quantidade: item.quantidade,
+        precoUnit: item.precoUnit,
+        plataforma: CANAL_TO_PLAT[e.canal] || 'Direta',
+        custoUnit: prodMap[item.produto]?.custoTotal || 0,
+      })))
+  }, [encomendas, produtos])
+
+  const todasVendasPeriodo = useMemo(() => [...vendasPeriodo, ...pedidoEventos], [vendasPeriodo, pedidoEventos])
+  const todasVendasAll     = useMemo(() => [...(vendas || []), ...pedidoEventosTodos], [vendas, pedidoEventosTodos])
+
+  // Stats per product — combined vendas + pedidos
   const statsPerProd = useMemo(() => {
+    const map = {}
+    todasVendasPeriodo.forEach(v => {
+      const k = v.produtoNome
+      if (!map[k]) map[k] = { units: 0, revenue: 0, revNet: 0, cost: 0 }
+      const fee = feeFor(v.plataforma)
+      map[k].units   += v.quantidade
+      map[k].revenue += v.quantidade * v.precoUnit
+      map[k].revNet  += v.quantidade * v.precoUnit * (1 - fee)
+      map[k].cost    += v.quantidade * (v.custoUnit || 0)
+    })
+    return map
+  }, [todasVendasPeriodo])
+
+  // Stats per product — vendas avulsas only (for product table)
+  const statsPerProdAvulsa = useMemo(() => {
     const map = {}
     vendasPeriodo.forEach(v => {
       const k = v.produtoNome
@@ -435,19 +492,36 @@ export default function Vendas() {
 
   const statsPerPlat = useMemo(() => {
     const map = {}
-    vendasPeriodo.forEach(v => {
+    todasVendasPeriodo.forEach(v => {
       if (!map[v.plataforma]) map[v.plataforma] = { revenue: 0, units: 0 }
       map[v.plataforma].revenue += v.quantidade * v.precoUnit
       map[v.plataforma].units   += v.quantidade
     })
     return map
-  }, [vendasPeriodo])
+  }, [todasVendasPeriodo])
 
-  const totalRevNet = Object.values(statsPerProd).reduce((s, p) => s + p.revNet, 0)
-  const totalCost   = Object.values(statsPerProd).reduce((s, p) => s + p.cost, 0)
-  const totalProfit = totalRevNet - totalCost
-  const totalMargin = totalRevNet > 0 ? (totalProfit / totalRevNet) * 100 : 0
-  const totalUnits  = Object.values(statsPerProd).reduce((s, p) => s + p.units, 0)
+  // Pedidos stats per canal
+  const statsPedidos = useMemo(() => {
+    const map = {}
+    pedidoEventos.forEach(v => {
+      const k = v.canal
+      if (!map[k]) map[k] = { revenue: 0, revNet: 0, units: 0, cost: 0 }
+      const fee = feeFor(v.plataforma)
+      map[k].revenue += v.quantidade * v.precoUnit
+      map[k].revNet  += v.quantidade * v.precoUnit * (1 - fee)
+      map[k].units   += v.quantidade
+      map[k].cost    += v.quantidade * (v.custoUnit || 0)
+    })
+    return map
+  }, [pedidoEventos])
+
+  const totalRevNet      = Object.values(statsPerProd).reduce((s, p) => s + p.revNet, 0)
+  const totalCost        = Object.values(statsPerProd).reduce((s, p) => s + p.cost, 0)
+  const totalProfit      = totalRevNet - totalCost
+  const totalMargin      = totalRevNet > 0 ? (totalProfit / totalRevNet) * 100 : 0
+  const totalUnits       = Object.values(statsPerProd).reduce((s, p) => s + p.units, 0)
+  const totalRevNetPed   = Object.values(statsPedidos).reduce((s, p) => s + p.revNet, 0)
+  const totalRevNetAvulsa = totalRevNet - totalRevNetPed
 
   const totalComprasPeriodo = useMemo(() =>
     (compras || []).filter(c => c.data >= inicio).reduce((s, c) => s + (c.total || 0), 0),
@@ -466,17 +540,22 @@ export default function Vendas() {
     const map = {}
     ;(vendas || []).slice(0, 80).forEach(v => {
       if (!map[v.data]) map[v.data] = []
-      map[v.data].push(v)
+      map[v.data].push({ ...v, _tipo: 'venda' })
+    })
+    ;(encomendas || []).filter(e => e.status !== 'Cancelado').slice(0, 40).forEach(e => {
+      const d = e.dataEntrega
+      if (!map[d]) map[d] = []
+      map[d].push({ ...e, _tipo: 'pedido' })
     })
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]))
-  }, [vendas])
+  }, [vendas, encomendas])
 
   const fmtDate = (iso) => {
     if (iso === isoToday()) return 'Hoje'
     return new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', weekday: 'short' })
   }
 
-  const loading = lProd || lVend
+  const loading = lProd || lVend || lEnc
 
   const barrasProduto = useMemo(() =>
     Object.entries(statsPerProd)
@@ -497,6 +576,12 @@ export default function Vendas() {
   const barrasPlat = useMemo(() =>
     Object.entries(statsPerPlat).map(([plat, s]) => ({ label: plat, valor: s.revenue, cor: PLAT_COLOR[plat] || 'var(--teal)' })),
     [statsPerPlat]
+  )
+
+  // Canal breakdown for pedidos bar chart
+  const barrasCanalPed = useMemo(() =>
+    Object.entries(statsPedidos).map(([canal, s]) => ({ label: canal, valor: s.revNet, cor: PLAT_COLOR[CANAL_TO_PLAT[canal] || 'Direta'] || 'var(--teal)' })).sort((a, b) => b.valor - a.valor),
+    [statsPedidos]
   )
 
   return (
@@ -572,6 +657,18 @@ export default function Vendas() {
                     <span style={{ color: 'var(--text-secondary)' }}>Faturamento líq.</span>
                     <span style={{ fontWeight: 600 }}>{fmtR(totalRevNet)}</span>
                   </div>
+                  {totalRevNetPed > 0 && (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, paddingLeft: 10 }}>
+                        <span style={{ color: 'var(--text-tertiary)' }}>↳ Venda direta</span>
+                        <span style={{ color: 'var(--text-secondary)' }}>{fmtR(totalRevNetAvulsa)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, paddingLeft: 10 }}>
+                        <span style={{ color: 'var(--text-tertiary)' }}>↳ Pedidos / encomendas</span>
+                        <span style={{ color: 'var(--text-secondary)' }}>{fmtR(totalRevNetPed)}</span>
+                      </div>
+                    </>
+                  )}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                     <span style={{ color: 'var(--text-secondary)' }}>− Custo das receitas</span>
                     <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalCost)}</span>
@@ -616,11 +713,11 @@ export default function Vendas() {
               </div>
             )}
 
-            <div className="section-label">Produtos</div>
+            <div className="section-label">Venda direta</div>
             {loading ? <div className="loading">Carregando...</div> : (
-              <div className="card card-flush" style={{ padding: '0 14px' }}>
+              <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
                 {(produtos || []).map(prod => {
-                  const s = statsPerProd[prod.nome]
+                  const s = statsPerProdAvulsa[prod.nome]
                   const profit = s ? s.revNet - s.cost : null
                   const margin = s && s.revNet > 0 ? (profit / s.revNet) * 100 : null
                   const marginColor = margin === null ? 'var(--text-tertiary)'
@@ -658,6 +755,25 @@ export default function Vendas() {
                 })}
               </div>
             )}
+
+            {/* Pedidos section */}
+            {!loading && pedidoEventos.length > 0 && (
+              <>
+                <div className="section-label">Pedidos / Encomendas</div>
+                <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
+                  {Object.entries(statsPedidos).map(([canal, s]) => (
+                    <div key={canal} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+                      <span style={{ color: PLAT_COLOR[CANAL_TO_PLAT[canal] || 'Direta'] || 'var(--teal)' }}>{canal}</span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{fmtN(s.units, 0)} un · {fmtR(s.revNet)}</span>
+                    </div>
+                  ))}
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700 }}>
+                    <span>Total pedidos</span>
+                    <span style={{ color: 'var(--teal)' }}>{fmtR(totalRevNetPed)}</span>
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -680,9 +796,9 @@ export default function Vendas() {
               <>
                 <div className="section-label">Tendência semanal — últimas 6 semanas</div>
                 <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
-                  {(vendas || []).length === 0
+                  {todasVendasAll.length === 0
                     ? <div style={{ fontSize: 13, color: 'var(--text-tertiary)', textAlign: 'center' }}>Sem dados de vendas</div>
-                    : <TendenciaSemanal vendas={vendas || []} />
+                    : <TendenciaSemanal vendas={todasVendasAll} />
                   }
                 </div>
 
@@ -706,9 +822,18 @@ export default function Vendas() {
 
                 {barrasPlat.length > 0 && (
                   <>
-                    <div className="section-label">Receita por plataforma</div>
+                    <div className="section-label">Receita por canal</div>
                     <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
                       <Barras itens={barrasPlat} />
+                    </div>
+                  </>
+                )}
+
+                {barrasCanalPed.length > 0 && (
+                  <>
+                    <div className="section-label">Pedidos por canal ({periodo === 'semana' ? 'esta semana' : 'este mês'})</div>
+                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
+                      <Barras itens={barrasCanalPed} />
                     </div>
                   </>
                 )}
@@ -723,13 +848,33 @@ export default function Vendas() {
 
         {/* ── HISTÓRICO ────────────────────────────── */}
         {tab === 'historico' && (
-          lVend ? <div className="loading">Carregando...</div> :
+          loading ? <div className="loading">Carregando...</div> :
           historicoGrupos.length === 0 ? <div className="empty"><span>Nenhuma venda registrada</span></div> :
           historicoGrupos.map(([data, items]) => (
             <div key={data}>
               <div className="cat-header">{fmtDate(data)}</div>
               <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
-                {items.map(v => {
+                {items.map(item => {
+                  if (item._tipo === 'pedido') {
+                    const canalColor = PLAT_COLOR[CANAL_TO_PLAT[item.canal] || 'Direta'] || 'var(--teal)'
+                    const resumo = item.itens.map(i => `${i.produto}${i.quantidade > 1 ? ` ×${i.quantidade}` : ''}`).join(', ')
+                    return (
+                      <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--border)', gap: 8 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontWeight: 600, fontSize: 13 }}>{item.id}</span>
+                            <span style={{ fontSize: 11, color: '#fff', background: canalColor, borderRadius: 4, padding: '1px 5px' }}>{item.canal}</span>
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{item.cliente}</div>
+                          {resumo && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resumo}</div>}
+                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)', flexShrink: 0 }}>
+                          {fmtR(item.valor)}
+                        </div>
+                      </div>
+                    )
+                  }
+                  const v = item
                   const fee = feeFor(v.plataforma)
                   const profitUnit = v.precoUnit * (1 - fee) - v.custoUnit
                   return (
