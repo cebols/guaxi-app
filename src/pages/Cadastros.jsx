@@ -430,24 +430,28 @@ export default function Cadastros() {
     return map
   }, [todasFontes])
 
+  function norm(s) {
+    return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  }
+
   const insumosFiltrados = useMemo(() => {
-    const q = busca.toLowerCase()
+    const q = norm(busca)
     if (!q) return insumos || []
     return (insumos || []).filter(i =>
-      i.nome.toLowerCase().includes(q) ||
-      (i.marca || '').toLowerCase().includes(q) ||
-      (i.categoria || '').toLowerCase().includes(q) ||
-      (i.fornecedor || '').toLowerCase().includes(q)
+      norm(i.nome).includes(q) ||
+      norm(i.marca).includes(q) ||
+      norm(i.categoria).includes(q) ||
+      norm(i.fornecedor).includes(q)
     )
   }, [insumos, busca])
 
   const embalagensFiltradas = useMemo(() => {
-    const q = busca.toLowerCase()
+    const q = norm(busca)
     if (!q) return embalagens || []
     return (embalagens || []).filter(e =>
-      e.nome.toLowerCase().includes(q) ||
-      (e.categoria || '').toLowerCase().includes(q) ||
-      (e.fornecedor || '').toLowerCase().includes(q)
+      norm(e.nome).includes(q) ||
+      norm(e.categoria).includes(q) ||
+      norm(e.fornecedor).includes(q)
     )
   }, [embalagens, busca])
 

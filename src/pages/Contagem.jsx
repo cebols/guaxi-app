@@ -379,12 +379,16 @@ export default function Contagem() {
   const contagemDoTab = tab === 'insumos' ? contagemIns : tab === 'embalagens' ? contagemEmb : contagemProd
   const minDoTab = tab === 'insumos' ? minIns : tab === 'embalagens' ? minEmb : minProd
 
+  function norm(s) {
+    return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  }
+
   const itensFiltrados = useMemo(() => {
-    if (!busca.trim()) return itensDoTab
-    const q = busca.toLowerCase()
+    const q = norm(busca)
+    if (!q) return itensDoTab
     return itensDoTab.filter(item =>
-      item.nome?.toLowerCase().includes(q) ||
-      item.categoria?.toLowerCase().includes(q)
+      norm(item.nome).includes(q) ||
+      norm(item.categoria).includes(q)
     )
   }, [itensDoTab, busca])
 
