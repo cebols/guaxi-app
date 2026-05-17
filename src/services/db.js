@@ -373,6 +373,22 @@ export async function updateEstoqueMinProdutos(items) {
   )
 }
 
+export async function updateEstoqueMinInsumos(items) {
+  await Promise.all(
+    items.map(({ id, estoqueMin }) =>
+      supabase.from('insumos').update({ estoque_min: parseFloat(estoqueMin) || 0 }).eq('id', id)
+    )
+  )
+}
+
+export async function updateEstoqueMinEmbalagens(items) {
+  await Promise.all(
+    items.map(({ id, estoqueMin }) =>
+      supabase.from('embalagens').update({ estoque_min: parseFloat(estoqueMin) || 0 }).eq('id', id)
+    )
+  )
+}
+
 export async function adjustEstoqueProduto(id, delta) {
   const { data } = await supabase.from('produtos').select('estoque_atual').eq('id', id).single()
   const atual = data?.estoque_atual ?? 0

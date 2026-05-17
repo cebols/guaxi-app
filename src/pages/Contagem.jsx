@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, getCompras, deleteCompra } from '../services/db'
+import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, getCompras, deleteCompra } from '../services/db'
 
 function waLink(phone) {
   const digits = (phone || '').replace(/\D/g, '')
@@ -295,7 +295,9 @@ export default function Contagem() {
   const [contagemIns,  setContagemIns]  = useState({})
   const [contagemEmb,  setContagemEmb]  = useState({})
   const [contagemProd, setContagemProd] = useState({})
-  const [minProd,      setMinProd]      = useState({})
+  const [minIns,  setMinIns]  = useState({})
+  const [minEmb,  setMinEmb]  = useState({})
+  const [minProd, setMinProd] = useState({})
   const [autoSaveState, setAutoSaveState] = useState('idle')
   const debounceRef = useRef({})
 
@@ -318,13 +320,15 @@ export default function Contagem() {
     }, 700)
   }
 
-  const autoSaveMin = (id, val) => {
-    const key = `min-prod-${id}`
+  const autoSaveMin = (type, id, val) => {
+    const key = `min-${type}-${id}`
     if (debounceRef.current[key]) clearTimeout(debounceRef.current[key])
     setAutoSaveState('saving')
     debounceRef.current[key] = setTimeout(async () => {
       try {
-        await updateEstoqueMinProdutos([{ id, estoqueMin: val }])
+        if (type === 'ins')  await updateEstoqueMinInsumos([{ id, estoqueMin: val }])
+        else if (type === 'emb') await updateEstoqueMinEmbalagens([{ id, estoqueMin: val }])
+        else await updateEstoqueMinProdutos([{ id, estoqueMin: val }])
         setAutoSaveState('saved')
         setTimeout(() => setAutoSaveState('idle'), 1500)
       } catch (e) {
@@ -334,10 +338,12 @@ export default function Contagem() {
     }, 700)
   }
 
-  const setIns    = (id, val) => { setContagemIns(c  => ({ ...c, [id]: val })); autoSave('ins',  id, val) }
-  const setEmb    = (id, val) => { setContagemEmb(c  => ({ ...c, [id]: val })); autoSave('emb',  id, val) }
-  const setProd   = (id, val) => { setContagemProd(c => ({ ...c, [id]: val })); autoSave('prod', id, val) }
-  const setMinP   = (id, val) => { setMinProd(m => ({ ...m, [id]: val })); autoSaveMin(id, val) }
+  const setIns   = (id, val) => { setContagemIns(c  => ({ ...c, [id]: val })); autoSave('ins',  id, val) }
+  const setEmb   = (id, val) => { setContagemEmb(c  => ({ ...c, [id]: val })); autoSave('emb',  id, val) }
+  const setProd  = (id, val) => { setContagemProd(c => ({ ...c, [id]: val })); autoSave('prod', id, val) }
+  const setMinI  = (id, val) => { setMinIns(m  => ({ ...m, [id]: val })); autoSaveMin('ins',  id, val) }
+  const setMinE  = (id, val) => { setMinEmb(m  => ({ ...m, [id]: val })); autoSaveMin('emb',  id, val) }
+  const setMinP  = (id, val) => { setMinProd(m => ({ ...m, [id]: val })); autoSaveMin('prod', id, val) }
 
   // Produtos as StockTab items (unidade = 'un', sem categoria → grupo por tipo)
   const produtosParaContagem = (produtos || [])
@@ -372,12 +378,12 @@ export default function Contagem() {
           <div className="loading">Carregando...</div>
         ) : tab === 'insumos' ? (
           <>
-            <StockTab itens={insumos || []} contagem={contagemIns} onChange={setIns} />
+            <StockTab itens={insumos || []} contagem={contagemIns} onChange={setIns} minValues={minIns} onChangeMin={setMinI} />
             <ListaCompras contagem={contagemIns} itens={insumos || []} />
           </>
         ) : tab === 'embalagens' ? (
           <>
-            <StockTab itens={embalagens || []} contagem={contagemEmb} onChange={setEmb} />
+            <StockTab itens={embalagens || []} contagem={contagemEmb} onChange={setEmb} minValues={minEmb} onChangeMin={setMinE} />
             <ListaCompras contagem={contagemEmb} itens={embalagens || []} />
           </>
         ) : tab === 'gastos' ? (
