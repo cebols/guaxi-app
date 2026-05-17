@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import {
   getInsumos, saveInsumo, deleteInsumo,
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
+  getInsumoFornecedores, saveInsumoFornecedores,
 } from '../services/db'
 
 const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
@@ -48,6 +49,20 @@ const INSUMO_EMPTY = {
   fornecedor: '', whatsapp: '',
 }
 
+const FONTE_EMPTY = { marca: '', fornecedor: '', pesoEmb: '', custoEmb: '' }
+
+function calcCustoUnitInsumo(form) {
+  const pesoEmb = parseFloat(form.pesoEmb) || 0
+  const custoEmb = parseFloat(form.custoEmb) || 0
+  const pesoUn = parseFloat(form.pesoUn) || 0
+  if (pesoEmb > 0 && custoEmb > 0) {
+    return form.unidade === 'un' && pesoUn > 0
+      ? (custoEmb / pesoEmb) / pesoUn
+      : custoEmb / pesoEmb
+  }
+  return null
+}
+
 function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item ? {
     ...item,
@@ -58,27 +73,27 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
     estoqueAtual: item.estoqueAtual ?? '',
     estoqueMin: item.estoqueMin || '',
   } : INSUMO_EMPTY)
+  const [fontes, setFontes] = useState([])
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const pesoEmb = parseFloat(form.pesoEmb) || 0
-  const custoEmb = parseFloat(form.custoEmb) || 0
-  const pesoUn = parseFloat(form.pesoUn) || 0
-  let custoUnitCalc = null
-  if (pesoEmb > 0 && custoEmb > 0) {
-    if (form.unidade === 'un' && pesoUn > 0) {
-      custoUnitCalc = (custoEmb / pesoEmb) / pesoUn
-    } else {
-      custoUnitCalc = custoEmb / pesoEmb
-    }
-  }
+  useEffect(() => {
+    if (!item?.id) return
+    getInsumoFornecedores(item.id).then(setFontes).catch(() => {})
+  }, [item?.id])
+
+  const custoUnitCalc = calcCustoUnitInsumo(form)
+
+  const setFonte = (i, k, v) => setFontes(prev => prev.map((f, idx) => idx === i ? { ...f, [k]: v } : f))
+  const addFonte = () => setFontes(prev => [...prev, { ...FONTE_EMPTY }])
+  const removeFonte = i => setFontes(prev => prev.filter((_, idx) => idx !== i))
 
   const handle = async (keepOpen = false) => {
     if (!form.nome) return
     setSaving(true)
     try {
-      await onSave(form)
-      if (keepOpen) setForm(INSUMO_EMPTY)
+      await onSave(form, fontes)
+      if (keepOpen) { setForm(INSUMO_EMPTY); setFontes([]) }
       else onClose()
     } catch (e) { alert(e.message) } finally { setSaving(false) }
   }
@@ -173,6 +188,68 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
       </datalist>
       <div className="field-label">WhatsApp <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>(DDD + número, sem +55)</span></div>
       <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
+
+      {/* Fontes de compra / marcas */}
+      <div className="section-label" style={{ marginTop: 8 }}>Fontes de compra</div>
+      <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>
+        Registre marcas ou fornecedores diferentes. O menor custo/unidade será usado nas receitas.
+      </div>
+      {fontes.length > 0 && (
+        <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 6 }}>
+          {fontes.map((f, i) => {
+            const pu = parseFloat(f.pesoEmb) || 0
+            const cu = parseFloat(f.custoEmb) || 0
+            const cu_unit = pu > 0 && cu > 0 ? cu / pu : null
+            return (
+              <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                  <input
+                    className="field-input"
+                    style={{ flex: 1, marginBottom: 0, fontSize: 12 }}
+                    placeholder="Marca"
+                    value={f.marca}
+                    onChange={e => setFonte(i, 'marca', e.target.value)}
+                  />
+                  <input
+                    className="field-input"
+                    style={{ flex: 1, marginBottom: 0, fontSize: 12 }}
+                    placeholder="Fornecedor"
+                    value={f.fornecedor}
+                    onChange={e => setFonte(i, 'fornecedor', e.target.value)}
+                  />
+                  <button className="item-rm" onClick={() => removeFonte(i)}>&#215;</button>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      className="field-input"
+                      style={{ marginBottom: 0, fontSize: 12 }}
+                      type="number" inputMode="decimal" min="0" placeholder={`Peso emb (${form.unidade})`}
+                      value={f.pesoEmb}
+                      onChange={e => setFonte(i, 'pesoEmb', e.target.value)}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <input
+                      className="field-input"
+                      style={{ marginBottom: 0, fontSize: 12 }}
+                      type="number" inputMode="decimal" min="0" placeholder="Custo (R$)"
+                      value={f.custoEmb}
+                      onChange={e => setFonte(i, 'custoEmb', e.target.value)}
+                    />
+                  </div>
+                  {cu_unit !== null && (
+                    <div style={{ fontSize: 11, color: 'var(--teal)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      R$ {cu_unit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{form.unidade}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <button className="btn-add-item" style={{ marginBottom: 12 }} onClick={addFonte}>+ adicionar fonte</button>
 
       <button className="btn-primary" onClick={() => handle(false)} disabled={saving || !form.nome}>
         {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar insumo'}
@@ -331,7 +408,14 @@ export default function Cadastros() {
 
   const withReload = (fn, reload) => async (...args) => { await fn(...args); reload(); show('Salvo!') }
 
-  const insActions = { save: withReload(saveInsumo, rIns), del: withReload(deleteInsumo, rIns) }
+  const insActions = {
+    save: async (form, fontes) => {
+      const data = await saveInsumo(form)
+      if (fontes?.length > 0 || (form.id && fontes)) await saveInsumoFornecedores(data.id, fontes || [])
+      rIns(); show('Salvo!')
+    },
+    del: withReload(deleteInsumo, rIns),
+  }
   const embActions = { save: withReload(saveEmbalagem, rEmb), del: withReload(deleteEmbalagem, rEmb) }
 
   const loading = tab === 'insumos' ? lIns : lEmb

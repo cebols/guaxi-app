@@ -74,7 +74,46 @@ export async function saveInsumo(insumo) {
     telefone: insumo.telefone || '',
     whatsapp: insumo.whatsapp || '',
   }
-  await upsert('insumos', row, insumo.id || null, ['link_compra'])
+  const data = await upsert('insumos', row, insumo.id || null, ['link_compra'])
+  return data
+}
+
+export async function getInsumoFornecedores(insumoId) {
+  const { data, error } = await supabase.from('insumo_fornecedores').select('*').eq('insumo_id', insumoId).order('id')
+  if (error?.code === '42P01') return []
+  if (error) throw error
+  return (data || []).map(f => ({
+    id: f.id,
+    marca: f.marca || '',
+    fornecedor: f.fornecedor || '',
+    pesoEmb: f.peso_emb || 0,
+    custoEmb: f.custo_emb || 0,
+    custoUnit: f.custo_unit || 0,
+  }))
+}
+
+export async function saveInsumoFornecedores(insumoId, fontes) {
+  const { error: delErr } = await supabase.from('insumo_fornecedores').delete().eq('insumo_id', insumoId)
+  if (delErr?.code !== '42P01' && delErr) throw delErr
+
+  const valid = fontes.filter(f => f.marca || f.fornecedor || parseFloat(f.custoEmb) > 0)
+  if (valid.length === 0) return
+
+  const rows = valid.map(f => {
+    const pesoEmb  = parseFloat(f.pesoEmb)  || 0
+    const custoEmb = parseFloat(f.custoEmb) || 0
+    const custoUnit = pesoEmb > 0 && custoEmb > 0 ? custoEmb / pesoEmb : 0
+    return { insumo_id: insumoId, marca: f.marca || '', fornecedor: f.fornecedor || '', peso_emb: pesoEmb, custo_emb: custoEmb, custo_unit: custoUnit }
+  })
+
+  const { error: insErr } = await supabase.from('insumo_fornecedores').insert(rows)
+  if (insErr?.code !== '42P01' && insErr) throw insErr
+
+  // Update effective custo_unit on insumo to cheapest valid fonte
+  const costs = rows.filter(r => r.custo_unit > 0).map(r => r.custo_unit)
+  if (costs.length > 0) {
+    await supabase.from('insumos').update({ custo_unit: Math.min(...costs) }).eq('id', insumoId)
+  }
 }
 
 export async function deleteInsumo(id) {
@@ -505,6 +544,8 @@ export async function getReceitas() {
       custoTotal: r.custo_total || 0,
       custoUnid: r.custo_unid || 0,
       pesoLiquido: r.peso_liquido || null,
+      fatorPerda: r.fator_perda ?? null,
+      instrucoes: r.instrucoes || '',
       ingredientes: (r.receita_ingredientes || []).map(i => ({
         id: i.id,
         insumoId: i.insumo_id || null,
@@ -527,6 +568,8 @@ export async function saveReceita(receita, ingredientes) {
     rendimento: parseFloat(receita.rendimento) || 0,
     unidade_gera: receita.unidadeGera || 'un',
     peso_liquido: receita.pesoLiquido ? parseFloat(receita.pesoLiquido) : null,
+    fator_perda: receita.fatorPerda != null && receita.fatorPerda !== '' ? parseFloat(receita.fatorPerda) : null,
+    instrucoes: receita.instrucoes || null,
     custo_total: parseFloat(receita.custoTotal) || 0,
     custo_unid: parseFloat(receita.custoUnid) || 0,
   }
@@ -557,7 +600,7 @@ export async function saveReceita(receita, ingredientes) {
     }
   }
 
-  const OPTIONAL = ['unidade_gera', 'peso_liquido']
+  const OPTIONAL = ['unidade_gera', 'peso_liquido', 'fator_perda', 'instrucoes']
 
   if (receita.id) {
     await upsert('receitas', row, receita.id, OPTIONAL)

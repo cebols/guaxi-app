@@ -114,9 +114,19 @@ export default function Cozinha() {
 
             {receita.rendimento > 0 && (
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center', marginTop: 12 }}>
-                Rendimento base: {receita.rendimento} un
-                {receita.custoUnid > 0 && ` · R$ ${receita.custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/un`}
+                Rendimento base: {receita.rendimento} {receita.unidadeGera || 'un'}
+                {receita.fatorPerda > 0 && <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>(−{receita.fatorPerda}% perda)</span>}
+                {receita.custoUnid > 0 && ` · R$ ${receita.custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/${receita.unidadeGera || 'un'}`}
               </div>
+            )}
+
+            {receita.instrucoes && (
+              <>
+                <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>
+                <div className="card" style={{ padding: '12px 14px', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+                  {receita.instrucoes}
+                </div>
+              </>
             )}
           </>
         )}

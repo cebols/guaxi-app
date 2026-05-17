@@ -5,6 +5,7 @@ import { useToast } from '../hooks/useToast'
 import { getReceitas, saveReceita, deleteReceita, getInsumos } from '../services/db'
 
 const TIPO_OPTS = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
+const WEIGHT_UNITS = ['g', 'ml', 'kg', 'L']
 
 export default function ReceitaForm() {
   const { id } = useParams()
@@ -16,7 +17,8 @@ export default function ReceitaForm() {
   const { data: insumos, loading: loadIns } = useData(getInsumos)
 
   const [form, setForm] = useState({
-    nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'un', pesoLiquido: '',
+    nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'un', fatorPerda: '',
+    instrucoes: '',
   })
   const [ingredientes, setIngredientes] = useState([
     { insumoId: null, nome: '', quantidade: '', unidade: 'g' },
@@ -35,7 +37,8 @@ export default function ReceitaForm() {
       tipo: rec.tipo || 'Outro',
       rendimento: rec.rendimento || '',
       unidadeGera: rec.unidadeGera || 'un',
-      pesoLiquido: rec.pesoLiquido || '',
+      fatorPerda: rec.fatorPerda != null ? String(rec.fatorPerda) : '',
+      instrucoes: rec.instrucoes || '',
     })
     if (rec.ingredientes?.length > 0) {
       setIngredientes(rec.ingredientes.map(i => ({
@@ -76,9 +79,7 @@ export default function ReceitaForm() {
     [ingredientes, insumos]
   )
 
-  const rendimentoNum = parseFloat(form.rendimento) || 0
-  const custoUnid = rendimentoNum > 0 ? custoTotal / rendimentoNum : 0
-
+  // Bruto = soma dos pesos dos ingredientes
   const rendimentoBruto = useMemo(() =>
     ingredientes.reduce((s, ing) => {
       const qty = parseFloat(ing.quantidade) || 0
@@ -93,6 +94,19 @@ export default function ReceitaForm() {
     [ingredientes]
   )
 
+  const fatorPerdaNum  = Math.min(99, Math.max(0, parseFloat(form.fatorPerda) || 0))
+  const isWeightUnit   = WEIGHT_UNITS.includes(form.unidadeGera)
+  // Líquido estimado (g/ml)
+  const rendLiquidoG   = fatorPerdaNum > 0 ? rendimentoBruto * (1 - fatorPerdaNum / 100) : rendimentoBruto
+  // Auto-rendimento para unidades de peso (já na unidade certa)
+  const rendAutoNum    = isWeightUnit
+    ? (['kg', 'L'].includes(form.unidadeGera) ? rendLiquidoG / 1000 : rendLiquidoG)
+    : 0
+
+  // Rendimento efetivo p/ cálculo de custo
+  const rendimentoNum  = isWeightUnit ? rendAutoNum : (parseFloat(form.rendimento) || 0)
+  const custoUnid      = rendimentoNum > 0 ? custoTotal / rendimentoNum : 0
+
   const unidadesGera = useMemo(() =>
     [...new Set((receitas || []).map(r => r.unidadeGera).filter(Boolean))].sort(),
     [receitas]
@@ -104,7 +118,15 @@ export default function ReceitaForm() {
     try {
       const ings = ingredientes.filter(i => i.nome && i.quantidade)
       const recId = await saveReceita(
-        { ...form, id: isEdit ? parseInt(id) : undefined, custoTotal, custoUnid },
+        {
+          ...form,
+          id: isEdit ? parseInt(id) : undefined,
+          rendimento: isWeightUnit ? rendAutoNum : parseFloat(form.rendimento),
+          fatorPerda: fatorPerdaNum || null,
+          pesoLiquido: fatorPerdaNum > 0 ? rendLiquidoG : null,
+          custoTotal,
+          custoUnid,
+        },
         ings
       )
       show(isEdit ? 'Receita atualizada!' : 'Receita criada!')
@@ -127,6 +149,10 @@ export default function ReceitaForm() {
       setDeleting(false)
     }
   }
+
+  const fmtPeso = g => g >= 1000
+    ? `${(g / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kg`
+    : `${g.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} g`
 
   const loading = (loadRec && isEdit) || loadIns
   if (loading) return <div className="loading">Carregando...</div>
@@ -166,42 +192,59 @@ export default function ReceitaForm() {
               {unidadesGera.map(u => <option key={u} value={u} />)}
             </datalist>
           </div>
-          <div>
-            <div className="field-label">Rendimento — qtd de {form.unidadeGera || 'unidades'}</div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <input className="field-input" style={{ marginBottom: 0, flex: 1 }} type="number" inputMode="decimal" min="0" placeholder="ex: 12" value={form.rendimento} onChange={e => setField('rendimento', e.target.value)} />
-              {rendimentoBruto > 0 && ['g','ml','kg','L'].includes(form.unidadeGera) && (() => {
-                const sugerido = ['kg','L'].includes(form.unidadeGera) ? rendimentoBruto / 1000 : rendimentoBruto
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setField('rendimento', sugerido.toFixed(1).replace(/\.0$/, ''))}
-                    style={{ fontSize: 11, color: 'var(--teal)', background: 'var(--teal-light)', border: '1px solid var(--teal)', borderRadius: 6, padding: '6px 10px', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
-                  >
-                    ← usar bruto ({sugerido >= 1000 ? `${(sugerido/1000).toFixed(2)} ${['kg','L'].includes(form.unidadeGera)?form.unidadeGera:'k'}` : `${sugerido.toFixed(0)} ${form.unidadeGera}`})
-                  </button>
-                )
-              })()}
-            </div>
-          </div>
         </div>
 
         <div className="field-row">
-          <div style={{ flex: 1 }}>
+          {/* Rendimento manual só para unidades não-peso */}
+          {!isWeightUnit && (
+            <div>
+              <div className="field-label">Rendimento — qtd de {form.unidadeGera || 'unidades'}</div>
+              <input
+                className="field-input"
+                type="number" inputMode="decimal" min="0"
+                placeholder="ex: 12"
+                value={form.rendimento}
+                onChange={e => setField('rendimento', e.target.value)}
+              />
+            </div>
+          )}
+          <div>
             <div className="field-label">
-              Peso líquido após assar (g)
-              <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 6 }}>— opcional, para calcular perda</span>
+              Fator de perda (%)
+              <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 6 }}>1–99</span>
             </div>
             <input
               className="field-input"
               type="number" inputMode="decimal"
-              min="0"
-              placeholder={rendimentoBruto > 0 ? `Bruto: ${rendimentoBruto >= 1000 ? `${(rendimentoBruto/1000).toFixed(2)} kg` : `${rendimentoBruto.toFixed(0)} g`}` : 'ex: 450'}
-              value={form.pesoLiquido}
-              onChange={e => setField('pesoLiquido', e.target.value)}
+              min="1" max="99"
+              placeholder={isWeightUnit ? 'ex: 18 → aplica no bruto' : 'opcional'}
+              value={form.fatorPerda}
+              onChange={e => {
+                const v = e.target.value
+                if (v === '' || (parseFloat(v) >= 0 && parseFloat(v) < 100)) setField('fatorPerda', v)
+              }}
             />
           </div>
         </div>
+
+        {/* Resumo peso/rendimento */}
+        {rendimentoBruto > 0 && (
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12, padding: '6px 10px', background: 'var(--bg-card)', borderRadius: 6, border: '1px solid var(--border)' }}>
+            Bruto: <strong style={{ color: 'var(--text-secondary)' }}>{fmtPeso(rendimentoBruto)}</strong>
+            {fatorPerdaNum > 0 && (
+              <>
+                <span style={{ margin: '0 6px' }}>→</span>
+                <strong style={{ color: 'var(--teal)' }}>líquido estimado {fmtPeso(rendLiquidoG)}</strong>
+                <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>(−{fatorPerdaNum}%)</span>
+              </>
+            )}
+            {isWeightUnit && rendAutoNum > 0 && (
+              <span style={{ color: 'var(--text-tertiary)', marginLeft: 8 }}>
+                = rendimento <strong style={{ color: 'var(--text-secondary)' }}>{rendAutoNum.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {form.unidadeGera}</strong> (auto)
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="section-label" style={{ marginTop: 4 }}>Ingredientes</div>
         <div className="card card-flush" style={{ padding: '0 14px' }}>
@@ -221,8 +264,7 @@ export default function ReceitaForm() {
                   <input
                     className="item-qty"
                     type="number" inputMode="decimal"
-                    min="0"
-                    step="0.1"
+                    min="0" step="0.1"
                     placeholder="Qtd"
                     value={ing.quantidade}
                     onChange={e => setIng(i, 'quantidade', e.target.value)}
@@ -246,49 +288,33 @@ export default function ReceitaForm() {
         </datalist>
         <button className="btn-add-item" onClick={addIng}>+ adicionar ingrediente</button>
 
-        {(custoTotal > 0 || rendimentoBruto > 0) && (() => {
-          const pesoLiq = parseFloat(form.pesoLiquido) || 0
-          const fatorPerda = pesoLiq > 0 && rendimentoBruto > 0
-            ? Math.max(0, ((rendimentoBruto - pesoLiq) / rendimentoBruto) * 100)
-            : null
-          const fmtPeso = g => g >= 1000
-            ? `${(g / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kg`
-            : `${g.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} g`
-          return (
-            <div style={{ margin: '12px 0 4px', padding: '10px 14px', background: 'var(--teal-light)', borderRadius: 8 }}>
-              {rendimentoBruto > 0 && (
-                <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 2 }}>
-                  Peso bruto dos ingredientes: <strong>{fmtPeso(rendimentoBruto)}</strong>
-                </div>
-              )}
-              {pesoLiq > 0 && (
-                <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 4 }}>
-                  Peso líquido (pós-forno): <strong>{fmtPeso(pesoLiq)}</strong>
-                  {fatorPerda !== null && (
-                    <span style={{ color: 'var(--text-secondary)', marginLeft: 6 }}>
-                      — perda {fatorPerda.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
-                    </span>
-                  )}
-                </div>
-              )}
-              {custoTotal > 0 && (
-                <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600, marginTop: 4 }}>
-                  Custo do lote: R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              )}
-              {rendimentoNum > 0 && (
-                <div style={{ fontSize: 12, color: 'var(--teal)', marginTop: 2 }}>
-                  Rendimento: {rendimentoNum} {form.unidadeGera || 'un'}
-                  {custoUnid > 0 && (
-                    <span style={{ marginLeft: 10, fontWeight: 600 }}>
-                      → R$ {custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{form.unidadeGera || 'un'}
-                    </span>
-                  )}
-                </div>
-              )}
+        {custoTotal > 0 && (
+          <div style={{ margin: '12px 0 4px', padding: '10px 14px', background: 'var(--teal-light)', borderRadius: 8 }}>
+            <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>
+              Custo do lote: R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-          )
-        })()}
+            {rendimentoNum > 0 && (
+              <div style={{ fontSize: 12, color: 'var(--teal)', marginTop: 4 }}>
+                {isWeightUnit ? `Rendimento: ${rendAutoNum.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${form.unidadeGera} (bruto${fatorPerdaNum > 0 ? ` −${fatorPerdaNum}%` : ''})` : `Rendimento: ${rendimentoNum} ${form.unidadeGera || 'un'}`}
+                {custoUnid > 0 && (
+                  <span style={{ marginLeft: 10, fontWeight: 600 }}>
+                    → R$ {custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{form.unidadeGera || 'un'}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>
+        <textarea
+          className="field-input"
+          rows={6}
+          placeholder="Passo a passo, dicas, temperatura do forno..."
+          value={form.instrucoes}
+          onChange={e => setField('instrucoes', e.target.value)}
+          style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
+        />
 
         <button className="btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Salvando...' : isEdit ? 'Atualizar receita' : 'Criar receita'}
