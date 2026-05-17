@@ -285,6 +285,84 @@ function GastosTab() {
   )
 }
 
+function fmtN(v) {
+  const n = Number(v || 0)
+  return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+}
+
+function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
+  const tabLabel = { insumos: 'Insumos', embalagens: 'Embalagens', produtos: 'Produtos' }[tab]
+
+  const alterados = itens.filter(item =>
+    contagem[item.id] !== undefined && contagem[item.id] !== ''
+  )
+
+  const totalCompra = alterados.reduce((sum, item) => {
+    const diff = parseFloat(contagem[item.id]) - (item.estoqueAtual ?? 0)
+    return diff > 0 && item.custoUnit > 0 ? sum + diff * item.custoUnit : sum
+  }, 0)
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-inner">
+          <div>
+            <div className="topbar-title">Recibo de contagem</div>
+            <div className="topbar-sub">{tabLabel} · {alterados.length} item(s) preenchido(s)</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="page-inner" style={{ paddingTop: 16 }}>
+        <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
+          {alterados.map((item, i) => {
+            const old = item.estoqueAtual ?? 0
+            const novo = parseFloat(contagem[item.id])
+            const diff = novo - old
+            return (
+              <div key={item.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                padding: '11px 0',
+                borderBottom: i < alterados.length - 1 ? '1px solid #222' : 'none',
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                    {fmtN(old)} → <strong style={{ color: 'var(--text-primary)' }}>{fmtN(novo)}</strong> {item.unidade}
+                  </div>
+                </div>
+                <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                  {diff > 0 && <div style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>+{fmtN(diff)} compra</div>}
+                  {diff < 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{fmtN(diff)} {item.unidade}</div>}
+                  {diff === 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>sem alteração</div>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {totalCompra > 0 && (
+          <div className="card" style={{ background: 'var(--teal-light)', border: '1px solid var(--teal-dark)', marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: 'var(--teal)' }}>Gasto estimado nesta contagem</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--teal)', marginTop: 2 }}>R$ {fmt(totalCompra)}</div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+          <button onClick={onVoltar} disabled={saving} style={{
+            flex: 1, padding: 12, borderRadius: 8, border: '1px solid #444',
+            background: 'transparent', color: 'var(--text-primary)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          }}>← Editar</button>
+          <button onClick={onConfirmar} disabled={saving} style={{
+            flex: 2, padding: 12, borderRadius: 8, border: 'none',
+            background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+          }}>{saving ? 'Salvando...' : 'Confirmar contagem'}</button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export default function Contagem() {
   const { data: insumos,    loading: loadIns } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb } = useData(getEmbalagens)
@@ -298,59 +376,80 @@ export default function Contagem() {
   const [minIns,  setMinIns]  = useState({})
   const [minEmb,  setMinEmb]  = useState({})
   const [minProd, setMinProd] = useState({})
-  const [autoSaveState, setAutoSaveState] = useState('idle')
+  const [recibo,  setRecibo]  = useState(null)
+  const [saving,  setSaving]  = useState(false)
   const debounceRef = useRef({})
-
-  const autoSave = (type, id, val) => {
-    const key = `${type}-${id}`
-    if (debounceRef.current[key]) clearTimeout(debounceRef.current[key])
-    setAutoSaveState('saving')
-    debounceRef.current[key] = setTimeout(async () => {
-      try {
-        const payload = [{ id, estoqueAtual: val !== '' ? parseFloat(val) : null }]
-        if (type === 'ins')  await updateEstoqueInsumos(payload)
-        else if (type === 'emb') await updateEstoqueEmbalagens(payload)
-        else await updateEstoqueProdutos(payload)
-        setAutoSaveState('saved')
-        setTimeout(() => setAutoSaveState('idle'), 1500)
-      } catch (e) {
-        show('Erro ao salvar: ' + e.message)
-        setAutoSaveState('idle')
-      }
-    }, 700)
-  }
 
   const autoSaveMin = (type, id, val) => {
     const key = `min-${type}-${id}`
     if (debounceRef.current[key]) clearTimeout(debounceRef.current[key])
-    setAutoSaveState('saving')
     debounceRef.current[key] = setTimeout(async () => {
       try {
         if (type === 'ins')  await updateEstoqueMinInsumos([{ id, estoqueMin: val }])
         else if (type === 'emb') await updateEstoqueMinEmbalagens([{ id, estoqueMin: val }])
         else await updateEstoqueMinProdutos([{ id, estoqueMin: val }])
-        setAutoSaveState('saved')
-        setTimeout(() => setAutoSaveState('idle'), 1500)
-      } catch (e) {
-        show('Erro ao salvar: ' + e.message)
-        setAutoSaveState('idle')
-      }
+      } catch (e) { show('Erro ao salvar mínimo: ' + e.message) }
     }, 700)
   }
 
-  const setIns   = (id, val) => { setContagemIns(c  => ({ ...c, [id]: val })); autoSave('ins',  id, val) }
-  const setEmb   = (id, val) => { setContagemEmb(c  => ({ ...c, [id]: val })); autoSave('emb',  id, val) }
-  const setProd  = (id, val) => { setContagemProd(c => ({ ...c, [id]: val })); autoSave('prod', id, val) }
-  const setMinI  = (id, val) => { setMinIns(m  => ({ ...m, [id]: val })); autoSaveMin('ins',  id, val) }
-  const setMinE  = (id, val) => { setMinEmb(m  => ({ ...m, [id]: val })); autoSaveMin('emb',  id, val) }
-  const setMinP  = (id, val) => { setMinProd(m => ({ ...m, [id]: val })); autoSaveMin('prod', id, val) }
+  const setIns  = (id, val) => setContagemIns(c  => ({ ...c, [id]: val }))
+  const setEmb  = (id, val) => setContagemEmb(c  => ({ ...c, [id]: val }))
+  const setProd = (id, val) => setContagemProd(c => ({ ...c, [id]: val }))
+  const setMinI = (id, val) => { setMinIns(m  => ({ ...m, [id]: val })); autoSaveMin('ins',  id, val) }
+  const setMinE = (id, val) => { setMinEmb(m  => ({ ...m, [id]: val })); autoSaveMin('emb',  id, val) }
+  const setMinP = (id, val) => { setMinProd(m => ({ ...m, [id]: val })); autoSaveMin('prod', id, val) }
 
-  // Produtos as StockTab items (unidade = 'un', sem categoria → grupo por tipo)
   const produtosParaContagem = (produtos || [])
-    .filter(p => p.tipo !== 'combo') // combos não têm estoque próprio
+    .filter(p => p.tipo !== 'combo')
     .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' }))
 
+  const itensDoTab = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : produtosParaContagem
+  const contagemDoTab = tab === 'insumos' ? contagemIns : tab === 'embalagens' ? contagemEmb : contagemProd
+
+  const handleEnviar = () => {
+    const preenchidos = itensDoTab.filter(item => contagemDoTab[item.id] !== undefined && contagemDoTab[item.id] !== '')
+    if (preenchidos.length === 0) { show('Nenhum valor preenchido'); return }
+    setRecibo(tab)
+  }
+
+  const handleConfirmar = async () => {
+    setSaving(true)
+    try {
+      const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : produtosParaContagem
+      const contagem = recibo === 'insumos' ? contagemIns : recibo === 'embalagens' ? contagemEmb : contagemProd
+      const payload = itens
+        .filter(item => contagem[item.id] !== undefined && contagem[item.id] !== '')
+        .map(item => ({ id: item.id, estoqueAtual: parseFloat(contagem[item.id]) }))
+
+      if (recibo === 'insumos')        await updateEstoqueInsumos(payload)
+      else if (recibo === 'embalagens') await updateEstoqueEmbalagens(payload)
+      else                              await updateEstoqueProdutos(payload)
+
+      if (recibo === 'insumos')        setContagemIns({})
+      else if (recibo === 'embalagens') setContagemEmb({})
+      else                              setContagemProd({})
+
+      setRecibo(null)
+      show('Contagem salva!')
+    } catch (e) {
+      show('Erro: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const loading = tab === 'insumos' ? loadIns : tab === 'embalagens' ? loadEmb : loadProd
+
+  if (recibo) {
+    const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : produtosParaContagem
+    const contagem = recibo === 'insumos' ? contagemIns : recibo === 'embalagens' ? contagemEmb : contagemProd
+    return (
+      <>
+        <Recibo tab={recibo} itens={itens} contagem={contagem} onConfirmar={handleConfirmar} onVoltar={() => setRecibo(null)} saving={saving} />
+        {toast && <div className="toast">{toast}</div>}
+      </>
+    )
+  }
 
   return (
     <>
@@ -359,9 +458,6 @@ export default function Contagem() {
           <div>
             <div className="topbar-title">Contagem semanal</div>
             <div className="topbar-sub">Digite o estoque físico atual</div>
-          </div>
-          <div style={{ fontSize: 12, color: autoSaveState === 'saving' ? 'var(--text-secondary)' : autoSaveState === 'saved' ? 'var(--teal)' : 'transparent' }}>
-            {autoSaveState === 'saving' ? 'Salvando...' : 'Salvo ✓'}
           </div>
         </div>
       </div>
@@ -380,16 +476,27 @@ export default function Contagem() {
           <>
             <StockTab itens={insumos || []} contagem={contagemIns} onChange={setIns} minValues={minIns} onChangeMin={setMinI} />
             <ListaCompras contagem={contagemIns} itens={insumos || []} />
+            <button onClick={handleEnviar} style={{ width: '100%', marginTop: 16, marginBottom: 8, padding: '13px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Enviar contagem →
+            </button>
           </>
         ) : tab === 'embalagens' ? (
           <>
             <StockTab itens={embalagens || []} contagem={contagemEmb} onChange={setEmb} minValues={minEmb} onChangeMin={setMinE} />
             <ListaCompras contagem={contagemEmb} itens={embalagens || []} />
+            <button onClick={handleEnviar} style={{ width: '100%', marginTop: 16, marginBottom: 8, padding: '13px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Enviar contagem →
+            </button>
           </>
         ) : tab === 'gastos' ? (
           <GastosTab />
         ) : (
-          <StockTab itens={produtosParaContagem} contagem={contagemProd} onChange={setProd} minValues={minProd} onChangeMin={setMinP} labelPedir="produzir" />
+          <>
+            <StockTab itens={produtosParaContagem} contagem={contagemProd} onChange={setProd} minValues={minProd} onChangeMin={setMinP} labelPedir="produzir" />
+            <button onClick={handleEnviar} style={{ width: '100%', marginTop: 16, marginBottom: 8, padding: '13px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+              Enviar contagem →
+            </button>
+          </>
         )}
       </div>
 
