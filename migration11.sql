@@ -13,3 +13,7 @@ create table if not exists compras (
   data       date not null,
   created_at timestamptz default now()
 );
+
+alter table compras enable row level security;
+drop policy if exists "auth_all" on compras;
+create policy "auth_all" on compras for all to authenticated using (true) with check (true);
