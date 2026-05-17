@@ -1,20 +1,21 @@
 # Guaxi App
 
 ## Git
-- Repositório correto: `cebols/guaxi-app` (NÃO usar cebols/epicerie para push)
+- Repositório: `cebols/guaxi-app`
 - Remote: `https://github.com/cebols/guaxi-app.git`
-- Branch de trabalho atual: `claude/guaxi-app-continue-JshAR`
-- Push: `git push origin claude/guaxi-app-continue-JshAR:main && git push origin claude/guaxi-app-continue-JshAR`
-- Vercel deploy: https://guaxi-app.vercel.app (conectado ao cebols/guaxi-app)
+- Vercel deploy: https://guaxi-app.vercel.app
+
+## Workflow
+- Sempre mergear direto na main: `git push origin <branch>:main`
+- Respostas curtas, objetivas. Sem overexplain.
 
 ## Configuração obrigatória no início de cada sessão
-O container é efêmero — rodar isso antes de qualquer push:
+Container é efêmero — antes de qualquer push:
 ```
-git config --global credential.helper store
-echo "https://TOKEN:x-oauth-basic@github.com" > ~/.git-credentials
 git remote set-url origin https://github.com/cebols/guaxi-app.git
+echo "https://TOKEN:x-oauth-basic@github.com" > ~/.git-credentials
 ```
-O token está no histórico desta thread. Substituir TOKEN pelo valor real.
+Token: usuário pede no início da sessão ou está no histórico da thread.
 
 ## Economia de tokens — leitura de arquivos
 Antes de usar Read em qualquer arquivo, perguntar: o conteúdo já está na janela de contexto desta sessão?
