@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
+import ImportarExcel from './ImportarExcel'
 import {
   getInsumos, saveInsumo, deleteInsumo,
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
@@ -429,6 +430,7 @@ export default function Cadastros() {
   const [tab, setTab] = useState('insumos')
   const [sheet, setSheet] = useState(null)
   const [busca, setBusca] = useState('')
+  const [importando, setImportando] = useState(false)
   const { toast, show } = useToast()
 
   const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
@@ -524,11 +526,14 @@ export default function Cadastros() {
       <div className="topbar">
         <div className="topbar-inner">
           <div className="topbar-title">Insumos &amp; Embalagens</div>
-          <button
-            className="btn-ghost"
-            onClick={openNew}
-            style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
-          >+</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setImportando(true)}
+              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              ↑ Excel
+            </button>
+            <button className="btn-ghost" onClick={openNew}
+              style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}>+</button>
+          </div>
         </div>
       </div>
 
@@ -772,6 +777,10 @@ export default function Cadastros() {
       )}
       {sheet?.type === 'embalagem' && (
         <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />
+      )}
+
+      {importando && (
+        <ImportarExcel onClose={() => setImportando(false)} onImported={() => { rIns(); rEmb(); setImportando(false) }} />
       )}
 
       {toast && <div className="toast">{toast}</div>}

@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { getInsumos, saveInsumo, saveReceita } from '../services/db'
 
-const UNIDADES = ['g', 'ml', 'un', 'kg', 'L', 'cx']
+const UNIDADES = ['g', 'ml', 'un', 'kg', 'L', 'cx', 'lt', 'und']
 
 function norm(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
@@ -20,7 +20,20 @@ function parseNum(v) {
   return isNaN(n) ? null : n
 }
 
-function Sheet({ title, children, onClose }) {
+function colLetter(i) {
+  let s = '', n = i + 1
+  while (n > 0) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26) }
+  return s
+}
+
+function letterToCol(s) {
+  const upper = (s || '').toUpperCase().trim()
+  let n = 0
+  for (const c of upper) n = n * 26 + (c.charCodeAt(0) - 64)
+  return n - 1
+}
+
+function SheetModal({ title, children, onClose }) {
   return (
     <>
       <div className="sheet-overlay" onClick={onClose} />
@@ -35,340 +48,381 @@ function Sheet({ title, children, onClose }) {
   )
 }
 
-function colLetter(i) {
-  let s = '', n = i + 1
-  while (n > 0) { s = String.fromCharCode(65 + (n - 1) % 26) + s; n = Math.floor((n - 1) / 26) }
-  return s
+function PreviewTable({ rows2d }) {
+  const rows = rows2d.slice(0, 12)
+  const maxCols = rows.reduce((m, r) => Math.max(m, r.length), 0)
+  return (
+    <div style={{ overflowX: 'auto', marginBottom: 14, border: '1px solid var(--border)', borderRadius: 8 }}>
+      <table style={{ borderCollapse: 'collapse', fontSize: 11, minWidth: '100%' }}>
+        <thead>
+          <tr style={{ background: 'var(--card-bg)' }}>
+            <th style={thStyle}>linha</th>
+            {Array.from({ length: maxCols }, (_, i) => (
+              <th key={i} style={{ ...thStyle, color: 'var(--teal)' }}>{colLetter(i)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri}>
+              <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontWeight: 600 }}>{ri}</td>
+              {Array.from({ length: maxCols }, (_, ci) => (
+                <td key={ci} style={tdStyle}>{String(row[ci] ?? '')}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
-function letterToCol(s) {
-  const upper = (s || '').toUpperCase().trim()
-  let n = 0
-  for (const c of upper) n = n * 26 + (c.charCodeAt(0) - 64)
-  return n - 1
+function ColInput({ label, value, onChange, optional }) {
+  return (
+    <div>
+      <div className="field-label">{label}{optional ? ' (opcional)' : ''}</div>
+      <input className="field-input" placeholder={optional ? '— vazio p/ ignorar' : 'ex: A'}
+        value={value < 0 ? '' : colLetter(value)}
+        onChange={e => {
+          const raw = e.target.value.trim()
+          if (raw === '' && optional) { onChange(-1); return }
+          const v = letterToCol(raw)
+          if (v >= 0) onChange(v)
+        }}
+      />
+    </div>
+  )
 }
 
-const STEP_UPLOAD   = 'upload'
-const STEP_SHEETS   = 'sheets'
-const STEP_MAP      = 'map'
-const STEP_PREVIEW  = 'preview'
-const STEP_DONE     = 'done'
+// ── MODO RECEITAS ─────────────────────────────────────────────
 
-export default function ImportarExcel({ onClose, onImported }) {
-  const [step, setStep]           = useState(STEP_UPLOAD)
-  const [workbook, setWorkbook]   = useState(null)
-  const [allSheets, setAllSheets] = useState([])   // [{ name, rows2d }]
-  const [selected, setSelected]   = useState([])   // sheet names selecionadas
-  const [previewSheet, setPreviewSheet] = useState(null) // { name, rows2d }
-
-  // mapeamento (aplicado a todas as abas)
+function ImportReceitas({ allSheets, onDone }) {
+  const [selected, setSelected]   = useState(allSheets.map(s => s.name))
+  const [previewSheet, setPreviewSheet] = useState(allSheets[0] || null)
   const [map, setMap] = useState({
-    nomeMode:   'cell',  // 'cell' | 'tabname'
-    nomeRow:    1,       // 0-based row index para célula do nome
-    nomeCol:    3,       // 0-based col index para célula do nome
-    headerRow:  4,       // 0-based row da linha de cabeçalho (pula essa)
-    dataRow:    5,       // 0-based row onde começam os ingredientes
-    colIng:     0,       // col do ingrediente
-    colQtd:     5,       // col da quantidade
-    colUnid:    6,       // col da unidade (opcional)
-    colCusto:   8,       // col do custo (opcional)
+    nomeMode: 'cell', nomeRow: 1, nomeCol: 3,
+    dataRow: 5, colIng: 0, colQtd: 5, colUnid: 6, colCusto: 8,
   })
-
-  const [parsed, setParsed]     = useState([])  // receitas parseadas para preview
+  const [parsed, setParsed]       = useState([])
+  const [step, setStep]           = useState('map')
   const [importing, setImporting] = useState(false)
-  const [result, setResult]     = useState(null)
-  const fileRef = useRef()
-
   const setM = (k, v) => setMap(m => ({ ...m, [k]: v }))
 
-  // ── Step 1: parse arquivo ────────────────────────────────
-  function handleFile(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => {
-      const wb = XLSX.read(ev.target.result, { type: 'array' })
-      const sheets = wb.SheetNames.map(name => ({
-        name,
-        rows2d: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' }),
-      }))
-      setWorkbook(wb)
-      setAllSheets(sheets)
-      setSelected(sheets.map(s => s.name))
-      setPreviewSheet(sheets[0] || null)
-      setStep(STEP_SHEETS)
-    }
-    reader.readAsArrayBuffer(file)
-  }
-
-  // ── Step 2: seleção de abas ──────────────────────────────
   function toggleSheet(name) {
     setSelected(s => s.includes(name) ? s.filter(n => n !== name) : [...s, name])
   }
 
-  // ── Parsing de uma aba com o mapeamento atual ────────────
   function parseSheet(sheet) {
     const { rows2d, name } = sheet
     const nomeFinal = map.nomeMode === 'tabname'
       ? name
       : String((rows2d[map.nomeRow] || [])[map.nomeCol] || '').trim() || name
-
     const ingredientes = []
     for (let r = map.dataRow; r < rows2d.length; r++) {
       const row = rows2d[r]
       const ingNome = String(row[map.colIng] || '').trim()
       const qtd = parseNum(row[map.colQtd])
       if (!ingNome || qtd === null || qtd === 0) continue
-      // linha de total/custo — para
       if (norm(ingNome).startsWith('custo') || norm(ingNome).startsWith('total')) break
-
-      const unidade = map.colUnid != null
-        ? (UNIDADES.includes(String(row[map.colUnid]).trim()) ? String(row[map.colUnid]).trim() : 'g')
+      const unidade = map.colUnid >= 0
+        ? (UNIDADES.includes(norm(String(row[map.colUnid] || ''))) ? String(row[map.colUnid]).trim() : 'g')
         : 'g'
-      const custo = map.colCusto != null ? parseNum(row[map.colCusto]) : null
+      const custo = map.colCusto >= 0 ? parseNum(row[map.colCusto]) : null
       ingredientes.push({ nome: ingNome, quantidade: qtd, unidade, custo })
     }
-
     return { nome: nomeFinal, ingredientes }
   }
 
-  // ── Step 3: mapeamento → preview ─────────────────────────
   function buildPreview() {
-    const receitas = allSheets
-      .filter(s => selected.includes(s.name))
-      .map(s => parseSheet(s))
-      .filter(r => r.ingredientes.length > 0)
-    setParsed(receitas)
-    setStep(STEP_PREVIEW)
+    setParsed(allSheets.filter(s => selected.includes(s.name)).map(parseSheet).filter(r => r.ingredientes.length > 0))
+    setStep('preview')
   }
 
-  // ── Step 4: importar ─────────────────────────────────────
   async function doImport() {
     setImporting(true)
     try {
       const insumos = await getInsumos()
       let criados = 0, casados = 0, receitasCriadas = 0
-
       for (const rec of parsed) {
-        const ingredientesFinais = []
+        const ings = []
         for (const ing of rec.ingredientes) {
           let insumo = matchInsumo(ing.nome, insumos)
           if (!insumo) {
-            const novo = await saveInsumo({
-              nome: ing.nome, unidade: ing.unidade || 'g',
-              marca: '', categoria: '', pesoEmb: '', custoEmb: ing.custo || '',
-              linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '',
-            })
-            insumos.push({ ...novo, nome: ing.nome })
-            insumo = novo
-            criados++
+            const novo = await saveInsumo({ nome: ing.nome, unidade: ing.unidade || 'g', marca: '', categoria: '', pesoEmb: '', custoEmb: ing.custo || '', linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '' })
+            insumos.push({ ...novo, nome: ing.nome }); insumo = novo; criados++
           } else { casados++ }
-
-          ingredientesFinais.push({
-            insumoId: insumo.id, nome: ing.nome,
-            quantidade: ing.quantidade,
-            unidade: ing.unidade || insumo.unidade || 'g',
-          })
+          ings.push({ insumoId: insumo.id, nome: ing.nome, quantidade: ing.quantidade, unidade: ing.unidade || insumo.unidade || 'g' })
         }
-
-        await saveReceita(
-          { nome: rec.nome, tipo: 'Outro', rendimento: 1, unidadeGera: 'un', custoTotal: 0, custoUnid: 0 },
-          ingredientesFinais
-        )
+        await saveReceita({ nome: rec.nome, tipo: 'Outro', rendimento: 1, unidadeGera: 'un', custoTotal: 0, custoUnid: 0 }, ings)
         receitasCriadas++
       }
-
-      setResult({ receitasCriadas, criados, casados })
-      setStep(STEP_DONE)
-      onImported?.()
-    } catch (e) {
-      alert('Erro ao importar: ' + e.message)
-    } finally {
-      setImporting(false)
-    }
+      onDone({ receitasCriadas, criados, casados })
+    } catch (e) { alert('Erro: ' + e.message) } finally { setImporting(false) }
   }
 
-  // ── UI helpers ───────────────────────────────────────────
-  const previewRows = previewSheet?.rows2d?.slice(0, 12) || []
-  const maxCols = previewRows.reduce((m, r) => Math.max(m, r.length), 0)
+  const visibleSheets = allSheets.filter(s => selected.includes(s.name))
 
-  return (
-    <Sheet title="Importar Excel" onClose={onClose}>
-
-      {/* STEP 1: upload */}
-      {step === STEP_UPLOAD && (
-        <>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 16 }}>
-            Selecione um .xlsx — cada aba será tratada como uma receita.
-          </p>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFile} />
-          <button className="btn-primary" onClick={() => fileRef.current.click()}>Escolher arquivo</button>
-        </>
-      )}
-
-      {/* STEP 2: selecionar abas + mapear */}
-      {step === STEP_SHEETS && (
-        <>
-          {/* Seleção de abas */}
-          <div className="field-label" style={{ marginBottom: 6 }}>Selecione as abas para importar</div>
-          <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', marginBottom: 14 }}>
-            <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, cursor: 'pointer', color: 'var(--text-secondary)' }}>
-              <input type="checkbox"
-                checked={selected.length === allSheets.length}
-                onChange={e => setSelected(e.target.checked ? allSheets.map(s => s.name) : [])}
-              /> Todas
-            </label>
-            {allSheets.map(s => (
-              <label key={s.name} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, cursor: 'pointer' }}>
-                <input type="checkbox" checked={selected.includes(s.name)} onChange={() => toggleSheet(s.name)} />
-                {s.name}
-              </label>
-            ))}
-          </div>
-
-          {/* Preview visual da aba */}
-          <div className="field-label" style={{ marginBottom: 4 }}>
-            Preview da aba:
-            <select style={{ marginLeft: 8, fontSize: 12, background: 'var(--input-bg)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', padding: '2px 6px' }}
-              value={previewSheet?.name || ''}
-              onChange={e => setPreviewSheet(allSheets.find(s => s.name === e.target.value))}
-            >
-              {allSheets.filter(s => selected.includes(s.name)).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-            </select>
-          </div>
-          <div style={{ overflowX: 'auto', marginBottom: 14, border: '1px solid var(--border)', borderRadius: 8 }}>
-            <table style={{ borderCollapse: 'collapse', fontSize: 11, minWidth: '100%' }}>
-              <thead>
-                <tr style={{ background: 'var(--card-bg)' }}>
-                  <th style={thStyle}>linha</th>
-                  {Array.from({ length: maxCols }, (_, i) => (
-                    <th key={i} style={{ ...thStyle, color: 'var(--teal)' }}>{colLetter(i)}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {previewRows.map((row, ri) => (
-                  <tr key={ri}>
-                    <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontWeight: 600 }}>{ri}</td>
-                    {Array.from({ length: maxCols }, (_, ci) => (
-                      <td key={ci} style={tdStyle}>{String(row[ci] ?? '')}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mapeamento */}
-          <div className="field-label" style={{ marginBottom: 8 }}>Mapeamento (aplicado a todas as abas selecionadas)</div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
-            <div>
-              <div className="field-label">Nome da receita vem de</div>
-              <select className="field-input" value={map.nomeMode} onChange={e => setM('nomeMode', e.target.value)}>
-                <option value="cell">Célula específica</option>
-                <option value="tabname">Nome da aba</option>
-              </select>
-            </div>
-            {map.nomeMode === 'cell' && (
-              <>
-                <div>
-                  <div className="field-label">Linha do nome</div>
-                  <input className="field-input" type="number" min="0" value={map.nomeRow}
-                    onChange={e => setM('nomeRow', parseInt(e.target.value) || 0)} />
-                </div>
-                <div>
-                  <div className="field-label">Coluna do nome</div>
-                  <input className="field-input" placeholder="ex: D" value={colLetter(map.nomeCol)}
-                    onChange={e => { const v = letterToCol(e.target.value); if (v >= 0) setM('nomeCol', v) }} />
-                </div>
-              </>
-            )}
-            <div>
-              <div className="field-label">Ingredientes começam na linha</div>
-              <input className="field-input" type="number" min="0" value={map.dataRow}
-                onChange={e => setM('dataRow', parseInt(e.target.value) || 0)} />
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-            {[
-              { k: 'colIng',   label: 'Col ingrediente', none: false },
-              { k: 'colQtd',   label: 'Col quantidade',  none: false },
-              { k: 'colUnid',  label: 'Col unidade',      none: true  },
-              { k: 'colCusto', label: 'Col custo',        none: true  },
-            ].map(({ k, label, none }) => (
-              <div key={k}>
-                <div className="field-label">{label}{none ? ' (opcional)' : ''}</div>
-                <input className="field-input" placeholder={none ? '— vazio p/ ignorar' : 'ex: A'}
-                  value={map[k] < 0 ? '' : colLetter(map[k])}
-                  onChange={e => {
-                    const raw = e.target.value.trim()
-                    if (raw === '' && none) { setM(k, -1); return }
-                    const v = letterToCol(raw)
-                    if (v >= 0) setM(k, v)
-                  }}
-                />
+  if (step === 'preview') return (
+    <>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>{parsed.length} receita(s) detectada(s).</div>
+      <div style={{ maxHeight: '52vh', overflowY: 'auto', marginBottom: 16 }}>
+        {parsed.map((rec, ri) => (
+          <div key={ri} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>{rec.nome}</div>
+            {rec.ingredientes.map((ing, ii) => (
+              <div key={ii} style={{ fontSize: 12, padding: '2px 0' }}>
+                • {ing.quantidade} {ing.unidade} — {ing.nome}
+                {ing.custo != null ? <span style={{ color: 'var(--teal)' }}> (R$ {ing.custo})</span> : ''}
               </div>
             ))}
           </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn-outline-teal" onClick={() => setStep('map')}>← Ajustar</button>
+        <button className="btn-primary" disabled={importing || !parsed.length} onClick={doImport}>
+          {importing ? 'Importando...' : `Importar ${parsed.length} receita(s)`}
+        </button>
+      </div>
+    </>
+  )
 
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
-            {selected.length} aba(s) selecionada(s)
-          </div>
-          <button className="btn-primary" disabled={!selected.length} onClick={buildPreview}>
-            Ver preview →
+  return (
+    <>
+      <div className="field-label" style={{ marginBottom: 6 }}>Abas para importar</div>
+      <div style={{ maxHeight: 120, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', marginBottom: 14 }}>
+        <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+          <input type="checkbox" checked={selected.length === allSheets.length} onChange={e => setSelected(e.target.checked ? allSheets.map(s => s.name) : [])} /> Todas
+        </label>
+        {allSheets.map(s => (
+          <label key={s.name} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, cursor: 'pointer' }}>
+            <input type="checkbox" checked={selected.includes(s.name)} onChange={() => toggleSheet(s.name)} />
+            {s.name}
+          </label>
+        ))}
+      </div>
+
+      <div className="field-label" style={{ marginBottom: 4 }}>
+        Preview:
+        <select style={{ marginLeft: 8, fontSize: 12, background: 'var(--input-bg)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', padding: '2px 6px' }}
+          value={previewSheet?.name || ''} onChange={e => setPreviewSheet(allSheets.find(s => s.name === e.target.value))}>
+          {visibleSheets.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+        </select>
+      </div>
+      {previewSheet && <PreviewTable rows2d={previewSheet.rows2d} />}
+
+      <div className="field-label" style={{ marginBottom: 8 }}>Mapeamento</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+        <div>
+          <div className="field-label">Nome da receita vem de</div>
+          <select className="field-input" value={map.nomeMode} onChange={e => setM('nomeMode', e.target.value)}>
+            <option value="cell">Célula específica</option>
+            <option value="tabname">Nome da aba</option>
+          </select>
+        </div>
+        {map.nomeMode === 'cell' && (
+          <>
+            <div>
+              <div className="field-label">Linha do nome</div>
+              <input className="field-input" type="number" min="0" value={map.nomeRow} onChange={e => setM('nomeRow', parseInt(e.target.value) || 0)} />
+            </div>
+            <ColInput label="Coluna do nome" value={map.nomeCol} onChange={v => setM('nomeCol', v)} />
+          </>
+        )}
+        <div>
+          <div className="field-label">Ingredientes começam na linha</div>
+          <input className="field-input" type="number" min="0" value={map.dataRow} onChange={e => setM('dataRow', parseInt(e.target.value) || 0)} />
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+        <ColInput label="Col ingrediente"  value={map.colIng}   onChange={v => setM('colIng', v)} />
+        <ColInput label="Col quantidade"   value={map.colQtd}   onChange={v => setM('colQtd', v)} />
+        <ColInput label="Col unidade"      value={map.colUnid}  onChange={v => setM('colUnid', v)}  optional />
+        <ColInput label="Col custo"        value={map.colCusto} onChange={v => setM('colCusto', v)} optional />
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>{selected.length} aba(s) selecionada(s)</div>
+      <button className="btn-primary" disabled={!selected.length} onClick={buildPreview}>Ver preview →</button>
+    </>
+  )
+}
+
+// ── MODO INSUMOS ──────────────────────────────────────────────
+
+function ImportInsumos({ allSheets, onDone }) {
+  const [sheetName, setSheetName] = useState(allSheets[0]?.name || '')
+  const [map, setMap] = useState({ dataRow: 1, colNome: 0, colUnid: 1, colCusto: 2 })
+  const [parsed, setParsed]       = useState([])
+  const [step, setStep]           = useState('map')
+  const [importing, setImporting] = useState(false)
+  const setM = (k, v) => setMap(m => ({ ...m, [k]: v }))
+
+  const sheet = allSheets.find(s => s.name === sheetName)
+
+  function buildPreview() {
+    const rows2d = sheet?.rows2d || []
+    let categoria = ''
+    const insumos = []
+    for (let r = map.dataRow; r < rows2d.length; r++) {
+      const row = rows2d[r]
+      const nome = String(row[map.colNome] || '').trim()
+      if (!nome) continue
+      const custo = parseNum(row[map.colCusto])
+      // linha sem custo e sem unidade = header de categoria
+      if (custo === null && !String(row[map.colUnid] || '').trim()) {
+        categoria = nome; continue
+      }
+      const unid = String(row[map.colUnid] || '').trim() || 'un'
+      insumos.push({ nome, unidade: unid, custo, categoria })
+    }
+    setParsed(insumos)
+    setStep('preview')
+  }
+
+  async function doImport() {
+    setImporting(true)
+    try {
+      const existentes = await getInsumos()
+      let criados = 0, pulados = 0
+      for (const ins of parsed) {
+        if (matchInsumo(ins.nome, existentes)) { pulados++; continue }
+        await saveInsumo({ nome: ins.nome, unidade: norm(ins.unidade) === 'kg' ? 'kg' : norm(ins.unidade) === 'lt' || norm(ins.unidade) === 'l' ? 'L' : norm(ins.unidade) === 'und' ? 'un' : ins.unidade || 'un', categoria: ins.categoria || '', marca: '', pesoEmb: '', custoEmb: ins.custo || '', linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '' })
+        criados++
+      }
+      onDone({ insumosCriados: criados, pulados })
+    } catch (e) { alert('Erro: ' + e.message) } finally { setImporting(false) }
+  }
+
+  if (step === 'preview') return (
+    <>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>{parsed.length} insumo(s) detectado(s).</div>
+      <div style={{ maxHeight: '52vh', overflowY: 'auto', marginBottom: 16 }}>
+        {(() => {
+          let lastCat = null
+          return parsed.map((ins, i) => (
+            <div key={i}>
+              {ins.categoria !== lastCat && (lastCat = ins.categoria, (
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--teal)', padding: '6px 0 2px', textTransform: 'uppercase' }}>{ins.categoria || 'Sem categoria'}</div>
+              ))}
+              <div style={{ fontSize: 12, padding: '2px 0' }}>
+                • {ins.nome} <span style={{ color: 'var(--text-secondary)' }}>({ins.unidade})</span>
+                {ins.custo != null ? <span style={{ color: 'var(--teal)' }}> R$ {ins.custo}</span> : ''}
+              </div>
+            </div>
+          ))
+        })()}
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="btn-outline-teal" onClick={() => setStep('map')}>← Ajustar</button>
+        <button className="btn-primary" disabled={importing || !parsed.length} onClick={doImport}>
+          {importing ? 'Importando...' : `Importar ${parsed.length} insumo(s)`}
+        </button>
+      </div>
+    </>
+  )
+
+  return (
+    <>
+      <div className="field-label" style={{ marginBottom: 4 }}>
+        Aba:
+        <select style={{ marginLeft: 8, fontSize: 12, background: 'var(--input-bg)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', padding: '2px 6px' }}
+          value={sheetName} onChange={e => setSheetName(e.target.value)}>
+          {allSheets.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+        </select>
+      </div>
+      {sheet && <PreviewTable rows2d={sheet.rows2d} />}
+
+      <div className="field-label" style={{ marginBottom: 8 }}>Mapeamento</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+        <div>
+          <div className="field-label">Dados começam na linha</div>
+          <input className="field-input" type="number" min="0" value={map.dataRow} onChange={e => setM('dataRow', parseInt(e.target.value) || 0)} />
+        </div>
+        <ColInput label="Col nome"    value={map.colNome}  onChange={v => setM('colNome', v)} />
+        <ColInput label="Col unidade" value={map.colUnid}  onChange={v => setM('colUnid', v)}  optional />
+        <ColInput label="Col custo"   value={map.colCusto} onChange={v => setM('colCusto', v)} optional />
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
+        Linhas sem custo e sem unidade são tratadas como categoria.
+      </div>
+      <button className="btn-primary" onClick={buildPreview}>Ver preview →</button>
+    </>
+  )
+}
+
+// ── COMPONENTE PRINCIPAL ──────────────────────────────────────
+
+export default function ImportarExcel({ onClose, onImported }) {
+  const [mode, setMode]         = useState(null)   // 'receitas' | 'insumos'
+  const [allSheets, setAllSheets] = useState([])
+  const [result, setResult]     = useState(null)
+  const fileRef = useRef()
+
+  function handleFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const wb = XLSX.read(ev.target.result, { type: 'array' })
+      setAllSheets(wb.SheetNames.map(name => ({
+        name,
+        rows2d: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' }),
+      })))
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
+  function handleDone(res) {
+    setResult(res)
+    onImported?.()
+  }
+
+  return (
+    <SheetModal title="Importar Excel" onClose={onClose}>
+
+      {/* Seleção de modo + upload */}
+      {!result && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          {['receitas', 'insumos'].map(m => (
+            <button key={m} onClick={() => setMode(m)}
+              style={{ flex: 1, padding: '8px 0', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                background: mode === m ? 'var(--teal)' : 'transparent',
+                color: mode === m ? '#fff' : 'var(--text-secondary)',
+                border: mode === m ? 'none' : '1px solid var(--border)' }}>
+              {m === 'receitas' ? 'Receitas' : 'Insumos'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!result && !allSheets.length && (
+        <>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={handleFile} />
+          <button className="btn-primary" disabled={!mode} onClick={() => fileRef.current.click()}>
+            {mode ? 'Escolher arquivo' : 'Selecione um modo acima'}
           </button>
         </>
       )}
 
-      {/* STEP 3: preview das receitas parseadas */}
-      {step === STEP_PREVIEW && (
-        <>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-            {parsed.length} receita(s) detectada(s). Confira antes de importar.
-          </div>
-          <div style={{ maxHeight: '52vh', overflowY: 'auto', marginBottom: 16 }}>
-            {parsed.map((rec, ri) => (
-              <div key={ri} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
-                <div style={{ fontWeight: 700, marginBottom: 6 }}>{rec.nome}</div>
-                {rec.ingredientes.map((ing, ii) => (
-                  <div key={ii} style={{ fontSize: 12, padding: '2px 0' }}>
-                    • {ing.quantidade} {ing.unidade} — {ing.nome}
-                    {ing.custo != null ? <span style={{ color: 'var(--teal)' }}> (R$ {ing.custo})</span> : ''}
-                  </div>
-                ))}
-                {rec.ingredientes.length === 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>nenhum ingrediente detectado</div>
-                )}
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn-outline-teal" onClick={() => setStep(STEP_SHEETS)}>← Ajustar</button>
-            <button className="btn-primary" disabled={importing || !parsed.length} onClick={doImport}>
-              {importing ? 'Importando...' : `Importar ${parsed.length} receita(s)`}
-            </button>
-          </div>
-        </>
+      {!result && allSheets.length > 0 && mode === 'receitas' && (
+        <ImportReceitas allSheets={allSheets} onDone={handleDone} />
       )}
 
-      {/* STEP 4: done */}
-      {step === STEP_DONE && result && (
-        <>
-          <div style={{ textAlign: 'center', padding: '24px 0' }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>✓</div>
-            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>Importação concluída!</div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.9 }}>
-              {result.receitasCriadas} receita(s) criada(s)<br />
-              {result.casados} ingrediente(s) casado(s) com insumos existentes<br />
-              {result.criados} insumo(s) novo(s) criado(s)
-            </div>
-          </div>
-          <button className="btn-primary" onClick={onClose}>Fechar</button>
-        </>
+      {!result && allSheets.length > 0 && mode === 'insumos' && (
+        <ImportInsumos allSheets={allSheets} onDone={handleDone} />
       )}
-    </Sheet>
+
+      {result && (
+        <div style={{ textAlign: 'center', padding: '24px 0' }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>✓</div>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>Importação concluída!</div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.9 }}>
+            {'receitasCriadas' in result && <>{result.receitasCriadas} receita(s) criada(s)<br />{result.casados} ingrediente(s) casado(s)<br />{result.criados} insumo(s) novo(s) criado(s)</>}
+            {'insumosCriados' in result && <>{result.insumosCriados} insumo(s) criado(s)<br />{result.pulados} já existiam (pulados)</>}
+          </div>
+          <button className="btn-primary" style={{ marginTop: 16 }} onClick={onClose}>Fechar</button>
+        </div>
+      )}
+    </SheetModal>
   )
 }
 
