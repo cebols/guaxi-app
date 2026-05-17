@@ -3,9 +3,23 @@ let _key = 'guaxi_config'
 // Chamado uma vez após login (App.jsx). Migra dados da chave genérica se necessário.
 export function initConfig(userId) {
   const userKey = userId ? `guaxi_config_${userId}` : 'guaxi_config'
-  if (userId && !localStorage.getItem(userKey)) {
+  if (userId) {
     const legacy = localStorage.getItem('guaxi_config')
-    if (legacy) localStorage.setItem(userKey, legacy)
+    const existing = localStorage.getItem(userKey)
+    // migra se: não tem chave do user, OU tem mas está vazia/zerada e legacy tem dados reais
+    if (legacy && legacy !== '{}') {
+      if (!existing) {
+        localStorage.setItem(userKey, legacy)
+      } else {
+        try {
+          const parsed = JSON.parse(existing)
+          const hasRealData = parsed.custoItens?.some(i => i.valor > 0) ||
+            parsed.margem || parsed.taxa99 || parsed.taxaIfood ||
+            parsed.unidadesProjetadas
+          if (!hasRealData) localStorage.setItem(userKey, legacy)
+        } catch { localStorage.setItem(userKey, legacy) }
+      }
+    }
   }
   _key = userKey
 }
