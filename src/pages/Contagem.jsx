@@ -363,6 +363,7 @@ export default function Contagem() {
   const [minProd, setMinProd] = useState({})
   const [modalMin, setModalMin] = useState(null)
   const [savingMin, setSavingMin] = useState(false)
+  const [semEstoqueAberto, setSemEstoqueAberto] = useState(false)
   const [recibo,   setRecibo]  = useState(null)
   const [saving,   setSaving]  = useState(false)
   const debounceRef = useRef({})
@@ -383,14 +384,20 @@ export default function Contagem() {
     return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   }
 
+  const itensComEstoque  = useMemo(() => itensDoTab.filter(i => i.estoqueAtual > 0), [itensDoTab])
+  const itensSemEstoque  = useMemo(() => itensDoTab.filter(i => !(i.estoqueAtual > 0)), [itensDoTab])
+
   const itensFiltrados = useMemo(() => {
     const q = norm(busca)
-    if (!q) return itensDoTab
-    return itensDoTab.filter(item =>
-      norm(item.nome).includes(q) ||
-      norm(item.categoria).includes(q)
-    )
-  }, [itensDoTab, busca])
+    if (!q) return itensComEstoque
+    return itensComEstoque.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
+  }, [itensComEstoque, busca])
+
+  const itensSemEstoqueFiltrados = useMemo(() => {
+    const q = norm(busca)
+    if (!q) return itensSemEstoque
+    return itensSemEstoque.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
+  }, [itensSemEstoque, busca])
 
   function changeTab(key) {
     setTab(key)
@@ -552,30 +559,50 @@ export default function Contagem() {
               </button>
             </div>
 
-            {tab === 'insumos' && (
-              <>
-                <StockTab itens={itensFiltrados} contagem={contagemIns} onChange={setIns} minValues={minIns} />
-                <button
-                  onClick={handleEnviar}
-                  style={{ width: '100%', padding: '12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}
-                >
-                  Enviar contagem →
-                </button>
-                <ListaCompras contagem={contagemIns} itens={insumos || []} />
-              </>
-            )}
-            {tab === 'embalagens' && (
-              <>
-                <StockTab itens={itensFiltrados} contagem={contagemEmb} onChange={setEmb} minValues={minEmb} />
-                <button
-                  onClick={handleEnviar}
-                  style={{ width: '100%', padding: '12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}
-                >
-                  Enviar contagem →
-                </button>
-                <ListaCompras contagem={contagemEmb} itens={embalagens || []} />
-              </>
-            )}
+            {(tab === 'insumos' || tab === 'embalagens') && (() => {
+              const contagem = tab === 'insumos' ? contagemIns : contagemEmb
+              const onChange = tab === 'insumos' ? setIns : setEmb
+              const minVals  = tab === 'insumos' ? minIns : minEmb
+              const todosItens = tab === 'insumos' ? (insumos || []) : (embalagens || [])
+              const semFiltrados = itensSemEstoqueFiltrados
+              const mostrarSemEstoque = busca ? semFiltrados.length > 0 : semEstoqueAberto
+
+              return (
+                <>
+                  <StockTab itens={itensFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} />
+
+                  {/* Resultados sem estoque na busca */}
+                  {busca && semFiltrados.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, margin: '12px 0 6px', textTransform: 'uppercase', letterSpacing: 1 }}>
+                        Sem estoque
+                      </div>
+                      <StockTab itens={semFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} />
+                    </>
+                  )}
+
+                  {/* Seção colapsável quando sem busca */}
+                  {!busca && itensSemEstoque.length > 0 && (
+                    <button
+                      onClick={() => setSemEstoqueAberto(v => !v)}
+                      style={{ width: '100%', textAlign: 'left', padding: '10px 14px', marginBottom: 8, borderRadius: 8, border: '1px dashed var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
+                    >
+                      <span>Não contabilizados ({itensSemEstoque.length})</span>
+                      <span>{semEstoqueAberto ? '▲' : '▼'}</span>
+                    </button>
+                  )}
+                  {!busca && semEstoqueAberto && (
+                    <StockTab itens={itensSemEstoque} contagem={contagem} onChange={onChange} minValues={minVals} />
+                  )}
+
+                  <button onClick={handleEnviar}
+                    style={{ width: '100%', padding: '12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}>
+                    Enviar contagem →
+                  </button>
+                  <ListaCompras contagem={contagem} itens={todosItens} />
+                </>
+              )
+            })()}
             {tab === 'produtos' && (
               <>
                 <StockTab itens={itensFiltrados} contagem={contagemProd} onChange={setProd} minValues={minProd} labelPedir="produzir" />
