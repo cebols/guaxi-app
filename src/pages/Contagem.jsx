@@ -97,7 +97,7 @@ function ListaCompras({ contagem, itens }) {
   )
 }
 
-function StockTab({ itens, contagem, onChange, minValues, onChangeMin, labelPedir = 'pedir', editando = false }) {
+function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir' }) {
   const grupos = groupBy(itens, 'categoria')
   return (
     <>
@@ -107,40 +107,21 @@ function StockTab({ itens, contagem, onChange, minValues, onChangeMin, labelPedi
           <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
             {items.map(item => {
               const val = contagem[item.id] ?? (item.estoqueAtual ?? '')
-              const effectiveMin = onChangeMin ? (minValues?.[item.id] ?? item.estoqueMin) : item.estoqueMin
+              const effectiveMin = minValues?.[item.id] ?? item.estoqueMin
               const falta = val !== '' ? calcPedir(val, effectiveMin) : null
               return (
                 <div key={item.id} className="stock-row">
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
-                    {onChangeMin ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín.</span>
-                        <input
-                          className="stock-input"
-                          type="number" inputMode="decimal"
-                          min="0"
-                          readOnly={!editando}
-                          style={{ width: 52, opacity: editando ? 1 : 0.55, cursor: editando ? 'text' : 'default' }}
-                          value={minValues?.[item.id] ?? item.estoqueMin}
-                          onChange={e => editando && onChangeMin(item.id, e.target.value)}
-                        />
-                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{item.unidade}</span>
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín. {item.estoqueMin} {item.unidade}</div>
-                    )}
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín. {effectiveMin} {item.unidade}</div>
                   </div>
                   <div>
                     <input
                       className="stock-input"
-                      type="number" inputMode="decimal"
-                      min="0"
-                      readOnly={!editando}
-                      style={{ opacity: editando ? 1 : 0.55, cursor: editando ? 'text' : 'default' }}
+                      type="number" inputMode="decimal" min="0"
                       value={val}
                       placeholder="—"
-                      onChange={e => editando && onChange(item.id, e.target.value)}
+                      onChange={e => onChange(item.id, e.target.value)}
                     />
                     {falta !== null && falta > 0 && <div className="pedir-txt">{labelPedir} {falta} {item.unidade}</div>}
                     {falta !== null && falta === 0 && <div className="ok-txt">ok</div>}
@@ -373,35 +354,22 @@ export default function Contagem() {
   const { toast, show } = useToast()
 
   const [tab, setTab] = useState('insumos')
+  const [busca, setBusca] = useState('')
   const [contagemIns,  setContagemIns]  = useState({})
   const [contagemEmb,  setContagemEmb]  = useState({})
   const [contagemProd, setContagemProd] = useState({})
   const [minIns,  setMinIns]  = useState({})
   const [minEmb,  setMinEmb]  = useState({})
   const [minProd, setMinProd] = useState({})
+  const [modalMin, setModalMin] = useState(null)
+  const [savingMin, setSavingMin] = useState(false)
   const [recibo,   setRecibo]  = useState(null)
   const [saving,   setSaving]  = useState(false)
-  const [editando, setEditando] = useState(false)
   const debounceRef = useRef({})
-
-  const autoSaveMin = (type, id, val) => {
-    const key = `min-${type}-${id}`
-    if (debounceRef.current[key]) clearTimeout(debounceRef.current[key])
-    debounceRef.current[key] = setTimeout(async () => {
-      try {
-        if (type === 'ins')  await updateEstoqueMinInsumos([{ id, estoqueMin: val }])
-        else if (type === 'emb') await updateEstoqueMinEmbalagens([{ id, estoqueMin: val }])
-        else await updateEstoqueMinProdutos([{ id, estoqueMin: val }])
-      } catch (e) { show('Erro ao salvar mínimo: ' + e.message) }
-    }, 700)
-  }
 
   const setIns  = (id, val) => setContagemIns(c  => ({ ...c, [id]: val }))
   const setEmb  = (id, val) => setContagemEmb(c  => ({ ...c, [id]: val }))
   const setProd = (id, val) => setContagemProd(c => ({ ...c, [id]: val }))
-  const setMinI = (id, val) => { setMinIns(m  => ({ ...m, [id]: val })); autoSaveMin('ins',  id, val) }
-  const setMinE = (id, val) => { setMinEmb(m  => ({ ...m, [id]: val })); autoSaveMin('emb',  id, val) }
-  const setMinP = (id, val) => { setMinProd(m => ({ ...m, [id]: val })); autoSaveMin('prod', id, val) }
 
   const produtosParaContagem = (produtos || [])
     .filter(p => p.tipo !== 'combo')
@@ -409,11 +377,61 @@ export default function Contagem() {
 
   const itensDoTab = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : produtosParaContagem
   const contagemDoTab = tab === 'insumos' ? contagemIns : tab === 'embalagens' ? contagemEmb : contagemProd
+  const minDoTab = tab === 'insumos' ? minIns : tab === 'embalagens' ? minEmb : minProd
+
+  const itensFiltrados = useMemo(() => {
+    if (!busca.trim()) return itensDoTab
+    const q = busca.toLowerCase()
+    return itensDoTab.filter(item =>
+      item.nome?.toLowerCase().includes(q) ||
+      item.categoria?.toLowerCase().includes(q)
+    )
+  }, [itensDoTab, busca])
+
+  function changeTab(key) {
+    setTab(key)
+    setBusca('')
+  }
+
+  function openModalMin() {
+    const values = {}
+    itensDoTab.forEach(item => {
+      const cur = minDoTab[item.id]
+      values[item.id] = cur !== undefined ? String(cur) : String(item.estoqueMin ?? 0)
+    })
+    setModalMin({ type: tab, itens: itensDoTab, values })
+  }
+
+  async function saveModalMin() {
+    setSavingMin(true)
+    try {
+      const { type, itens, values } = modalMin
+      const payload = itens.map(item => ({
+        id: item.id,
+        estoqueMin: parseFloat(values[item.id] ?? item.estoqueMin) || 0,
+      }))
+      if (type === 'insumos') {
+        await updateEstoqueMinInsumos(payload)
+        setMinIns(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n })
+      } else if (type === 'embalagens') {
+        await updateEstoqueMinEmbalagens(payload)
+        setMinEmb(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n })
+      } else {
+        await updateEstoqueMinProdutos(payload)
+        setMinProd(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n })
+      }
+      setModalMin(null)
+      show('Mínimos salvos!')
+    } catch (e) {
+      show('Erro: ' + e.message)
+    } finally {
+      setSavingMin(false)
+    }
+  }
 
   const handleEnviar = () => {
     const preenchidos = itensDoTab.filter(item => contagemDoTab[item.id] !== undefined && contagemDoTab[item.id] !== '')
     if (preenchidos.length === 0) { show('Nenhum valor preenchido'); return }
-    setEditando(false)
     setRecibo(tab)
   }
 
@@ -430,7 +448,6 @@ export default function Contagem() {
       else if (recibo === 'embalagens') await updateEstoqueEmbalagens(payload)
       else                              await updateEstoqueProdutos(payload)
 
-      // Registrar compras onde estoque subiu (só insumos e embalagens)
       let comprasRegistradas = 0
       if (recibo !== 'produtos') {
         const tipo = recibo === 'insumos' ? 'insumo' : 'embalagem'
@@ -499,7 +516,7 @@ export default function Contagem() {
       <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="tab-bar">
           {[['insumos','Insumos'],['embalagens','Embalagens'],['produtos','Produtos'],['gastos','Gastos']].map(([key, label]) => (
-            <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => { setTab(key); setEditando(false) }}>{label}</button>
+            <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => changeTab(key)}>{label}</button>
           ))}
         </div>
 
@@ -509,47 +526,93 @@ export default function Contagem() {
           <GastosTab />
         ) : (
           <>
-            {/* Editar / Enviar buttons */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              {!editando ? (
-                <button
-                  onClick={() => setEditando(true)}
-                  style={{ flex: 1, padding: '11px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-                >
-                  ✏️ Editar contagem
-                </button>
-              ) : (
-                <>
-                  <button
-                    onClick={() => setEditando(false)}
-                    style={{ padding: '11px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 14, cursor: 'pointer' }}
-                  >Cancelar</button>
-                  <button
-                    onClick={handleEnviar}
-                    style={{ flex: 1, padding: '11px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
-                  >Enviar contagem →</button>
-                </>
-              )}
+            {/* Search + Editar Mínimo row */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: 1 }}>
+                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>🔍</span>
+                <input
+                  value={busca}
+                  onChange={e => setBusca(e.target.value)}
+                  placeholder="Buscar..."
+                  style={{ width: '100%', paddingLeft: 32, paddingRight: busca ? 28 : 10, paddingTop: 9, paddingBottom: 9, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+                />
+                {busca && (
+                  <button onClick={() => setBusca('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 16, cursor: 'pointer', padding: 0, lineHeight: 1 }}>×</button>
+                )}
+              </div>
+              <button
+                onClick={openModalMin}
+                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
+              >
+                Editar Mínimo
+              </button>
             </div>
 
             {tab === 'insumos' && (
               <>
-                <StockTab itens={insumos || []} contagem={contagemIns} onChange={setIns} minValues={minIns} onChangeMin={setMinI} editando={editando} />
+                <StockTab itens={itensFiltrados} contagem={contagemIns} onChange={setIns} minValues={minIns} />
+                <button
+                  onClick={handleEnviar}
+                  style={{ width: '100%', padding: '12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}
+                >
+                  Enviar contagem →
+                </button>
                 <ListaCompras contagem={contagemIns} itens={insumos || []} />
               </>
             )}
             {tab === 'embalagens' && (
               <>
-                <StockTab itens={embalagens || []} contagem={contagemEmb} onChange={setEmb} minValues={minEmb} onChangeMin={setMinE} editando={editando} />
+                <StockTab itens={itensFiltrados} contagem={contagemEmb} onChange={setEmb} minValues={minEmb} />
+                <button
+                  onClick={handleEnviar}
+                  style={{ width: '100%', padding: '12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}
+                >
+                  Enviar contagem →
+                </button>
                 <ListaCompras contagem={contagemEmb} itens={embalagens || []} />
               </>
             )}
             {tab === 'produtos' && (
-              <StockTab itens={produtosParaContagem} contagem={contagemProd} onChange={setProd} minValues={minProd} onChangeMin={setMinP} labelPedir="produzir" editando={editando} />
+              <>
+                <StockTab itens={itensFiltrados} contagem={contagemProd} onChange={setProd} minValues={minProd} labelPedir="produzir" />
+                <button
+                  onClick={handleEnviar}
+                  style={{ width: '100%', padding: '12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}
+                >
+                  Enviar contagem →
+                </button>
+              </>
             )}
           </>
         )}
       </div>
+
+      {/* Modal Editar Mínimo */}
+      {modalMin && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }} onClick={e => { if (e.target === e.currentTarget) setModalMin(null) }}>
+          <div style={{ background: 'var(--bg-primary)', borderRadius: '16px 16px 0 0', width: '100%', maxHeight: '80vh', overflow: 'auto', padding: '20px 20px 32px' }}>
+            <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 16 }}>Editar Estoque Mínimo</div>
+            {modalMin.itens.map(item => (
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
+                <div style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{item.nome}</div>
+                <input
+                  type="number" inputMode="decimal" min="0"
+                  value={modalMin.values[item.id] ?? ''}
+                  onChange={e => setModalMin(m => ({ ...m, values: { ...m.values, [item.id]: e.target.value } }))}
+                  style={{ width: 80, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'right' }}
+                />
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)', width: 32 }}>{item.unidade}</span>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+              <button onClick={() => setModalMin(null)} style={{ flex: 1, padding: 12, borderRadius: 8, border: '1px solid #444', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, cursor: 'pointer' }}>Cancelar</button>
+              <button onClick={saveModalMin} disabled={savingMin} style={{ flex: 2, padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                {savingMin ? 'Salvando...' : 'Salvar mínimos'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && <div className="toast">{toast}</div>}
     </>
