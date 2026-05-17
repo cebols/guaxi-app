@@ -780,7 +780,7 @@ export default function Cadastros() {
       )}
 
       {importando && (
-        <ImportarExcel onClose={() => setImportando(false)} onImported={() => { rIns(); rEmb(); setImportando(false) }} />
+        <ImportarExcel mode="insumos" onClose={() => setImportando(false)} onImported={() => { rIns(); rEmb(); setImportando(false) }} />
       )}
 
       {toast && <div className="toast">{toast}</div>}

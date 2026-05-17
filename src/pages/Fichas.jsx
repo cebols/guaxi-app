@@ -131,7 +131,7 @@ export default function Fichas() {
       </div>
 
       {importando && (
-        <ImportarExcel
+        <ImportarExcel mode="receitas"
           onClose={() => setImportando(false)}
           onImported={() => { reload(); setImportando(false) }}
         />

@@ -351,8 +351,8 @@ function ImportInsumos({ allSheets, onDone }) {
 
 // ── COMPONENTE PRINCIPAL ──────────────────────────────────────
 
-export default function ImportarExcel({ onClose, onImported }) {
-  const [mode, setMode]         = useState(null)   // 'receitas' | 'insumos'
+export default function ImportarExcel({ onClose, onImported, mode: modeProp = null }) {
+  const [mode, setMode]         = useState(modeProp)   // 'receitas' | 'insumos'
   const [allSheets, setAllSheets] = useState([])
   const [result, setResult]     = useState(null)
   const fileRef = useRef()
@@ -379,8 +379,8 @@ export default function ImportarExcel({ onClose, onImported }) {
   return (
     <SheetModal title="Importar Excel" onClose={onClose}>
 
-      {/* Seleção de modo + upload */}
-      {!result && (
+      {/* Seleção de modo — só mostra se não veio fixado por prop */}
+      {!result && !modeProp && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
           {['receitas', 'insumos'].map(m => (
             <button key={m} onClick={() => setMode(m)}
