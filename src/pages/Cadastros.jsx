@@ -62,7 +62,47 @@ function calcCustoUnitInsumo(form) {
   return null
 }
 
-function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose }) {
+function SupplierFields({ s, i, unidade, onChange, children }) {
+  const cu = parseFloat(s.pesoEmb) > 0 && parseFloat(s.custoEmb) > 0
+    ? parseFloat(s.custoEmb) / parseFloat(s.pesoEmb) : null
+  const upd = (k, v) => onChange(i, k, v)
+  return (
+    <>
+      <div className="field-row">
+        <div>
+          <div className="field-label">Marca</div>
+          <input className="field-input" placeholder="ex: Anaconda" value={s.marca} onChange={e => upd('marca', e.target.value)} />
+        </div>
+        <div>
+          <div className="field-label">Fornecedor</div>
+          <input className="field-input" placeholder="Nome" value={s.fornecedor} onChange={e => upd('fornecedor', e.target.value)} />
+        </div>
+      </div>
+      <div className="field-row">
+        <div>
+          <div className="field-label">{unidade === 'un' ? 'Qtd. emb (un)' : `Peso emb. (${unidade})`}</div>
+          <input className="field-input" type="number" inputMode="decimal" min="0" placeholder="ex: 1000" value={s.pesoEmb} onChange={e => upd('pesoEmb', e.target.value)} />
+        </div>
+        <div>
+          <div className="field-label">Custo (R$)</div>
+          <input className="field-input" type="number" inputMode="decimal" min="0" placeholder="0,00" value={s.custoEmb} onChange={e => upd('custoEmb', e.target.value)} />
+        </div>
+      </div>
+      {cu !== null && (
+        <div style={{ fontSize: 11, color: 'var(--teal)', marginBottom: 6 }}>
+          R$ {cu.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{unidade}
+        </div>
+      )}
+      <div className="field-label">Link da loja</div>
+      <input className="field-input" type="url" placeholder="https://..." value={s.linkCompra} onChange={e => upd('linkCompra', e.target.value)} />
+      <div className="field-label">Telefone</div>
+      <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={s.telefone} onChange={e => upd('telefone', e.target.value)} />
+      {children}
+    </>
+  )
+}
+
+function InsumoForm({ item, categorias, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item ? {
     ...item,
     marca: item.marca || '',
@@ -73,34 +113,64 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
     estoqueAtual: item.estoqueAtual ?? '',
     estoqueMin: item.estoqueMin || '',
   } : INSUMO_EMPTY)
-  const [fontes, setFontes] = useState([])
+
+  // Edit mode: unified supplier list
+  const [suppliers, setSuppliers] = useState([])
+  const [primaryIdx, setPrimaryIdx] = useState(0)
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => {
     if (!item?.id) return
-    getInsumoFornecedores(item.id).then(fs => setFontes(fs.map(f => ({
-      ...f,
-      pesoEmb: f.pesoEmb || '',
-      custoEmb: f.custoEmb || '',
-      linkCompra: f.linkCompra || '',
-      telefone: f.telefone || '',
-    })))).catch(() => {})
+    const main = {
+      marca: item.marca || '',
+      fornecedor: item.fornecedor || '',
+      pesoEmb: item.pesoEmb > 0 ? String(item.pesoEmb) : '',
+      custoEmb: item.custoEmb > 0 ? String(item.custoEmb) : '',
+      linkCompra: item.linkCompra || '',
+      telefone: item.whatsapp || '',
+    }
+    getInsumoFornecedores(item.id)
+      .then(fontes => setSuppliers([main, ...fontes.map(f => ({
+        marca: f.marca || '',
+        fornecedor: f.fornecedor || '',
+        pesoEmb: f.pesoEmb > 0 ? String(f.pesoEmb) : '',
+        custoEmb: f.custoEmb > 0 ? String(f.custoEmb) : '',
+        linkCompra: f.linkCompra || '',
+        telefone: f.telefone || '',
+      }))]))
+      .catch(() => setSuppliers([main]))
   }, [item?.id])
 
   const custoUnitCalc = calcCustoUnitInsumo(form)
   const pesoUnNum = parseFloat(form.pesoUn) || 0
 
-  const setFonte = (i, k, v) => setFontes(prev => prev.map((f, idx) => idx === i ? { ...f, [k]: v } : f))
-  const addFonte = () => setFontes(prev => [...prev, { ...FONTE_EMPTY }])
-  const removeFonte = i => setFontes(prev => prev.filter((_, idx) => idx !== i))
+  const updSup = (i, k, v) => setSuppliers(prev => prev.map((s, idx) => idx === i ? { ...s, [k]: v } : s))
+  const removeSup = i => {
+    setSuppliers(prev => prev.filter((_, idx) => idx !== i))
+    if (primaryIdx >= i && primaryIdx > 0) setPrimaryIdx(p => p - 1)
+  }
 
   const handle = async (keepOpen = false) => {
     if (!form.nome) return
     setSaving(true)
     try {
-      await onSave(form, fontes)
-      if (keepOpen) { setForm(INSUMO_EMPTY); setFontes([]) }
+      if (item) {
+        const primary = suppliers[primaryIdx] || suppliers[0] || {}
+        const others = suppliers.filter((_, i) => i !== primaryIdx)
+        await onSave({
+          ...form,
+          marca: primary.marca || '',
+          fornecedor: primary.fornecedor || '',
+          pesoEmb: primary.pesoEmb || '',
+          custoEmb: primary.custoEmb || '',
+          linkCompra: primary.linkCompra || '',
+          whatsapp: primary.telefone || '',
+        }, others)
+      } else {
+        await onSave(form, [])
+      }
+      if (keepOpen) setForm(INSUMO_EMPTY)
       else onClose()
     } catch (e) { alert(e.message) } finally { setSaving(false) }
   }
@@ -111,9 +181,6 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
 
       <div className="field-label">Nome *</div>
       <input className="field-input" placeholder="ex: Farinha de trigo" value={form.nome} onChange={e => set('nome', e.target.value)} />
-
-      <div className="field-label">Marca</div>
-      <input className="field-input" placeholder="ex: Anaconda" value={form.marca} onChange={e => set('marca', e.target.value)} />
 
       <div className="field-row">
         <div>
@@ -129,20 +196,7 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
         </div>
       </div>
 
-      <div className="section-label" style={{ marginTop: 4 }}>Precificação</div>
-      <div className="field-row">
-        <div>
-          <div className="field-label">
-            {form.unidade === 'un' ? 'Qtd. na embalagem (un)' : `Peso/vol. da embalagem (${form.unidade})`}
-          </div>
-          <input className="field-input" type="number" inputMode="decimal" min="0" step="any" placeholder="ex: 1000" value={form.pesoEmb} onChange={e => set('pesoEmb', e.target.value)} />
-        </div>
-        <div>
-          <div className="field-label">Custo da embalagem (R$)</div>
-          <input className="field-input" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0,00" value={form.custoEmb} onChange={e => set('custoEmb', e.target.value)} />
-        </div>
-      </div>
-
+      {/* pesoUn is product-level, shown in both modes */}
       {form.unidade === 'un' && (
         <>
           <div className="field-label">Peso por unidade (g) — para calcular custo</div>
@@ -150,15 +204,29 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
         </>
       )}
 
-      {custoUnitCalc !== null && (
-        <CalcBadge
-          label={`Custo por ${form.unidade === 'un' && pesoUnNum > 0 ? 'g' : form.unidade}`}
-          value={custoUnitCalc}
-        />
+      {/* Create mode: single supplier inline */}
+      {!item && (
+        <>
+          <div className="section-label" style={{ marginTop: 4 }}>Precificação</div>
+          <div className="field-row">
+            <div>
+              <div className="field-label">{form.unidade === 'un' ? 'Qtd. na embalagem (un)' : `Peso/vol. da embalagem (${form.unidade})`}</div>
+              <input className="field-input" type="number" inputMode="decimal" min="0" step="any" placeholder="ex: 1000" value={form.pesoEmb} onChange={e => set('pesoEmb', e.target.value)} />
+            </div>
+            <div>
+              <div className="field-label">Custo da embalagem (R$)</div>
+              <input className="field-input" type="number" inputMode="decimal" min="0" step="0.01" placeholder="0,00" value={form.custoEmb} onChange={e => set('custoEmb', e.target.value)} />
+            </div>
+          </div>
+          {custoUnitCalc !== null && (
+            <CalcBadge label={`Custo por ${form.unidade === 'un' && pesoUnNum > 0 ? 'g' : form.unidade}`} value={custoUnitCalc} />
+          )}
+          <div className="field-label">Marca</div>
+          <input className="field-input" placeholder="ex: Anaconda" value={form.marca} onChange={e => set('marca', e.target.value)} />
+          <div className="field-label">Link da loja (Shopee, etc.)</div>
+          <input className="field-input" type="url" placeholder="https://shopee.com.br/..." value={form.linkCompra} onChange={e => set('linkCompra', e.target.value)} />
+        </>
       )}
-
-      <div className="field-label">Link da loja (Shopee, etc.)</div>
-      <input className="field-input" type="url" placeholder="https://shopee.com.br/..." value={form.linkCompra} onChange={e => set('linkCompra', e.target.value)} />
 
       <div className="section-label" style={{ marginTop: 4 }}>Estoque</div>
       <div className="field-row">
@@ -172,71 +240,56 @@ function InsumoForm({ item, categorias, fornecedores, onSave, onDelete, onClose 
         </div>
       </div>
 
-      <div className="section-label" style={{ marginTop: 4 }}>Fornecedor principal</div>
-      <input
-        className="field-input"
-        list="fornecedores-list"
-        placeholder="Nome do fornecedor"
-        value={form.fornecedor}
-        onChange={e => {
-          const nome = e.target.value
-          set('fornecedor', nome)
-          const known = (fornecedores || []).find(f => f.nome === nome)
-          if (known?.whatsapp && !form.whatsapp) set('whatsapp', known.whatsapp)
-        }}
-      />
-      <datalist id="fornecedores-list">
-        {(fornecedores || []).map(f => <option key={f.nome} value={f.nome} />)}
-      </datalist>
-      <div className="field-label">Telefone</div>
-      <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
-
-      {/* Outros fornecedores — edição only */}
-      {item && (
+      {/* Create mode: fornecedor fields */}
+      {!item && (
         <>
-          <div className="section-label" style={{ marginTop: 8 }}>Outros fornecedores</div>
-          {fontes.map((f, i) => {
-            const cu = parseFloat(f.pesoEmb) > 0 && parseFloat(f.custoEmb) > 0
-              ? parseFloat(f.custoEmb) / parseFloat(f.pesoEmb) : null
+          <div className="section-label" style={{ marginTop: 4 }}>Fornecedor</div>
+          <input className="field-input" placeholder="Nome do fornecedor" value={form.fornecedor} onChange={e => set('fornecedor', e.target.value)} />
+          <div className="field-label">Telefone</div>
+          <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
+        </>
+      )}
+
+      {/* Edit mode: unified selectable supplier list */}
+      {item && suppliers.length > 0 && (
+        <>
+          <div className="section-label" style={{ marginTop: 8 }}>Fornecedores</div>
+          {suppliers.map((s, i) => {
+            const isPrimary = i === primaryIdx
             return (
-              <div key={i} className="card" style={{ padding: '10px 14px', marginBottom: 8 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Fornecedor {i + 1}</span>
-                  <button className="item-rm" onClick={() => removeFonte(i)}>×</button>
+              <div key={i} style={{
+                border: isPrimary ? '2px solid var(--teal)' : '1px solid var(--border)',
+                borderRadius: 12, padding: '12px 14px', marginBottom: 10,
+                background: isPrimary ? 'rgba(20,184,166,0.06)' : 'var(--card-bg)',
+                transition: 'border-color 0.15s',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  {isPrimary ? (
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, color: 'var(--teal)',
+                      background: 'rgba(20,184,166,0.15)', padding: '3px 10px', borderRadius: 10,
+                    }}>✓ Prioritário</span>
+                  ) : (
+                    <button
+                      onClick={() => setPrimaryIdx(i)}
+                      style={{
+                        fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)',
+                        background: 'transparent', border: '1px solid var(--border)',
+                        padding: '3px 10px', borderRadius: 10, cursor: 'pointer',
+                      }}
+                    >Definir como prioritário</button>
+                  )}
+                  {suppliers.length > 1 && (
+                    <button className="item-rm" onClick={() => removeSup(i)}>×</button>
+                  )}
                 </div>
-                <div className="field-row">
-                  <div>
-                    <div className="field-label">Marca</div>
-                    <input className="field-input" placeholder="ex: Anaconda" value={f.marca} onChange={e => setFonte(i, 'marca', e.target.value)} />
-                  </div>
-                  <div>
-                    <div className="field-label">Fornecedor</div>
-                    <input className="field-input" placeholder="Nome" value={f.fornecedor} onChange={e => setFonte(i, 'fornecedor', e.target.value)} />
-                  </div>
-                </div>
-                <div className="field-row">
-                  <div>
-                    <div className="field-label">Peso emb. ({form.unidade})</div>
-                    <input className="field-input" type="number" inputMode="decimal" min="0" placeholder="ex: 1000" value={f.pesoEmb} onChange={e => setFonte(i, 'pesoEmb', e.target.value)} />
-                  </div>
-                  <div>
-                    <div className="field-label">Custo (R$)</div>
-                    <input className="field-input" type="number" inputMode="decimal" min="0" placeholder="0,00" value={f.custoEmb} onChange={e => setFonte(i, 'custoEmb', e.target.value)} />
-                  </div>
-                </div>
-                {cu !== null && (
-                  <div style={{ fontSize: 11, color: 'var(--teal)', marginBottom: 6 }}>
-                    R$ {cu.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{form.unidade}
-                  </div>
-                )}
-                <div className="field-label">Link da loja</div>
-                <input className="field-input" type="url" placeholder="https://..." value={f.linkCompra} onChange={e => setFonte(i, 'linkCompra', e.target.value)} />
-                <div className="field-label">Telefone</div>
-                <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={f.telefone} onChange={e => setFonte(i, 'telefone', e.target.value)} />
+                <SupplierFields s={s} i={i} unidade={form.unidade} onChange={updSup} />
               </div>
             )
           })}
-          <button className="btn-add-item" style={{ marginBottom: 12 }} onClick={addFonte}>+ novo fornecedor</button>
+          <button className="btn-add-item" style={{ marginBottom: 12 }} onClick={() => setSuppliers(prev => [...prev, { ...FONTE_EMPTY }])}>
+            + novo fornecedor
+          </button>
         </>
       )}
 
@@ -451,11 +504,8 @@ export default function Cadastros() {
                       <tbody>
                         {(insumos || []).map(ins => {
                           const fontes = fontesMap[ins.id] || []
-                          const mainCost = calcCustoUnitInsumo(ins) || 0
-                          const cheapestFonte = fontes.length > 0 ? fontes[0] : null
-                          const useMain = !cheapestFonte || (mainCost > 0 && mainCost <= (cheapestFonte.custoUnit || Infinity))
-                          const fornecedorLabel = useMain ? (ins.fornecedor || '—') : (cheapestFonte?.fornecedor || '—')
-                          const marcaLabel = useMain ? (ins.marca || '—') : (cheapestFonte?.marca || '—')
+                          const fornecedorLabel = ins.fornecedor || '—'
+                          const marcaLabel = ins.marca || '—'
                           return (
                             <tr key={ins.id} onClick={() => setSheet({ type: 'insumo', item: ins })}>
                               <td style={{ fontWeight: 600 }}>{ins.nome}</td>
@@ -501,12 +551,8 @@ export default function Cadastros() {
                   ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum insumo cadastrado</div>
                   : (insumos || []).map(ins => {
                     const fontes = fontesMap[ins.id] || []
-                    // Determine which source (main or fonte) has the cheapest cost
-                    const mainCost = calcCustoUnitInsumo(ins) || 0
-                    const cheapestFonte = fontes.length > 0 ? fontes[0] : null
-                    const useMain = !cheapestFonte || (mainCost > 0 && mainCost <= (cheapestFonte.custoUnit || Infinity))
-                    const marcaAtual = useMain ? (ins.marca || null) : (cheapestFonte?.marca || null)
-                    const fornecedorAtual = useMain ? (ins.fornecedor || null) : (cheapestFonte?.fornecedor || null)
+                    const marcaAtual = ins.marca || null
+                    const fornecedorAtual = ins.fornecedor || null
                     const isExpanded = expandedFornecedor === ins.id
                     const totalOpcoes = fontes.length + (ins.fornecedor ? 1 : 0)
 
@@ -675,7 +721,7 @@ export default function Cadastros() {
       <button className="fab mobile-only" onClick={openNew}>+</button>
 
       {sheet?.type === 'insumo' && (
-        <InsumoForm item={sheet.item} categorias={catsInsumo} fornecedores={fornecedores} onSave={insActions.save} onDelete={insActions.del} onClose={() => setSheet(null)} />
+        <InsumoForm item={sheet.item} categorias={catsInsumo} onSave={insActions.save} onDelete={insActions.del} onClose={() => setSheet(null)} />
       )}
       {sheet?.type === 'embalagem' && (
         <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />
