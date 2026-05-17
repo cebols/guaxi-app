@@ -17,8 +17,8 @@ echo "https://TOKEN:x-oauth-basic@github.com" > ~/.git-credentials
 ```
 Token: usuário pede no início da sessão ou está no histórico da thread.
 
-## Economia de tokens — leitura de arquivos
-Antes de usar Read em qualquer arquivo, perguntar: o conteúdo já está na janela de contexto desta sessão?
-- Se foi lido nesta sessão e não foi modificado desde então → não ler de novo.
-- Se foi modificado por uma ferramenta (Edit/Write) → o estado atualizado já está no contexto, não precisa re-ler para verificar.
-- Só ler quando o arquivo genuinamente não está no contexto ou quando precisa de uma seção específica ainda não vista.
+## Economia de tokens
+- Não ler arquivo que já está na context window desta sessão.
+- Se foi modificado por Edit/Write → estado já está no contexto, não re-ler.
+- Só ler quando genuinamente não está no contexto ou precisa de seção ainda não vista.
+- Respostas curtas. Sem overexplain. Caveman language.
