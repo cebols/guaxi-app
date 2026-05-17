@@ -720,7 +720,7 @@ export default function Vendas() {
         )}
       </div>
 
-      <button className="fab mobile-only" onClick={() => setSheet({ type: 'venda' })}>+</button>
+      <button className="fab mobile-only" onClick={() => setSheet({ type: 'rapido' })}>⚡</button>
 
       {sheet?.type === 'venda'  && <VendaForm    produtos={produtos} prefill={sheet.produto} onSave={handleSave} onClose={() => setSheet(null)} />}
       {sheet?.type === 'rapido' && <LancamentoRapido produtos={produtos} onSave={handleSave} onClose={() => setSheet(null)} />}

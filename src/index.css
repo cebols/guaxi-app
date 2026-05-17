@@ -68,6 +68,13 @@ input, select, textarea { font-family: var(--font); }
   padding: 0 12px;
 }
 
+.topbar-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
 /* ── Top bar ────────────────────────────── */
 .topbar {
   padding: 14px 16px 12px;
