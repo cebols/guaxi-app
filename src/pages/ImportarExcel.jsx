@@ -16,8 +16,21 @@ function matchInsumo(nome, insumos) {
 
 function parseNum(v) {
   if (v === '' || v == null) return null
-  const n = parseFloat(String(v).replace(',', '.'))
+  // remove separador de milhar BR (ponto), normaliza vírgula decimal
+  const s = String(v).trim().replace(/\.(?=\d{3})/g, '').replace(',', '.')
+  const n = parseFloat(s)
   return isNaN(n) ? null : n
+}
+
+const KG_VARIANTS = /^(kg|kilo|quilo|quilograma|kilograma|kgs|kilos|quilos)s?$/i
+const L_VARIANTS  = /^(l|lt|lts|litro|litros|litre|litres)s?$/i
+
+function normalizeUnidade(raw) {
+  const s = (raw || '').trim()
+  if (KG_VARIANTS.test(s)) return { unidade: 'g',  pesoEmb: 1000 }
+  if (L_VARIANTS.test(s))  return { unidade: 'ml', pesoEmb: 1000 }
+  const known = UNIDADES.find(u => u.toLowerCase() === s.toLowerCase())
+  return { unidade: known || 'un', pesoEmb: '' }
 }
 
 function colLetter(i) {
@@ -285,7 +298,8 @@ function ImportInsumos({ allSheets, onDone }) {
       let criados = 0, pulados = 0
       for (const ins of parsed) {
         if (matchInsumo(ins.nome, existentes)) { pulados++; continue }
-        await saveInsumo({ nome: ins.nome, unidade: norm(ins.unidade) === 'kg' ? 'kg' : norm(ins.unidade) === 'lt' || norm(ins.unidade) === 'l' ? 'L' : norm(ins.unidade) === 'und' ? 'un' : ins.unidade || 'un', categoria: ins.categoria || '', marca: '', pesoEmb: '', custoEmb: ins.custo || '', linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '' })
+        const { unidade, pesoEmb } = normalizeUnidade(ins.unidade)
+        await saveInsumo({ nome: ins.nome, unidade, categoria: ins.categoria || '', marca: '', pesoEmb, custoEmb: ins.custo || '', linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '' })
         criados++
       }
       onDone({ insumosCriados: criados, pulados })
