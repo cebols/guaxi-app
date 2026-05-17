@@ -4,6 +4,33 @@ import { useToast } from '../hooks/useToast'
 import { getConfig } from '../hooks/useConfig'
 import { getProdutos, getVendas, saveVenda, deleteVenda } from '../services/db'
 
+function DateInput({ value, onChange, className, style }) {
+  function toDisplay(iso) {
+    if (!iso) return ''
+    const [y, m, d] = iso.split('-')
+    return y && m && d ? `${d}/${m}/${y}` : iso
+  }
+  function toISO(digits) {
+    if (digits.length === 8) return `${digits.slice(4)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}`
+    return ''
+  }
+  const [display, setDisplay] = useState(toDisplay(value))
+  const handleChange = (e) => {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 8)
+    let fmt = digits
+    if (digits.length > 2) fmt = digits.slice(0, 2) + '/' + digits.slice(2)
+    if (digits.length > 4) fmt = digits.slice(0, 2) + '/' + digits.slice(2, 4) + '/' + digits.slice(4)
+    setDisplay(fmt)
+    const iso = toISO(digits)
+    if (iso) onChange(iso)
+    else if (digits.length === 0) onChange('')
+  }
+  return (
+    <input className={className} style={style} type="text" inputMode="numeric"
+      placeholder="dd/mm/aaaa" value={display} onChange={handleChange} maxLength={10} />
+  )
+}
+
 const PLATAFORMAS = ['Direta', '99Food', 'iFood']
 const PLAT_COLOR  = { 'Direta': 'var(--teal)', '99Food': '#f59e0b', 'iFood': '#ef4444' }
 const PROD_COLORS = ['#14b8a6','#f59e0b','#6366f1','#ec4899','#10b981','#f97316','#8b5cf6','#06b6d4','#84cc16','#e11d48']
@@ -38,6 +65,24 @@ function Barras({ itens }) {
             <div style={{ width: `${(d.valor / max) * 100}%`, height: '100%', background: d.cor || 'var(--teal)', borderRadius: 3, transition: 'width 0.4s' }} />
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-secondary)', width: 64, flexShrink: 0 }}>{fmtR(d.valor)}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Horizontal bar chart — units ─────────────────────────────
+function BarrasQtd({ itens }) {
+  const max = Math.max(...itens.map(i => i.valor), 0.01)
+  return (
+    <div>
+      {itens.map((d, i) => (
+        <div key={i} style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', width: 90, textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.label}>{d.label}</div>
+          <div style={{ flex: 1, height: 14, background: 'var(--border)', borderRadius: 3 }}>
+            <div style={{ width: `${(d.valor / max) * 100}%`, height: '100%', background: d.cor || 'var(--teal)', borderRadius: 3, transition: 'width 0.4s' }} />
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', width: 40, flexShrink: 0 }}>{fmtN(d.valor, 0)} un</div>
         </div>
       ))}
     </div>
@@ -235,7 +280,7 @@ function VendaForm({ produtos, prefill, onSave, onClose }) {
   return (
     <Sheet title="Lançar venda" onClose={onClose}>
       <div className="field-label">Data</div>
-      <input className="field-input" type="date" value={form.data} onChange={e => set('data', e.target.value)} />
+      <DateInput className="field-input" value={form.data} onChange={v => set('data', v)} />
       <div className="field-label">Produto *</div>
       <input className="field-input" list="prod-venda-list" placeholder="Selecione um produto" value={form.produtoNome} onChange={e => handleProdSelect(e.target.value)} />
       <datalist id="prod-venda-list">{(produtos || []).map(p => <option key={p.id} value={p.nome} />)}</datalist>
@@ -434,6 +479,14 @@ export default function Vendas() {
     [statsPerProd]
   )
 
+  const barrasUnidades = useMemo(() =>
+    Object.entries(statsPerProd)
+      .map(([nome, s], i) => ({ label: nome, valor: s.units, cor: PROD_COLORS[i % PROD_COLORS.length] }))
+      .sort((a, b) => b.valor - a.valor)
+      .slice(0, 8),
+    [statsPerProd]
+  )
+
   const barrasPlat = useMemo(() =>
     Object.entries(statsPerPlat).map(([plat, s]) => ({ label: plat, valor: s.revenue, cor: PLAT_COLOR[plat] || 'var(--teal)' })),
     [statsPerPlat]
@@ -599,6 +652,15 @@ export default function Vendas() {
                     <div className="section-label">Receita por produto ({periodo === 'semana' ? 'esta semana' : 'este mês'})</div>
                     <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
                       <Barras itens={barrasProduto} />
+                    </div>
+                  </>
+                )}
+
+                {barrasUnidades.length > 0 && (
+                  <>
+                    <div className="section-label">Unidades vendidas por produto ({periodo === 'semana' ? 'esta semana' : 'este mês'})</div>
+                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
+                      <BarrasQtd itens={barrasUnidades} />
                     </div>
                   </>
                 )}

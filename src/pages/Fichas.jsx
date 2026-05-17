@@ -32,45 +32,19 @@ export default function Fichas() {
       <div className="topbar">
         <div className="topbar-inner">
           <div className="topbar-title">Receitas</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div className="search-wrap mobile-only" style={{ margin: 0, width: 160 }}>
-              <span className="search-icon">&#9906;</span>
-              <input
-                className="search-input"
-                placeholder="Buscar..."
-                value={busca}
-                onChange={e => setBusca(e.target.value)}
-                style={{ fontSize: 13, padding: '7px 10px 7px 32px' }}
-              />
-            </div>
-            <button
-              className="btn-ghost"
-              onClick={() => navigate('/fichas/nova')}
-              style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
-            >
-              +
-            </button>
-          </div>
+          <button
+            className="btn-ghost"
+            onClick={() => navigate('/fichas/nova')}
+            style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}
+          >
+            +
+          </button>
         </div>
       </div>
 
       <div className="page-inner">
-        {/* Desktop search */}
-        <div className="desktop-only" style={{ padding: '16px 0 0' }}>
-          <div className="search-wrap" style={{ marginBottom: 16 }}>
-            <span className="search-icon">&#9906;</span>
-            <input
-              className="search-input"
-              placeholder="Buscar receita..."
-              value={busca}
-              onChange={e => setBusca(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* Mobile search */}
-        <div className="mobile-only" style={{ padding: '16px 16px 0' }}>
-          <div className="search-wrap">
+        <div style={{ padding: '12px 0 4px' }}>
+          <div className="search-wrap" style={{ marginBottom: 8 }}>
             <span className="search-icon">&#9906;</span>
             <input
               className="search-input"

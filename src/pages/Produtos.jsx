@@ -333,15 +333,19 @@ function subtext(prod) {
 }
 
 export default function Produtos() {
-  const [sheet, setSheet] = useState(null)
-  const { toast, show }   = useToast()
-  const cfg               = getConfig()
+  const [sheet, setSheet]     = useState(null)
+  const [filtroTipo, setFiltroTipo] = useState('Todos')
+  const { toast, show }       = useToast()
+  const cfg                   = getConfig()
 
   const { data: produtos,   loading: lProd, reload: rProd } = useData(getProdutos)
   const { data: receitas,   loading: lRec  } = useData(getReceitas)
   const { data: embalagens, loading: lEmb  } = useData(getEmbalagens)
 
   const loading = lProd || lRec || lEmb
+
+  const TIPO_MAP = { Todos: null, Produzido: 'produto', Avulso: 'avulso', Combo: 'combo' }
+  const produtosFiltrados = (produtos || []).filter(p => !TIPO_MAP[filtroTipo] || p.tipo === TIPO_MAP[filtroTipo])
 
   const handleSave = async (prod, recItems, embItems) => {
     await saveProduto(prod, recItems, embItems)
@@ -370,7 +374,17 @@ export default function Produtos() {
         </div>
       </div>
 
-      <div className="page-inner" style={{ paddingTop: 16 }}>
+      <div className="page-inner" style={{ paddingTop: 12 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+          {Object.keys(TIPO_MAP).map(t => (
+            <button key={t} onClick={() => setFiltroTipo(t)} style={{
+              fontSize: 12, padding: '4px 12px', borderRadius: 20,
+              border: '1px solid var(--border-color)',
+              background: filtroTipo === t ? 'var(--teal)' : 'transparent',
+              color: filtroTipo === t ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
+            }}>{t}</button>
+          ))}
+        </div>
         {loading ? <div className="loading">Carregando...</div> : (
           <>
             {/* Desktop */}
@@ -388,7 +402,7 @@ export default function Produtos() {
                         <th style={{ color: PLAT_COLOR.iFood }}>iFood</th>
                       </tr></thead>
                       <tbody>
-                        {(produtos || []).map(prod => {
+                        {produtosFiltrados.map(prod => {
                           const p = calcPrecos(prod.custoTotal, cfg)
                           return (
                             <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })}>
@@ -420,7 +434,7 @@ export default function Produtos() {
                 </div>
               ) : (
                 <div className="card card-flush" style={{ padding: '0 14px' }}>
-                  {(produtos || []).map(prod => (
+                  {produtosFiltrados.map(prod => (
                     <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div className="list-item-name">

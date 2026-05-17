@@ -97,7 +97,7 @@ function ListaCompras({ contagem, itens }) {
   )
 }
 
-function StockTab({ itens, contagem, onChange, minValues, onChangeMin }) {
+function StockTab({ itens, contagem, onChange, minValues, onChangeMin, labelPedir = 'pedir' }) {
   const grupos = groupBy(itens, 'categoria')
   return (
     <>
@@ -139,7 +139,7 @@ function StockTab({ itens, contagem, onChange, minValues, onChangeMin }) {
                       placeholder="—"
                       onChange={e => onChange(item.id, e.target.value)}
                     />
-                    {falta !== null && falta > 0 && <div className="pedir-txt">pedir {falta} {item.unidade}</div>}
+                    {falta !== null && falta > 0 && <div className="pedir-txt">{labelPedir} {falta} {item.unidade}</div>}
                     {falta !== null && falta === 0 && <div className="ok-txt">ok</div>}
                   </div>
                 </div>
@@ -247,7 +247,7 @@ export default function Contagem() {
             <ListaCompras contagem={contagemEmb} itens={embalagens || []} />
           </>
         ) : (
-          <StockTab itens={produtosParaContagem} contagem={contagemProd} onChange={setProd} minValues={minProd} onChangeMin={setMinP} />
+          <StockTab itens={produtosParaContagem} contagem={contagemProd} onChange={setProd} minValues={minProd} onChangeMin={setMinP} labelPedir="produzir" />
         )}
       </div>
 

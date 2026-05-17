@@ -64,6 +64,10 @@ input, select, textarea { font-family: var(--font); }
   padding-bottom: 72px;
 }
 
+.page-inner {
+  padding: 0 12px;
+}
+
 /* ── Top bar ────────────────────────────── */
 .topbar {
   padding: 14px 16px 12px;
