@@ -396,9 +396,10 @@ function LancamentoRapido({ produtos, onSave, onClose }) {
 
 // ── Main ─────────────────────────────────────────────────────
 export default function Vendas() {
-  const [periodo, setPeriodo] = useState('mes')
-  const [tab, setTab]         = useState('performance')
-  const [sheet, setSheet]     = useState(null)
+  const [periodo, setPeriodo]           = useState('mes')
+  const [tab, setTab]                   = useState('performance')
+  const [sheet, setSheet]               = useState(null)
+  const [filtroHist, setFiltroHist]     = useState(new Set(['Pedidos', '99Food', 'iFood', 'Direta']))
   const { toast, show }       = useToast()
 
   const { data: produtos,   loading: lProd }               = useData(getProdutos)
@@ -848,13 +849,42 @@ export default function Vendas() {
 
         {/* ── HISTÓRICO ────────────────────────────── */}
         {tab === 'historico' && (
-          loading ? <div className="loading">Carregando...</div> :
-          historicoGrupos.length === 0 ? <div className="empty"><span>Nenhuma venda registrada</span></div> :
-          historicoGrupos.map(([data, items]) => (
+          loading ? <div className="loading">Carregando...</div> : <>
+          {/* Filter chips */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {['Pedidos', 'iFood', '99Food', 'Direta'].map(f => {
+              const active = filtroHist.has(f)
+              const cor = f === 'iFood' ? '#ef4444' : f === '99Food' ? '#f59e0b' : 'var(--teal)'
+              return (
+                <button key={f} onClick={() => setFiltroHist(prev => {
+                  const next = new Set(prev)
+                  next.has(f) ? next.delete(f) : next.add(f)
+                  return next
+                })} style={{
+                  fontSize: 12, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
+                  border: `1px solid ${active ? cor : 'var(--border)'}`,
+                  background: active ? cor : 'transparent',
+                  color: active ? '#fff' : 'var(--text-secondary)',
+                  fontWeight: active ? 600 : 400,
+                }}>
+                  {f}
+                </button>
+              )
+            })}
+          </div>
+          {historicoGrupos.length === 0
+            ? <div className="empty"><span>Nenhuma venda registrada</span></div>
+            : historicoGrupos.map(([data, items]) => {
+            const filtered = items.filter(item => {
+              if (item._tipo === 'pedido') return filtroHist.has('Pedidos')
+              return filtroHist.has(item.plataforma)
+            })
+            if (filtered.length === 0) return null
+            return (
             <div key={data}>
               <div className="cat-header">{fmtDate(data)}</div>
               <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
-                {items.map(item => {
+                {filtered.map(item => {
                   if (item._tipo === 'pedido') {
                     const canalColor = PLAT_COLOR[CANAL_TO_PLAT[item.canal] || 'Direta'] || 'var(--teal)'
                     const resumo = item.itens.map(i => `${i.produto}${i.quantidade > 1 ? ` ×${i.quantidade}` : ''}`).join(', ')
@@ -900,7 +930,8 @@ export default function Vendas() {
                 })}
               </div>
             </div>
-          ))
+          )})}
+          </>
         )}
       </div>
 
