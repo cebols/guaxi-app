@@ -414,6 +414,7 @@ function fmtR(val) {
 export default function Cadastros() {
   const [tab, setTab] = useState('insumos')
   const [sheet, setSheet] = useState(null)
+  const [busca, setBusca] = useState('')
   const { toast, show } = useToast()
 
   const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
@@ -428,6 +429,27 @@ export default function Cadastros() {
     }
     return map
   }, [todasFontes])
+
+  const insumosFiltrados = useMemo(() => {
+    const q = busca.toLowerCase()
+    if (!q) return insumos || []
+    return (insumos || []).filter(i =>
+      i.nome.toLowerCase().includes(q) ||
+      (i.marca || '').toLowerCase().includes(q) ||
+      (i.categoria || '').toLowerCase().includes(q) ||
+      (i.fornecedor || '').toLowerCase().includes(q)
+    )
+  }, [insumos, busca])
+
+  const embalagensFiltradas = useMemo(() => {
+    const q = busca.toLowerCase()
+    if (!q) return embalagens || []
+    return (embalagens || []).filter(e =>
+      e.nome.toLowerCase().includes(q) ||
+      (e.categoria || '').toLowerCase().includes(q) ||
+      (e.fornecedor || '').toLowerCase().includes(q)
+    )
+  }, [embalagens, busca])
 
   const catsInsumo = useMemo(() =>
     [...new Set((insumos || []).map(i => i.categoria).filter(Boolean))].sort(),
@@ -494,8 +516,25 @@ export default function Cadastros() {
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="tab-bar">
-          <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => setTab('insumos')}>Insumos</button>
-          <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => setTab('embalagens')}>Embalagens</button>
+          <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => { setTab('insumos'); setBusca('') }}>Insumos</button>
+          <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => { setTab('embalagens'); setBusca('') }}>Embalagens</button>
+        </div>
+
+        <div style={{ position: 'relative', marginBottom: 12 }}>
+          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', fontSize: 14, pointerEvents: 'none' }}>🔍</span>
+          <input
+            className="field-input"
+            style={{ paddingLeft: 32, marginBottom: 0 }}
+            placeholder={`Buscar ${tab}...`}
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+          />
+          {busca && (
+            <button
+              onClick={() => setBusca('')}
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
+            >×</button>
+          )}
         </div>
 
         {loading ? (
@@ -505,8 +544,8 @@ export default function Cadastros() {
             {/* Desktop */}
             <div className="desktop-only">
               <div className="card card-flush">
-                {(insumos || []).length === 0
-                  ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum insumo cadastrado</div>
+                {insumosFiltrados.length === 0
+                  ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>{busca ? 'Nenhum resultado' : 'Nenhum insumo cadastrado'}</div>
                   : <table className="dt">
                       <thead><tr>
                         <th>Nome</th><th>Marca</th><th>Categoria</th>
@@ -514,7 +553,7 @@ export default function Cadastros() {
                         <th>Estoque</th><th>Fornecedor</th><th></th>
                       </tr></thead>
                       <tbody>
-                        {(insumos || []).map(ins => {
+                        {insumosFiltrados.map(ins => {
                           const fontes = fontesMap[ins.id] || []
                           const fornecedorLabel = ins.fornecedor || '—'
                           const marcaLabel = ins.marca || '—'
@@ -575,9 +614,9 @@ export default function Cadastros() {
             {/* Mobile */}
             <div className="mobile-only">
               <div className="card card-flush" style={{ padding: '0 14px' }}>
-                {(insumos || []).length === 0
-                  ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum insumo cadastrado</div>
-                  : (insumos || []).map(ins => {
+                {insumosFiltrados.length === 0
+                  ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>{busca ? 'Nenhum resultado' : 'Nenhum insumo cadastrado'}</div>
+                  : insumosFiltrados.map(ins => {
                     const fontes = fontesMap[ins.id] || []
                     const allOpts = [
                       { marca: ins.marca || '', fornecedor: ins.fornecedor || '' },
@@ -636,15 +675,15 @@ export default function Cadastros() {
             {/* Desktop */}
             <div className="desktop-only">
               <div className="card card-flush">
-                {(embalagens || []).length === 0
-                  ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhuma embalagem cadastrada</div>
+                {embalagensFiltradas.length === 0
+                  ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>{busca ? 'Nenhum resultado' : 'Nenhuma embalagem cadastrada'}</div>
                   : <table className="dt">
                       <thead><tr>
                         <th>Nome</th><th>Categoria</th><th>Qtd compra</th>
                         <th>Custo compra</th><th>Custo unit.</th><th>Estoque</th><th>Fornecedor</th><th></th>
                       </tr></thead>
                       <tbody>
-                        {(embalagens || []).map(emb => (
+                        {embalagensFiltradas.map(emb => (
                           <tr key={emb.id} onClick={() => setSheet({ type: 'embalagem', item: emb })}>
                             <td style={{ fontWeight: 600 }}>
                               {emb.linkCompra
@@ -680,9 +719,9 @@ export default function Cadastros() {
             {/* Mobile */}
             <div className="mobile-only">
               <div className="card card-flush" style={{ padding: '0 14px' }}>
-                {(embalagens || []).length === 0
-                  ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhuma embalagem cadastrada</div>
-                  : (embalagens || []).map(emb => (
+                {embalagensFiltradas.length === 0
+                  ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>{busca ? 'Nenhum resultado' : 'Nenhuma embalagem cadastrada'}</div>
+                  : embalagensFiltradas.map(emb => (
                     <div key={emb.id} className="list-item" onClick={() => setSheet({ type: 'embalagem', item: emb })}>
                       <div>
                         <div className="list-item-name">{emb.nome}</div>
