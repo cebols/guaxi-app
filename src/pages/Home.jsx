@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
 import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda, getCompras } from '../services/db'
+import { NovoPedidoSheet } from './Pedidos'
 import { useToast } from '../hooks/useToast'
 import { useNavigate } from 'react-router-dom'
 
@@ -175,7 +176,8 @@ export default function Home() {
   const { signOut, user } = useAuth()
   const navigate = useNavigate()
   const { toast, show } = useToast()
-  const [alertasOpen, setAlertasOpen] = useState(false)
+  const [alertasOpen, setAlertasOpen]   = useState(false)
+  const [novoPedido, setNovoPedido]     = useState(false)
   const { data: encomendas, loading: loadEnc, reload: reloadEnc } = useData(getEncomendas)
   const { data: insumos,    loading: loadIns, reload: reloadIns } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb, reload: reloadEmb } = useData(getEmbalagens)
@@ -243,6 +245,7 @@ export default function Home() {
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button className="btn-ghost" onClick={reloadAll} style={{ fontSize: 18, padding: '4px 10px', border: 'none', color: 'var(--text-secondary)' }} title="Atualizar">↻</button>
+            <button onClick={() => setNovoPedido(true)} style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Pedido</button>
             <button className="avatar mobile-only" onClick={signOut} title="Sair">
               {primeiroNome.charAt(0).toUpperCase()}
             </button>
@@ -282,7 +285,7 @@ export default function Home() {
         ) : proximas.length === 0 ? (
           <div className="empty">
             <span>Nenhuma encomenda ativa</span>
-            <button className="btn-outline-teal" style={{ marginTop: 8, maxWidth: 220 }} onClick={() => navigate('/pedidos')}>
+            <button className="btn-outline-teal" style={{ marginTop: 8, maxWidth: 220 }} onClick={() => setNovoPedido(true)}>
               + Novo pedido
             </button>
           </div>
@@ -341,6 +344,7 @@ export default function Home() {
         )}
       </div>
 
+      {novoPedido && <NovoPedidoSheet onClose={() => setNovoPedido(false)} onSaved={reloadEnc} />}
       {toast && <div className="toast">{toast}</div>}
     </>
   )

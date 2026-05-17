@@ -552,6 +552,168 @@ function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
   )
 }
 
+// ── NovoPedidoSheet — self-contained sheet for use outside Pedidos ──
+export function NovoPedidoSheet({ onClose, onSaved }) {
+  const { toast, show }   = useToast()
+  const { data: produtos } = useData(getProdutos)
+  const { data: clientes } = useData(getClientes)
+
+  const [form, setForm] = useState({
+    cliente: '', contato: '', canal: 'WhatsApp',
+    dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
+  })
+  const [itens, setItens]               = useState([{ produto: '', quantidade: 1, precoUnit: '' }])
+  const [saving, setSaving]             = useState(false)
+  const [salvarCliente, setSalvarCliente] = useState(false)
+
+  const setField   = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const setItem    = (i, k, v) => setItens(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
+  const addItem    = () => setItens(prev => [...prev, { produto: '', quantidade: 1, precoUnit: '' }])
+  const removeItem = (i) => setItens(prev => prev.filter((_, idx) => idx !== i))
+
+  const total = itens.reduce((s, it) => s + (parseFloat(it.precoUnit) || 0) * (parseFloat(it.quantidade) || 1), 0)
+
+  const handleClienteChange = (nome) => {
+    setField('cliente', nome)
+    const existing = (clientes || []).find(c => c.nome.toLowerCase() === nome.toLowerCase())
+    if (existing) {
+      if (existing.telefone && !form.contato) setField('contato', existing.telefone)
+      setSalvarCliente(false)
+    } else {
+      setSalvarCliente(nome.trim().length > 1)
+    }
+  }
+
+  const handleProdutoChange = (i, nome) => {
+    setItem(i, 'produto', nome)
+    const prod = (produtos || []).find(p => p.nome === nome)
+    if (prod) {
+      const preco = prod.precoDireta ?? prod.precoPraticado ?? prod.precoSugerido ?? ''
+      if (preco) setItem(i, 'precoUnit', String(preco))
+    }
+  }
+
+  const handleSave = async () => {
+    if (!form.cliente)     { show('Preencha o nome do cliente'); return }
+    if (!form.dataEntrega) { show('Preencha a data de entrega'); return }
+    if (itens.some(it => !it.produto)) { show('Preencha todos os itens'); return }
+    setSaving(true)
+    try {
+      if (salvarCliente) {
+        const exists = (clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
+        if (!exists) await saveCliente({ nome: form.cliente, telefone: form.contato })
+      }
+      const id = await savePedido(form, itens)
+      show(`Pedido ${id} salvo!`)
+      setTimeout(() => { onSaved?.(); onClose() }, 700)
+    } catch (e) {
+      show('Erro: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const isClienteNovo = form.cliente.trim().length > 1 &&
+    !(clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
+  const wa = waLink(form.contato)
+
+  return (
+    <>
+      <div className="sheet-overlay" onClick={onClose} />
+      <div className="sheet" style={{ maxHeight: '92vh', overflowY: 'auto' }}>
+        <div className="sheet-title">
+          <span>Novo pedido</span>
+          <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
+        </div>
+
+        <div className="field-label">Cliente *</div>
+        <input className="field-input" list="sheet-clientes-list" placeholder="Nome do cliente"
+          value={form.cliente} onChange={e => handleClienteChange(e.target.value)} autoComplete="off" />
+        <datalist id="sheet-clientes-list">
+          {(clientes || []).map(c => <option key={c.id} value={c.nome} />)}
+        </datalist>
+
+        {isClienteNovo && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--teal)', marginTop: -4, marginBottom: 8, cursor: 'pointer' }}>
+            <input type="checkbox" checked={salvarCliente} onChange={e => setSalvarCliente(e.target.checked)} style={{ accentColor: 'var(--teal)', width: 14, height: 14 }} />
+            Salvar {form.cliente} como cliente
+          </label>
+        )}
+
+        <div className="field-label">Telefone</div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+          <input className="field-input" style={{ marginBottom: 0, flex: 1 }} placeholder="+55 11 9 ..."
+            value={form.contato} onChange={e => setField('contato', e.target.value)} />
+          {wa && (
+            <a href={wa} target="_blank" rel="noreferrer" style={{ background: '#14532d', color: '#4ade80', padding: '9px 12px', borderRadius: 8, fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>📲 WA</a>
+          )}
+        </div>
+
+        <div className="field-row">
+          <div>
+            <div className="field-label">Canal</div>
+            <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
+              {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="field-label">Entrega *</div>
+            <DateInput className="field-input" value={form.dataEntrega} onChange={v => setField('dataEntrega', v)} />
+          </div>
+        </div>
+
+        <div className="field-row">
+          <div>
+            <div className="field-label">Pagamento</div>
+            <select className="field-input" value={form.pgto} onChange={e => setField('pgto', e.target.value)}>
+              {PGTO_OPTS.map(p => <option key={p}>{p}</option>)}
+            </select>
+          </div>
+          <div>
+            <div className="field-label">Status</div>
+            <select className="field-input" value={form.status} onChange={e => setField('status', e.target.value)}>
+              {STATUS_OPTS.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="section-label">Itens do pedido</div>
+        <datalist id="sheet-produtos-list">
+          {(produtos || []).map(p => <option key={p.id} value={p.nome} />)}
+        </datalist>
+        <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 6 }}>
+          {itens.map((it, i) => (
+            <div key={i} className="item-row">
+              <input className="item-select" list="sheet-produtos-list" placeholder="Produto ou item personalizado"
+                value={it.produto} onChange={e => handleProdutoChange(i, e.target.value)} autoComplete="off" style={{ fontFamily: 'inherit' }} />
+              <input className="item-qty" type="number" inputMode="decimal" min="1"
+                value={it.quantidade} onChange={e => setItem(i, 'quantidade', e.target.value)} />
+              <input className="item-price" type="number" inputMode="decimal" placeholder="R$"
+                value={it.precoUnit} onChange={e => setItem(i, 'precoUnit', e.target.value)} />
+              {itens.length > 1 && <button className="item-rm" onClick={() => removeItem(i)}>&#215;</button>}
+            </div>
+          ))}
+        </div>
+        <button className="btn-add-item" onClick={addItem}>+ adicionar item</button>
+
+        <div style={{ textAlign: 'right', marginTop: 12 }}>
+          <div className="field-label">Total</div>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>R$ {fmtR(total)}</div>
+        </div>
+
+        <div className="field-label" style={{ marginTop: 12 }}>Observações</div>
+        <textarea className="field-input" rows={3} placeholder="Anotações, endereço, preferências..."
+          value={form.obs} onChange={e => setField('obs', e.target.value)} style={{ resize: 'none' }} />
+
+        <button className="btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? 'Salvando...' : 'Salvar pedido'}
+        </button>
+      </div>
+      {toast && <div className="toast">{toast}</div>}
+    </>
+  )
+}
+
 // ── Production view ───────────────────────────────────────────
 function fmtQty(q, unidade) {
   const n = Number(q)
