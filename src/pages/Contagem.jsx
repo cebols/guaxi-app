@@ -621,7 +621,7 @@ export default function Contagem() {
       {/* Modal Editar Mínimo */}
       {modalMin && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }} onClick={e => { if (e.target === e.currentTarget) setModalMin(null) }}>
-          <div style={{ background: 'var(--bg-primary)', borderRadius: '16px 16px 0 0', width: '100%', maxHeight: '80vh', overflow: 'auto', padding: '20px 20px 32px' }}>
+          <div style={{ background: 'var(--bg-primary)', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 680, margin: '0 auto', maxHeight: '80vh', overflow: 'auto', padding: '20px 20px 32px' }}>
             <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>Editar Estoque Mínimo</div>
             <input
               value={modalMin.busca}
