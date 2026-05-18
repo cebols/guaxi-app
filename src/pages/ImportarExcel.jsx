@@ -169,7 +169,7 @@ function ImportReceitas({ allSheets, onDone }) {
           } else { casados++ }
           ings.push({ insumoId: insumo.id, nome: ing.nome, quantidade: ing.quantidade, unidade: ing.unidade || insumo.unidade || 'g' })
         }
-        const custoTotal = ingredientesFinais.reduce((sum, ing) => {
+        const custoTotal = ings.reduce((sum, ing) => {
           const ins = insumos.find(i => i.id === ing.insumoId)
           return sum + ing.quantidade * (ins?.custoUnit || 0)
         }, 0)
