@@ -609,6 +609,7 @@ export default function Cadastros() {
   const [tab, setTab] = useState('insumos')
   const [sheet, setSheet] = useState(null)
   const [busca, setBusca] = useState('')
+  const [filtroCat, setFiltroCat] = useState('')
   const [importando, setImportando] = useState(false)
   const [bulkDelete, setBulkDelete] = useState(false)
   const [bulkSel, setBulkSel]       = useState([])
@@ -636,24 +637,21 @@ export default function Cadastros() {
 
   const insumosFiltrados = useMemo(() => {
     const q = norm(busca)
-    if (!q) return insumos || []
-    return (insumos || []).filter(i =>
-      norm(i.nome).includes(q) ||
-      norm(i.marca).includes(q) ||
-      norm(i.categoria).includes(q) ||
-      norm(i.fornecedor).includes(q)
-    )
-  }, [insumos, busca])
+    return (insumos || []).filter(i => {
+      if (filtroCat && i.categoria !== filtroCat) return false
+      if (!q) return true
+      return norm(i.nome).includes(q) || norm(i.marca).includes(q) || norm(i.categoria).includes(q) || norm(i.fornecedor).includes(q)
+    })
+  }, [insumos, busca, filtroCat])
 
   const embalagensFiltradas = useMemo(() => {
     const q = norm(busca)
-    if (!q) return embalagens || []
-    return (embalagens || []).filter(e =>
-      norm(e.nome).includes(q) ||
-      norm(e.categoria).includes(q) ||
-      norm(e.fornecedor).includes(q)
-    )
-  }, [embalagens, busca])
+    return (embalagens || []).filter(e => {
+      if (filtroCat && e.categoria !== filtroCat) return false
+      if (!q) return true
+      return norm(e.nome).includes(q) || norm(e.categoria).includes(q) || norm(e.fornecedor).includes(q)
+    })
+  }, [embalagens, busca, filtroCat])
 
   const catsInsumo = useMemo(() =>
     [...new Set((insumos || []).map(i => i.categoria).filter(Boolean))].sort(),
@@ -741,11 +739,11 @@ export default function Cadastros() {
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="tab-bar">
-          <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => { setTab('insumos'); setBusca('') }}>Insumos</button>
-          <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => { setTab('embalagens'); setBusca('') }}>Embalagens</button>
+          <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => { setTab('insumos'); setBusca(''); setFiltroCat('') }}>Insumos</button>
+          <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => { setTab('embalagens'); setBusca(''); setFiltroCat('') }}>Embalagens</button>
         </div>
 
-        <div style={{ position: 'relative', marginBottom: 12 }}>
+        <div style={{ position: 'relative', marginBottom: 8 }}>
           <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', fontSize: 14, pointerEvents: 'none' }}>🔍</span>
           <input
             className="field-input"
@@ -761,6 +759,24 @@ export default function Cadastros() {
             >×</button>
           )}
         </div>
+        {(() => {
+          const cats = tab === 'insumos' ? catsInsumo : catsEmbalagem
+          if (cats.length < 2) return null
+          return (
+            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 12, paddingBottom: 2 }}>
+              {['', ...cats].map(cat => (
+                <button key={cat || '__todos'} onClick={() => setFiltroCat(cat)} style={{
+                  flexShrink: 0, padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                  cursor: 'pointer', border: '1px solid',
+                  borderColor: filtroCat === cat ? 'var(--teal)' : 'var(--border-color)',
+                  background:  filtroCat === cat ? 'var(--teal-light)' : 'transparent',
+                  color:       filtroCat === cat ? 'var(--teal)' : 'var(--text-secondary)',
+                  whiteSpace: 'nowrap',
+                }}>{cat || 'Todos'}</button>
+              ))}
+            </div>
+          )
+        })()}
 
         {loading ? (
           <div className="loading">Carregando...</div>
