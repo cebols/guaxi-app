@@ -216,12 +216,12 @@ function ImportReceitas({ allSheets, onDone }) {
 
     if (pesoSoma > 0 && rendimento > 0 && unidadeGeraParsed !== 'g' && unidadeGeraParsed !== 'ml') {
       const ratio = rendimento / pesoSoma
-      if (ratio >= 0.5) {
-        // rendimento está em g/ml
+      if (ratio >= 0.15) {
+        // rendimento está em g/ml (até 85% de perda é realista para coulis, caldas, etc.)
         finalUnidadeGera = 'g'
         if (ratio < 0.97) fatorPerda = Math.round((1 - ratio) * 100)
       }
-      // ratio < 0.5 → assume unidades (finalUnidadeGera já é 'un')
+      // ratio < 0.15 → rendimento em unidades (ex: "12 un" de 4kg de ingredientes)
     } else if (pesoSoma > 0 && rendimento > 0 && (unidadeGeraParsed === 'g' || unidadeGeraParsed === 'ml')) {
       const ratio = rendimento / pesoSoma
       if (ratio < 0.97) fatorPerda = Math.round((1 - ratio) * 100)
