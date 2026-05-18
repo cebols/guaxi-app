@@ -582,7 +582,7 @@ const TIPO_ORDER = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'P
 export async function getReceitas() {
   const { data, error } = await supabase
     .from('receitas')
-    .select('*, receita_ingredientes(*)')
+    .select('*, receita_ingredientes!receita_ingredientes_receita_id_fkey(*)')
     .order('nome')
   if (error) throw error
   return data
