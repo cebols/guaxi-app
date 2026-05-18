@@ -291,3 +291,17 @@ CREATE TABLE IF NOT EXISTS user_config (
 ALTER TABLE user_config ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "own_data" ON user_config;
 CREATE POLICY "own_data" ON user_config FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+-- ── Insumo cost history (weekly snapshots) ───────────────────
+CREATE TABLE IF NOT EXISTS insumo_cost_history (
+  insumo_id  bigint  not null references insumos(id) on delete cascade,
+  week       date    not null,
+  custo_unit numeric not null default 0,
+  user_id    uuid    default auth.uid() references auth.users(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (user_id, insumo_id, week)
+);
+CREATE INDEX IF NOT EXISTS idx_ich_user_week ON insumo_cost_history (user_id, week DESC);
+ALTER TABLE insumo_cost_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own_data" ON insumo_cost_history;
+CREATE POLICY "own_data" ON insumo_cost_history FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());

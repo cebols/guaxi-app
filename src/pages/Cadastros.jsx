@@ -6,6 +6,7 @@ import {
   getInsumos, saveInsumo, deleteInsumo, deleteInsumos,
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
   getInsumoFornecedores, saveInsumoFornecedores, getAllInsumoFornecedores,
+  getInsumoCostHistory,
 } from '../services/db'
 
 const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
@@ -28,6 +29,37 @@ function Sheet({ title, children, onClose }) {
         {children}
       </div>
     </>
+  )
+}
+
+function CostSparkline({ points, width = 60, height = 18 }) {
+  if (!points || points.length < 2) return null
+  const vals = points.map(p => p.custo)
+  const min = Math.min(...vals)
+  const max = Math.max(...vals)
+  const range = max - min || 1
+  const last  = vals[vals.length - 1]
+  const first = vals[0]
+  const pctChange = first > 0 ? ((last - first) / first) * 100 : 0
+  const color = Math.abs(pctChange) < 1 ? '#94a3b8' : pctChange > 0 ? '#ef4444' : '#4ade80'
+  const W = width, H = height
+  const pad = 2
+  const d = vals.map((v, i) => {
+    const x = pad + (i / (vals.length - 1)) * (W - pad * 2)
+    const y = pad + (1 - (v - min) / range) * (H - pad * 2)
+    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+  return (
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }} title={`${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(1)}% em ${points.length} semanas`}>
+      <svg width={W} height={H} style={{ display: 'block' }}>
+        <path d={d} stroke={color} strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      {Math.abs(pctChange) >= 1 && (
+        <span style={{ fontSize: 10, color, fontWeight: 600 }}>
+          {pctChange > 0 ? '↑' : '↓'}{Math.abs(pctChange).toFixed(0)}%
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -579,6 +611,7 @@ export default function Cadastros() {
   const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
   const { data: embalagens, loading: lEmb, reload: rEmb } = useData(getEmbalagens)
   const { data: todasFontes, reload: rFontes } = useData(getAllInsumoFornecedores)
+  const { data: costHistory, reload: rHist } = useData(() => getInsumoCostHistory(12))
 
   const fontesMap = useMemo(() => {
     const map = {}
@@ -745,7 +778,10 @@ export default function Cadastros() {
                               <td className="muted">{ins.categoria || '—'}</td>
                               <td className="muted">{ins.pesoEmb > 0 ? `${ins.pesoEmb} ${ins.unidade}` : '—'}</td>
                               <td className="muted">{fmtR(ins.custoEmb)}</td>
-                              <td className="teal">{ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : '—'}</td>
+                              <td className="teal">
+                                {ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}` : '—'}
+                                <div style={{ marginTop: 2 }}><CostSparkline points={costHistory?.[ins.id]} /></div>
+                              </td>
                               <td>
                                 {ins.estoqueAtual !== null && ins.estoqueAtual !== undefined
                                   ? <span style={{ color: ins.estoqueAtual < ins.estoqueMin ? 'var(--alert-text)' : 'var(--ok-text)', fontWeight: 600, fontSize: 13 }}>
@@ -835,6 +871,7 @@ export default function Cadastros() {
                           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
                             {ins.custoUnit > 0 ? `R$ ${ins.custoUnit.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/${ins.unidade}` : '—'}
                           </div>
+                          <div style={{ marginTop: 2 }}><CostSparkline points={costHistory?.[ins.id]} /></div>
                           {ins.linkCompra && (
                             <a href={ins.linkCompra} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
                               style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none' }}>Loja</a>

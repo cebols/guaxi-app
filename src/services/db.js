@@ -77,7 +77,41 @@ export async function saveInsumo(insumo) {
     whatsapp: insumo.whatsapp || '',
   }
   const data = await upsert('insumos', row, insumo.id || null, ['link_compra', 'marca'])
+  if (data?.id && custoUnit > 0) {
+    snapshotInsumoCost(data.id, custoUnit).catch(() => {})
+  }
   return data
+}
+
+function weekStart(d = new Date()) {
+  const dt = new Date(d); dt.setHours(0, 0, 0, 0)
+  dt.setDate(dt.getDate() - dt.getDay())
+  return dt.toISOString().slice(0, 10)
+}
+
+export async function snapshotInsumoCost(insumoId, custoUnit) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+  await supabase.from('insumo_cost_history').upsert(
+    { user_id: user.id, insumo_id: insumoId, week: weekStart(), custo_unit: custoUnit },
+    { onConflict: 'user_id,insumo_id,week' }
+  )
+}
+
+export async function getInsumoCostHistory(weeks = 12) {
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - weeks * 7)
+  const { data, error } = await supabase
+    .from('insumo_cost_history')
+    .select('insumo_id, week, custo_unit')
+    .gte('week', cutoff.toISOString().slice(0, 10))
+    .order('week', { ascending: true })
+  if (error) return {}
+  const map = {}
+  for (const r of (data || [])) {
+    if (!map[r.insumo_id]) map[r.insumo_id] = []
+    map[r.insumo_id].push({ week: r.week, custo: parseFloat(r.custo_unit) })
+  }
+  return map
 }
 
 export async function getInsumoFornecedores(insumoId) {
@@ -118,7 +152,9 @@ export async function saveInsumoFornecedores(insumoId, fontes, mainCustoUnit = 0
   const costs = rows.filter(r => r.custo_unit > 0).map(r => r.custo_unit)
   if (mainCustoUnit > 0) costs.push(mainCustoUnit)
   if (costs.length > 0) {
-    await supabase.from('insumos').update({ custo_unit: Math.min(...costs) }).eq('id', insumoId)
+    const cheapest = Math.min(...costs)
+    await supabase.from('insumos').update({ custo_unit: cheapest }).eq('id', insumoId)
+    snapshotInsumoCost(insumoId, cheapest).catch(() => {})
   }
 }
 
