@@ -544,8 +544,10 @@ export default function Cadastros() {
               style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               Excluir
             </button>
-            <button className="btn-ghost" onClick={openNew}
-              style={{ fontSize: 20, padding: '4px 12px', border: 'none', color: 'var(--teal)' }}>+</button>
+            <button onClick={openNew}
+              style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              + Novo
+            </button>
           </div>
         </div>
       </div>
