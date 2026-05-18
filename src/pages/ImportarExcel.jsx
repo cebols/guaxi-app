@@ -8,15 +8,48 @@ function norm(s) {
   return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
 }
 
+function singularize(s) {
+  // remove plurais simples em português
+  return s.replace(/ões$/, 'ao').replace(/ães$/, 'ao').replace(/eis$/, 'el')
+          .replace(/ais$/, 'al').replace(/ois$/, 'ol').replace(/([^aeiou])es$/, '$1')
+          .replace(/s$/, '')
+}
+
+function tokenize(s) {
+  return norm(s).split(/[\s\-_/,]+/).filter(Boolean).map(singularize)
+}
+
 function matchInsumo(nome, insumos) {
   const n = norm(nome)
-  return insumos.find(i => norm(i.nome) === n) ||
-    insumos.find(i => norm(i.nome).includes(n) || n.includes(norm(i.nome)))
+  const tokens = tokenize(nome)
+
+  // 1. exato
+  const exact = insumos.find(i => norm(i.nome) === n)
+  if (exact) return exact
+
+  // 2. contém (inteiro)
+  const contains = insumos.find(i => norm(i.nome).includes(n) || n.includes(norm(i.nome)))
+  if (contains) return contains
+
+  // 3. tokens: todos os tokens do Excel aparecem no nome do insumo
+  const allTokens = insumos.find(i => {
+    const iTokens = tokenize(i.nome)
+    return tokens.length > 0 && tokens.every(t => iTokens.some(it => it.includes(t) || t.includes(it)))
+  })
+  if (allTokens) return allTokens
+
+  // 4. token principal (primeiro token com 3+ chars) aparece no insumo
+  const mainToken = tokens.find(t => t.length >= 3)
+  if (mainToken) {
+    const byMain = insumos.find(i => tokenize(i.nome).some(it => it === mainToken || it.startsWith(mainToken) || mainToken.startsWith(it)))
+    if (byMain) return byMain
+  }
+
+  return null
 }
 
 function parseNum(v) {
   if (v === '' || v == null) return null
-  // remove separador de milhar BR (ponto), normaliza vírgula decimal
   const s = String(v).trim().replace(/\.(?=\d{3})/g, '').replace(',', '.')
   const n = parseFloat(s)
   return isNaN(n) ? null : n
@@ -27,10 +60,24 @@ const L_VARIANTS  = /^(l|lt|lts|litro|litros|litre|litres)s?$/i
 
 function normalizeUnidade(raw) {
   const s = (raw || '').trim()
-  if (KG_VARIANTS.test(s)) return { unidade: 'g',  pesoEmb: 1000 }
-  if (L_VARIANTS.test(s))  return { unidade: 'ml', pesoEmb: 1000 }
+  if (KG_VARIANTS.test(s)) return { unidade: 'g',  fator: 1000 }
+  if (L_VARIANTS.test(s))  return { unidade: 'ml', fator: 1000 }
   const known = UNIDADES.find(u => u.toLowerCase() === s.toLowerCase())
-  return { unidade: known || 'un', pesoEmb: '' }
+  return { unidade: known || 'g', fator: 1 }
+}
+
+// Extrai número + unidade de strings como "500g", "1,5 kg", "12 un"
+function parseRendimento(raw) {
+  const s = String(raw || '').trim()
+  const m = s.match(/^([\d.,]+)\s*([a-zA-Záéíóúãõç]+)?/)
+  if (!m) return { rendimento: null, unidadeGera: 'un' }
+  const num = parseNum(m[1])
+  const rawUnit = (m[2] || '').trim()
+  if (!rawUnit) return { rendimento: num, unidadeGera: 'un' }
+  if (KG_VARIANTS.test(rawUnit)) return { rendimento: (num || 0) * 1000, unidadeGera: 'g' }
+  if (L_VARIANTS.test(rawUnit))  return { rendimento: (num || 0) * 1000, unidadeGera: 'ml' }
+  const known = UNIDADES.find(u => u.toLowerCase() === rawUnit.toLowerCase())
+  return { rendimento: num, unidadeGera: known || 'un' }
 }
 
 function colLetter(i) {
@@ -138,7 +185,8 @@ function ImportReceitas({ allSheets, onDone }) {
       ? name
       : String((rows2d[map.nomeRow] || [])[map.nomeCol] || '').trim() || name
     const rendRaw = String((rows2d[map.rendRow] || [])[map.rendCol] || '')
-    const rendimento = parseNum(rendRaw.match(/[\d,.']+/)?.[0] || '') || 1
+    const { rendimento: rendParsed, unidadeGera: unidadeGeraParsed } = parseRendimento(rendRaw)
+    const rendimento = rendParsed || 1
     const ingredientes = []
     for (let r = map.dataRow; r < rows2d.length; r++) {
       const row = rows2d[r]
@@ -152,7 +200,7 @@ function ImportReceitas({ allSheets, onDone }) {
       const custo = map.colCusto >= 0 ? parseNum(row[map.colCusto]) : null
       ingredientes.push({ nome: ingNome, quantidade: qtd, unidade, custo })
     }
-    return { nome: nomeFinal, rendimento, ingredientes }
+    return { nome: nomeFinal, rendimento, unidadeGera: unidadeGeraParsed, ingredientes }
   }
 
   function buildPreview() {
@@ -173,7 +221,14 @@ function ImportReceitas({ allSheets, onDone }) {
             const novo = await saveInsumo({ nome: ing.nome, unidade: ing.unidade || 'g', marca: '', categoria: '', pesoEmb: '', custoEmb: ing.custo || '', linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '' })
             insumos.push({ ...novo, nome: ing.nome }); insumo = novo; criados++
           } else { casados++ }
-          ings.push({ insumoId: insumo.id, nome: ing.nome, quantidade: ing.quantidade, unidade: ing.unidade || insumo.unidade || 'g' })
+          // usa unidade do insumo cadastrado quando há match (evita conflito un vs g)
+          const unidadeFinal = insumo.unidade || ing.unidade || 'g'
+          // se insumo é 'un' mas Excel trouxe em 'g' e temos pesoUn, converte
+          let qtdFinal = ing.quantidade
+          if (insumo.unidade === 'un' && ing.unidade === 'g' && insumo.pesoUn > 0) {
+            qtdFinal = ing.quantidade / insumo.pesoUn
+          }
+          ings.push({ insumoId: insumo.id, nome: ing.nome, quantidade: qtdFinal, unidade: unidadeFinal })
         }
         const custoTotal = ings.reduce((sum, ing) => {
           const ins = insumos.find(i => i.id === ing.insumoId)
@@ -181,7 +236,7 @@ function ImportReceitas({ allSheets, onDone }) {
         }, 0)
         const rendimento = rec.rendimento || 1
         await saveReceita(
-          { nome: rec.nome, tipo: 'Outro', rendimento, unidadeGera: 'un', custoTotal, custoUnid: custoTotal / rendimento },
+          { nome: rec.nome, tipo: 'Outro', rendimento, unidadeGera: rec.unidadeGera || 'un', custoTotal, custoUnid: custoTotal / rendimento },
           ings
         )
         receitasCriadas++
@@ -199,7 +254,7 @@ function ImportReceitas({ allSheets, onDone }) {
         {parsed.map((rec, ri) => (
           <div key={ri} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
             <div style={{ fontWeight: 700, marginBottom: 2 }}>{rec.nome}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>rendimento: {rec.rendimento}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>rendimento: {rec.rendimento} {rec.unidadeGera}</div>
             {rec.ingredientes.map((ing, ii) => (
               <div key={ii} style={{ fontSize: 12, padding: '2px 0' }}>
                 • {ing.quantidade} {ing.unidade} — {ing.nome}
