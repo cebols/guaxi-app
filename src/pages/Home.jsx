@@ -69,12 +69,20 @@ function SparklineEdge({ data, color, height = 40 }) {
   const max = Math.max(...data)
   const range = max - min || 1
   const W = 100; const H = 100
+  // Keep amplitude in lower 55% of height so line doesn't eat the card
+  const floor = H * 0.38; const ceiling = H * 0.06
   const pts = data.map((v, i) => {
     const x = (i / (data.length - 1)) * W
-    const y = H - ((v - min) / range) * (H * 0.8) - H * 0.1
+    const y = floor + ceiling - ((v - min) / range) * (floor - ceiling)
     return [x, y]
   })
-  const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x},${y}`).join(' ')
+  // Smooth bezier: control points at midpoint x between each pair
+  const line = pts.map(([x, y], i) => {
+    if (i === 0) return `M${x},${y}`
+    const [px, py] = pts[i - 1]
+    const cx = (px + x) / 2
+    return `C${cx},${py} ${cx},${y} ${x},${y}`
+  }).join(' ')
   const area = `${line} L${W},${H} L0,${H} Z`
   return (
     <svg
@@ -83,8 +91,8 @@ function SparklineEdge({ data, color, height = 40 }) {
       preserveAspectRatio="none"
       style={{ display: 'block' }}
     >
-      <path d={area} fill={color} fillOpacity="0.15" />
-      <path d={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+      <path d={area} fill={color} fillOpacity="0.18" />
+      <path d={line} fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   )
 }
@@ -104,27 +112,28 @@ function InlineDiff({ pct, positive = true }) {
 function MetricCard({ label, value, valueColor, diff, diffPositive = true, sparkData, sparkColor, subValue }) {
   return (
     <div style={{
-      background: 'var(--bg-secondary)',
-      borderRadius: 'var(--radius-sm)',
+      background: 'var(--bg-card)',
+      border: '1px solid #2a2a2a',
+      borderRadius: 12,
       overflow: 'hidden',
       display: 'flex',
       flexDirection: 'column',
     }}>
-      <div style={{ padding: '12px 14px 10px', flex: 1 }}>
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 6 }}>
+      <div style={{ padding: '14px 14px 8px', flex: 1 }}>
+        <div style={{ fontSize: 10, color: 'var(--text-secondary)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 }}>
           {label}
         </div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: valueColor || 'var(--text-primary)', lineHeight: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 24, fontWeight: 700, color: valueColor || 'var(--text-primary)', lineHeight: 1 }}>
             {value}
           </div>
           {subValue && (
-            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{subValue}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{subValue}</span>
           )}
           {diff !== undefined && <InlineDiff pct={diff} positive={diffPositive} />}
         </div>
       </div>
-      <SparklineEdge data={sparkData} color={sparkColor} height={44} />
+      <SparklineEdge data={sparkData} color={sparkColor} height={52} />
     </div>
   )
 }
