@@ -1,18 +1,19 @@
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { useAuth } from './contexts/AuthContext'
 import { initConfig, syncConfigFromSupabase } from './hooks/useConfig'
 import Login from './pages/Login'
-import Home from './pages/Home'
-import Pedidos from './pages/Pedidos'
-import Contagem from './pages/Contagem'
-import Fichas from './pages/Fichas'
-import Cozinha from './pages/Cozinha'
-import ReceitaForm from './pages/ReceitaForm'
-import Cadastros from './pages/Cadastros'
-import Configuracoes from './pages/Configuracoes'
-import Produtos from './pages/Produtos'
-import Vendas from './pages/Vendas'
+
+const Home         = lazy(() => import('./pages/Home'))
+const Pedidos      = lazy(() => import('./pages/Pedidos'))
+const Contagem     = lazy(() => import('./pages/Contagem'))
+const Fichas       = lazy(() => import('./pages/Fichas'))
+const Cozinha      = lazy(() => import('./pages/Cozinha'))
+const ReceitaForm  = lazy(() => import('./pages/ReceitaForm'))
+const Cadastros    = lazy(() => import('./pages/Cadastros'))
+const Configuracoes = lazy(() => import('./pages/Configuracoes'))
+const Produtos     = lazy(() => import('./pages/Produtos'))
+const Vendas       = lazy(() => import('./pages/Vendas'))
 
 const NAV = [
   { path: '/',              label: 'Home',      icon: HomeIcon },
@@ -98,20 +99,22 @@ export default function App() {
       <Sidebar />
 
       <div className="main-content">
-        <Routes>
-          <Route path="/"                    element={<Home />} />
-          <Route path="/pedidos"             element={<Pedidos />} />
-          <Route path="/contagem"            element={<Contagem />} />
-          <Route path="/fichas"              element={<Fichas />} />
-          <Route path="/fichas/nova"         element={<ReceitaForm />} />
-          <Route path="/fichas/:id"          element={<Cozinha />} />
-          <Route path="/fichas/:id/editar"   element={<ReceitaForm />} />
-          <Route path="/cadastros"           element={<Cadastros />} />
-          <Route path="/produtos"            element={<Produtos />} />
-          <Route path="/vendas"              element={<Vendas />} />
-          <Route path="/configuracoes"       element={<Configuracoes />} />
-          <Route path="*"                    element={<Navigate to="/" />} />
-        </Routes>
+        <Suspense fallback={<div className="loading">Carregando...</div>}>
+          <Routes>
+            <Route path="/"                    element={<Home />} />
+            <Route path="/pedidos"             element={<Pedidos />} />
+            <Route path="/contagem"            element={<Contagem />} />
+            <Route path="/fichas"              element={<Fichas />} />
+            <Route path="/fichas/nova"         element={<ReceitaForm />} />
+            <Route path="/fichas/:id"          element={<Cozinha />} />
+            <Route path="/fichas/:id/editar"   element={<ReceitaForm />} />
+            <Route path="/cadastros"           element={<Cadastros />} />
+            <Route path="/produtos"            element={<Produtos />} />
+            <Route path="/vendas"              element={<Vendas />} />
+            <Route path="/configuracoes"       element={<Configuracoes />} />
+            <Route path="*"                    element={<Navigate to="/" />} />
+          </Routes>
+        </Suspense>
       </div>
 
       {!isReceitaForm && (
