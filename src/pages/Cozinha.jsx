@@ -124,7 +124,7 @@ export default function Cozinha() {
                       textAlign: 'center',
                       color: 'var(--text-primary)',
                       padding: '4px 8px',
-                      width: `${Math.max(4, String(Math.round(pesoBase * fator)).length + 1)}ch`,
+                      minWidth: `${Math.max(64, String(Math.round(pesoBase * fator)).length * 14 + 16)}px`,
                     }}
                   />
                   <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>g</span>

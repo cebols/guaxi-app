@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
-import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda, getCompras } from '../services/db'
+import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda, getCompras, getVendas } from '../services/db'
 import { NovoPedidoSheet } from './Pedidos'
 import { useToast } from '../hooks/useToast'
 import { useNavigate } from 'react-router-dom'
@@ -43,6 +43,65 @@ function isUpcoming(val) {
   return d >= today
 }
 
+// ── Sparkline helpers ─────────────────────────────────────────
+
+function dailyValues(rows, getDate, getValue, days = 7) {
+  const today = new Date()
+  return Array.from({ length: days }, (_, i) => {
+    const d = new Date(today)
+    d.setDate(today.getDate() - (days - 1 - i))
+    const dateStr = d.toISOString().slice(0, 10)
+    return (rows || []).filter(r => getDate(r) === dateStr).reduce((s, r) => s + getValue(r), 0)
+  })
+}
+
+function pctDiff(curr, prev) {
+  const sc = curr.reduce((a, b) => a + b, 0)
+  const sp = prev.reduce((a, b) => a + b, 0)
+  if (sp === 0) return null
+  return Math.round(((sc - sp) / sp) * 100)
+}
+
+function Sparkline({ data, color = 'var(--teal)', width = 72, height = 28 }) {
+  if (!data || data.length < 2) return null
+  const min = Math.min(...data)
+  const max = Math.max(...data)
+  const range = max - min || 1
+  const pad = 2
+  const pts = data.map((v, i) => {
+    const x = pad + (i / (data.length - 1)) * (width - pad * 2)
+    const y = pad + (1 - (v - min) / range) * (height - pad * 2)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+  const areaPath = `M${pts[0]} ${pts.slice(1).map(p => 'L' + p).join(' ')} L${(width - pad)},${height} L${pad},${height} Z`
+  return (
+    <svg width={width} height={height} style={{ display: 'block', flexShrink: 0 }}>
+      <path d={areaPath} fill={color} fillOpacity="0.12" />
+      <polyline points={pts.join(' ')} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function DiffBadge({ pct }) {
+  if (pct === null || pct === undefined) return null
+  const up = pct >= 0
+  return (
+    <span style={{
+      fontSize: 11,
+      fontWeight: 600,
+      color: up ? '#4ade80' : 'var(--alert-text)',
+      background: up ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)',
+      borderRadius: 5,
+      padding: '2px 6px',
+      letterSpacing: 0.2,
+    }}>
+      {up ? '↑' : '↓'}{Math.abs(pct)}%
+    </span>
+  )
+}
+
+// ── Sub-components ────────────────────────────────────────────
+
 function StatusSelect({ value, options, badgeMap, onChange }) {
   const [open, setOpen] = useState(false)
   return (
@@ -81,7 +140,6 @@ function StatusSelect({ value, options, badgeMap, onChange }) {
   )
 }
 
-// 0=crítico (≤50% do mínimo), 1=atenção (50–100%), 2=ok (≥100%)
 function nivelEstoque(atual, min) {
   if (atual === null || atual === undefined || !min || min <= 0) return 2
   const ratio = atual / min
@@ -109,7 +167,6 @@ function AlertaItem({ item }) {
             Atual: {item.estoqueAtual ?? '—'} · Mín: {item.estoqueMin} {item.unidade}
             {item.fornecedor ? ` · ${item.fornecedor}` : ''}
           </div>
-          {/* Progress bar */}
           <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, marginTop: 6, maxWidth: 160 }}>
             <div style={{ height: '100%', width: `${pct}%`, background: cor, borderRadius: 2, transition: 'width 0.3s' }} />
           </div>
@@ -183,9 +240,7 @@ export default function Home() {
   const { data: embalagens, loading: loadEmb, reload: reloadEmb } = useData(getEmbalagens)
   const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
   const { data: compras } = useData(getCompras)
-
-  const mesAtual = new Date().toISOString().slice(0, 7)
-  const comprasMes = (compras || []).filter(c => c.data?.startsWith(mesAtual)).reduce((s, c) => s + (c.total || 0), 0)
+  const { data: vendas }  = useData(getVendas)
 
   const reloadAll = () => { reloadEnc(); reloadIns(); reloadEmb(); reloadProd() }
 
@@ -220,6 +275,17 @@ export default function Home() {
   const totalAlertas = alertasInsumos.length + alertasEmb.length + alertasProd.length
   const criticos = [...alertasInsumos, ...alertasEmb, ...alertasProd].filter(i => nivelEstoque(i.estoqueAtual, i.estoqueMin) === 0)
 
+  // ── Sparkline data ──────────────────────────────────────────
+  const vendas7  = dailyValues(vendas, r => r.data, r => (r.quantidade || 0) * (r.precoUnit || 0), 7)
+  const vendas7p = dailyValues(vendas, r => r.data, r => (r.quantidade || 0) * (r.precoUnit || 0), 14).slice(0, 7)
+  const vendasTotal = vendas7.reduce((a, b) => a + b, 0)
+  const vendasDiff  = pctDiff(vendas7, vendas7p)
+
+  const compras7  = dailyValues(compras, r => r.data, r => r.total || 0, 7)
+  const compras7p = dailyValues(compras, r => r.data, r => r.total || 0, 14).slice(0, 7)
+  const comprasDiff = pctDiff(compras7, compras7p)
+  const comprasTotal = compras7.reduce((a, b) => a + b, 0)
+
   const handleUpdateStatus = async (enc, novoStatus, novoPgto) => {
     try {
       await updateStatusEncomenda(enc.id, novoStatus, novoPgto)
@@ -234,6 +300,8 @@ export default function Home() {
   const diaSemana = hoje.toLocaleDateString('pt-BR', { weekday: 'long' })
   const dataStr = hoje.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
   const primeiroNome = user?.email?.split('@')[0] || 'Felipe'
+
+  const fmtR = (v) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 
   return (
     <>
@@ -254,6 +322,46 @@ export default function Home() {
       </div>
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
+
+        {/* Sparkline cards row */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+          {/* Faturamento 7d */}
+          <div className="metric-card" style={{ gridColumn: vendas === null ? '1' : '1' }}>
+            <div className="metric-label">Faturamento 7d</div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
+              <div>
+                <div className="metric-value" style={{ fontSize: 18, lineHeight: 1 }}>
+                  {vendas === null ? '—' : fmtR(vendasTotal)}
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <DiffBadge pct={vendasDiff} />
+                  {vendasDiff === null && vendas !== null && vendasTotal === 0 && (
+                    <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>sem vendas</span>
+                  )}
+                </div>
+              </div>
+              <Sparkline data={vendas7} />
+            </div>
+          </div>
+
+          {/* Compras 7d */}
+          <div className="metric-card">
+            <div className="metric-label">Compras 7d</div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
+              <div>
+                <div className="metric-value" style={{ fontSize: 18, lineHeight: 1, color: comprasTotal > 0 ? 'var(--alert-text)' : 'var(--text-primary)' }}>
+                  {compras === null ? '—' : fmtR(comprasTotal)}
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <DiffBadge pct={comprasDiff !== null ? -comprasDiff : null} />
+                </div>
+              </div>
+              <Sparkline data={compras7} color="var(--alert-text)" />
+            </div>
+          </div>
+        </div>
+
+        {/* Small metric cards */}
         <div className="metric-grid" style={{ marginBottom: 16 }}>
           <div className="metric-card">
             <div className="metric-label">Pedidos ativos</div>
@@ -262,7 +370,7 @@ export default function Home() {
           <div className="metric-card">
             <div className="metric-label">A receber</div>
             <div className="metric-value" style={{ fontSize: 15 }}>
-              {loadEnc ? '—' : `R$ ${aReceber.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`}
+              {loadEnc ? '—' : fmtR(aReceber)}
             </div>
           </div>
           <div className="metric-card">
@@ -272,9 +380,9 @@ export default function Home() {
             </div>
           </div>
           <div className="metric-card">
-            <div className="metric-label">Compras mês</div>
-            <div className="metric-value" style={{ fontSize: 14, color: comprasMes > 0 ? 'var(--alert-text)' : 'var(--text-primary)' }}>
-              {compras === null ? '—' : comprasMes > 0 ? `R$ ${comprasMes.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}` : 'R$ 0'}
+            <div className="metric-label">Alertas estoque</div>
+            <div className="metric-value" style={{ color: totalAlertas > 0 ? 'var(--warn-text)' : 'var(--text-primary)' }}>
+              {totalAlertas > 0 ? totalAlertas : '—'}
             </div>
           </div>
         </div>
