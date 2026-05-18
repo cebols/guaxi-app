@@ -80,11 +80,11 @@ function StepBuilder({ steps, onChange }) {
             {/* Description */}
             <textarea
               className="field-input"
-              rows={2}
+              rows={4}
               placeholder="Descreva esta etapa..."
               value={step.descricao}
               onChange={e => update(i, { descricao: e.target.value })}
-              style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, border: 'none', borderRadius: 0, margin: 0 }}
+              style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, border: 'none', borderRadius: 0, margin: 0, minHeight: 96 }}
             />
           </div>
         )
