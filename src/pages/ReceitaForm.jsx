@@ -38,29 +38,49 @@ function serializeInstrucoes(steps) {
   return valid.length > 0 ? JSON.stringify(valid) : null
 }
 
-function StepBuilder({ steps, onChange }) {
-  const [openPicker, setOpenPicker] = useState(null)
+// picker: 'tipo' | 'ings' | null
+function StepBuilder({ steps, onChange, ingredientes = [] }) {
+  const [openPicker, setOpenPicker] = useState(null) // { idx, mode: 'tipo'|'ings' }
 
   const update = (i, patch) => onChange(steps.map((s, idx) => idx === i ? { ...s, ...patch } : s))
   const remove  = (i) => { onChange(steps.filter((_, idx) => idx !== i)); setOpenPicker(null) }
-  const add     = () => onChange([...steps, { tipo: 'misturar', descricao: '' }])
+  const add     = () => onChange([...steps, { tipo: 'misturar', descricao: '', insumos: [] }])
+
+  // set of ingredient indices claimed by steps before i
+  const claimedBefore = (i) => new Set(
+    steps.slice(0, i).flatMap(s => s.insumos || [])
+  )
+
+  const toggleIng = (stepIdx, ingIdx) => {
+    const cur = steps[stepIdx].insumos || []
+    const next = cur.includes(ingIdx) ? cur.filter(x => x !== ingIdx) : [...cur, ingIdx]
+    update(stepIdx, { insumos: next })
+  }
+
+  const validIngs = ingredientes.filter(ing => ing.nome?.trim())
+
+  const isOpen = (i, mode) => openPicker?.idx === i && openPicker?.mode === mode
+  const toggle = (i, mode) => setOpenPicker(isOpen(i, mode) ? null : { idx: i, mode })
 
   return (
     <div className="card card-flush">
       {steps.map((step, i) => {
         const acao = ACAO_MAP[step.tipo] || ACAO_MAP.misturar
+        const stepIngs = step.insumos || []
+        const claimed = claimedBefore(i)
+        const available = validIngs.filter((_, idx) => !claimed.has(idx) || stepIngs.includes(idx))
+
         return (
           <div key={i}>
+            {/* Main row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border-color)' }}>
-              <button
-                onClick={() => setOpenPicker(openPicker === i ? null : i)}
-                style={{
-                  flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '4px 8px', borderRadius: 6,
-                  border: '1px solid var(--teal)', background: 'var(--teal-light)',
-                  color: 'var(--teal)', fontSize: 11, fontWeight: 700,
-                  cursor: 'pointer', letterSpacing: 0.5, whiteSpace: 'nowrap',
-                }}>
+              <button onClick={() => toggle(i, 'tipo')} style={{
+                flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
+                padding: '4px 8px', borderRadius: 6,
+                border: '1px solid var(--teal)', background: 'var(--teal-light)',
+                color: 'var(--teal)', fontSize: 11, fontWeight: 700,
+                cursor: 'pointer', letterSpacing: 0.5, whiteSpace: 'nowrap',
+              }}>
                 {acao.icon} {acao.label.toUpperCase()}
               </button>
               <input
@@ -68,14 +88,23 @@ function StepBuilder({ steps, onChange }) {
                 value={step.descricao}
                 onChange={e => update(i, { descricao: e.target.value })}
                 placeholder="Descreva esta etapa..."
-                style={{
-                  flex: 1, background: 'none', border: 'none', outline: 'none',
-                  color: 'var(--text-primary)', fontSize: 15, fontFamily: 'inherit', minWidth: 0,
-                }}
+                style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: 'var(--text-primary)', fontSize: 15, fontFamily: 'inherit', minWidth: 0 }}
               />
+              {validIngs.length > 0 && (
+                <button onClick={() => toggle(i, 'ings')} style={{
+                  flexShrink: 0, background: 'none', border: 'none',
+                  color: stepIngs.length > 0 ? 'var(--teal)' : '#555',
+                  fontSize: 14, cursor: 'pointer', padding: '0 2px', lineHeight: 1,
+                  fontWeight: stepIngs.length > 0 ? 700 : 400,
+                }}>
+                  🥄{stepIngs.length > 0 ? stepIngs.length : ''}
+                </button>
+              )}
               <button onClick={() => remove(i)} style={{ flexShrink: 0, background: 'none', border: 'none', color: '#555', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: '0 2px' }}>×</button>
             </div>
-            {openPicker === i && (
+
+            {/* Tipo picker */}
+            {isOpen(i, 'tipo') && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }}>
                 {ACOES.map(a => (
                   <button key={a.tipo} onClick={() => { update(i, { tipo: a.tipo }); setOpenPicker(null) }} style={{
@@ -86,6 +115,30 @@ function StepBuilder({ steps, onChange }) {
                     fontWeight: a.tipo === step.tipo ? 700 : 400,
                   }}>{a.icon} {a.label}</button>
                 ))}
+              </div>
+            )}
+
+            {/* Ingredient picker */}
+            {isOpen(i, 'ings') && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }}>
+                {available.length === 0
+                  ? <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Todos os insumos já foram usados</span>
+                  : available.map((ing, _) => {
+                      const idx = validIngs.indexOf(ing)
+                      const sel = stepIngs.includes(idx)
+                      return (
+                        <button key={idx} onClick={() => toggleIng(i, idx)} style={{
+                          padding: '5px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+                          border: '1px solid var(--border-color)',
+                          background: sel ? 'var(--teal)' : 'transparent',
+                          color: sel ? '#fff' : 'var(--text-secondary)',
+                          fontWeight: sel ? 700 : 400,
+                        }}>
+                          {ing.nome} <span style={{ opacity: 0.7 }}>{ing.quantidade} {ing.unidade}</span>
+                        </button>
+                      )
+                    })
+                }
               </div>
             )}
           </div>
@@ -460,7 +513,7 @@ export default function ReceitaForm() {
         </div>
 
         <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>
-        <StepBuilder steps={steps} onChange={setSteps} />
+        <StepBuilder steps={steps} onChange={setSteps} ingredientes={ingredientes} />
 
         <button className="btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Salvando...' : isEdit ? 'Atualizar receita' : 'Criar receita'}

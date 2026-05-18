@@ -324,6 +324,23 @@ export default function Cozinha() {
                               }}>
                                 {step.descricao}
                               </div>
+                              {step.insumos?.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                                  {step.insumos.map(idx => {
+                                    const ing = receita.ingredientes?.[idx]
+                                    if (!ing) return null
+                                    return (
+                                      <span key={idx} style={{
+                                        fontSize: 11, padding: '2px 7px', borderRadius: 4,
+                                        background: 'var(--bg-secondary)', color: 'var(--text-secondary)',
+                                        border: '1px solid var(--border-color)',
+                                      }}>
+                                        {ing.nome} {ing.quantidade} {ing.unidade}
+                                      </span>
+                                    )
+                                  })}
+                                </div>
+                              )}
                             </div>
                           </div>
                         )
