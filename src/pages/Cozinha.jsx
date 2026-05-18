@@ -3,6 +3,29 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { getReceitas } from '../services/db'
 
+const ACAO_MAP = {
+  misturar:   { icon: '🥣', label: 'Misturar' },
+  bater:      { icon: '⚡', label: 'Bater' },
+  incorporar: { icon: '🫙', label: 'Incorporar' },
+  ferver:     { icon: '🔥', label: 'Ferver' },
+  aquecer:    { icon: '🌡️', label: 'Aquecer' },
+  assar:      { icon: '🍳', label: 'Assar' },
+  resfriar:   { icon: '❄️', label: 'Resfriar' },
+  congelar:   { icon: '🧊', label: 'Congelar' },
+  descansar:  { icon: '⏱️', label: 'Descansar' },
+  cortar:     { icon: '🔪', label: 'Cortar' },
+  nota:       { icon: '📝', label: 'Nota' },
+}
+
+function parseInstrucoes(raw) {
+  if (!raw) return null
+  try {
+    const p = JSON.parse(raw)
+    if (Array.isArray(p)) return p
+  } catch {}
+  return raw // plain text fallback
+}
+
 function fmtQty(n, unidade) {
   const rounded = Math.round(n * 10) / 10
   return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded} ${unidade}`
@@ -19,6 +42,7 @@ export default function Cozinha() {
   const [fator, setFator] = useState(1)
   const [pesoInput, setPesoInput] = useState('')
   const [checked, setChecked] = useState({})
+  const [checkedStep, setCheckedStep] = useState({})
   const [modoSimples, setModoSimples] = useState(false)
 
   const pesoBase = ingredientes.reduce((s, i) => {
@@ -44,6 +68,10 @@ export default function Cozinha() {
 
   const toggleChecked = (i) => {
     setChecked(prev => ({ ...prev, [i]: !prev[i] }))
+    if (navigator.vibrate) navigator.vibrate(30)
+  }
+  const toggleStep = (i) => {
+    setCheckedStep(prev => ({ ...prev, [i]: !prev[i] }))
     if (navigator.vibrate) navigator.vibrate(30)
   }
 
@@ -251,14 +279,67 @@ export default function Cozinha() {
               </div>
             )}
 
-            {!modoSimples && receita.instrucoes && (
-              <>
-                <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>
-                <div className="card" style={{ padding: '12px 14px', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
-                  {receita.instrucoes}
-                </div>
-              </>
-            )}
+            {!modoSimples && receita.instrucoes && (() => {
+              const parsed = parseInstrucoes(receita.instrucoes)
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const doneCount = Object.values(checkedStep).filter(Boolean).length
+                return (
+                  <>
+                    <div style={{ fontSize: 11, letterSpacing: 2, color: 'var(--text-secondary)', textTransform: 'uppercase', marginTop: 20, marginBottom: 8 }}>
+                      Preparo · {doneCount} de {parsed.length} etapas
+                    </div>
+                    <div className="card card-flush">
+                      {parsed.map((step, i) => {
+                        const acao = ACAO_MAP[step.tipo] || ACAO_MAP.nota
+                        const done = !!checkedStep[i]
+                        return (
+                          <div key={i} onClick={() => toggleStep(i)} style={{
+                            display: 'flex', alignItems: 'flex-start', gap: 16,
+                            padding: '16px 14px',
+                            borderBottom: i < parsed.length - 1 ? '1px solid var(--border)' : 'none',
+                            cursor: 'pointer', opacity: done ? 0.4 : 1, transition: 'opacity 0.15s',
+                            userSelect: 'none', WebkitTapHighlightColor: 'transparent',
+                          }}>
+                            <div style={{
+                              width: 32, height: 32, borderRadius: '50%', flexShrink: 0, marginTop: 2,
+                              border: `2.5px solid ${done ? 'var(--teal)' : 'var(--border)'}`,
+                              background: done ? 'var(--teal)' : 'none',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s',
+                            }}>
+                              {done
+                                ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                                : <span style={{ fontSize: 16 }}>{acao.icon}</span>
+                              }
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1, color: 'var(--teal)', textTransform: 'uppercase', marginBottom: 4 }}>
+                                {acao.label}
+                              </div>
+                              <div style={{
+                                fontSize: 16, lineHeight: 1.5,
+                                color: done ? 'var(--text-secondary)' : 'var(--text-primary)',
+                                textDecoration: done ? 'line-through' : 'none',
+                              }}>
+                                {step.descricao}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                )
+              }
+              // plain text fallback
+              return (
+                <>
+                  <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>
+                  <div className="card" style={{ padding: '12px 14px', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+                    {parsed}
+                  </div>
+                </>
+              )
+            })()}
           </>
         )}
       </div>

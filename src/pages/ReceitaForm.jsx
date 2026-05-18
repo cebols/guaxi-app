@@ -7,6 +7,93 @@ import { getReceitas, saveReceita, deleteReceita, getInsumos } from '../services
 const TIPO_OPTS = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
 const WEIGHT_UNITS = ['g', 'ml', 'kg', 'L']
 
+const ACOES = [
+  { tipo: 'misturar',   icon: '🥣', label: 'Misturar' },
+  { tipo: 'bater',      icon: '⚡', label: 'Bater' },
+  { tipo: 'incorporar', icon: '🫙', label: 'Incorporar' },
+  { tipo: 'ferver',     icon: '🔥', label: 'Ferver' },
+  { tipo: 'aquecer',    icon: '🌡️', label: 'Aquecer' },
+  { tipo: 'assar',      icon: '🍳', label: 'Assar' },
+  { tipo: 'resfriar',   icon: '❄️', label: 'Resfriar' },
+  { tipo: 'congelar',   icon: '🧊', label: 'Congelar' },
+  { tipo: 'descansar',  icon: '⏱️', label: 'Descansar' },
+  { tipo: 'cortar',     icon: '🔪', label: 'Cortar' },
+  { tipo: 'nota',       icon: '📝', label: 'Nota' },
+]
+const ACAO_MAP = Object.fromEntries(ACOES.map(a => [a.tipo, a]))
+
+function parseInstrucoes(raw) {
+  if (!raw) return []
+  try {
+    const p = JSON.parse(raw)
+    if (Array.isArray(p)) return p
+  } catch {}
+  return [{ tipo: 'nota', descricao: raw }]
+}
+
+function serializeInstrucoes(steps) {
+  const valid = steps.filter(s => s.descricao?.trim())
+  return valid.length > 0 ? JSON.stringify(valid) : null
+}
+
+function StepBuilder({ steps, onChange }) {
+  const [openPicker, setOpenPicker] = useState(null) // index | null
+
+  const update = (i, patch) => onChange(steps.map((s, idx) => idx === i ? { ...s, ...patch } : s))
+  const remove  = (i) => onChange(steps.filter((_, idx) => idx !== i))
+  const add     = () => onChange([...steps, { tipo: 'misturar', descricao: '' }])
+
+  return (
+    <div>
+      {steps.map((step, i) => {
+        const acao = ACAO_MAP[step.tipo] || ACAO_MAP.nota
+        return (
+          <div key={i} style={{ marginBottom: 8, border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
+            {/* Tipo selector row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--bg-secondary)', borderBottom: openPicker === i ? '1px solid var(--border-color)' : 'none' }}>
+              <button
+                onClick={() => setOpenPicker(openPicker === i ? null : i)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px',
+                  borderRadius: 6, border: '1px solid var(--teal)', background: 'var(--teal-light)',
+                  color: 'var(--teal)', fontSize: 12, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5,
+                }}>
+                {acao.icon} {acao.label.toUpperCase()}
+              </button>
+              <span style={{ flex: 1, fontSize: 11, color: 'var(--text-tertiary)' }}>Etapa {i + 1}</span>
+              <button onClick={() => remove(i)} style={{ background: 'none', border: 'none', color: '#555', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>×</button>
+            </div>
+            {/* Tipo picker grid */}
+            {openPicker === i && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }}>
+                {ACOES.map(a => (
+                  <button key={a.tipo} onClick={() => { update(i, { tipo: a.tipo }); setOpenPicker(null) }} style={{
+                    padding: '5px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+                    border: '1px solid var(--border-color)',
+                    background: a.tipo === step.tipo ? 'var(--teal)' : 'transparent',
+                    color: a.tipo === step.tipo ? '#fff' : 'var(--text-secondary)',
+                    fontWeight: a.tipo === step.tipo ? 700 : 400,
+                  }}>{a.icon} {a.label}</button>
+                ))}
+              </div>
+            )}
+            {/* Description */}
+            <textarea
+              className="field-input"
+              rows={2}
+              placeholder="Descreva esta etapa..."
+              value={step.descricao}
+              onChange={e => update(i, { descricao: e.target.value })}
+              style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, border: 'none', borderRadius: 0, margin: 0 }}
+            />
+          </div>
+        )
+      })}
+      <button className="btn-add-item" onClick={add}>+ adicionar etapa</button>
+    </div>
+  )
+}
+
 export default function ReceitaForm() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -18,9 +105,9 @@ export default function ReceitaForm() {
 
   const [form, setForm] = useState({
     nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'un', fatorPerda: '',
-    instrucoes: '',
     tempoForno: '', tempForno: '', tempoResfriamento: '', tipoResfriamento: '',
   })
+  const [steps, setSteps] = useState([])
   const [ingredientes, setIngredientes] = useState([
     { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' },
     { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' },
@@ -39,12 +126,12 @@ export default function ReceitaForm() {
       rendimento: rec.rendimento || '',
       unidadeGera: rec.unidadeGera || 'un',
       fatorPerda: rec.fatorPerda != null ? String(rec.fatorPerda) : '',
-      instrucoes: rec.instrucoes || '',
       tempoForno: rec.tempoForno != null ? String(rec.tempoForno) : '',
       tempForno: rec.tempForno != null ? String(rec.tempForno) : '',
       tempoResfriamento: rec.tempoResfriamento != null ? String(rec.tempoResfriamento) : '',
       tipoResfriamento: rec.tipoResfriamento || '',
     })
+    setSteps(parseInstrucoes(rec.instrucoes))
     if (rec.ingredientes?.length > 0) {
       setIngredientes(rec.ingredientes.map(i => ({
         insumoId: i.insumoId || null,
@@ -143,6 +230,7 @@ export default function ReceitaForm() {
           rendimento: isWeightUnit ? rendAutoNum : parseFloat(form.rendimento),
           fatorPerda: fatorPerdaNum || null,
           pesoLiquido: fatorPerdaNum > 0 ? rendLiquidoG : null,
+          instrucoes: serializeInstrucoes(steps),
           custoTotal,
           custoUnid,
         },
@@ -361,14 +449,7 @@ export default function ReceitaForm() {
         </div>
 
         <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>
-        <textarea
-          className="field-input"
-          rows={6}
-          placeholder="Passo a passo, dicas..."
-          value={form.instrucoes}
-          onChange={e => setField('instrucoes', e.target.value)}
-          style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
-        />
+        <StepBuilder steps={steps} onChange={setSteps} />
 
         <button className="btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Salvando...' : isEdit ? 'Atualizar receita' : 'Criar receita'}
