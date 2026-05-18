@@ -7,7 +7,51 @@ import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveC
 const STATUS_OPTS = ['Pendente', 'Produzindo', 'Pronto', 'Entregue', 'Cancelado']
 const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
 const CANAL_OPTS  = ['WhatsApp', 'iFood', '99Food', 'Keeta', 'Presencial']
-const FILTROS     = ['Todos', 'Pendente', 'Produzindo', 'Pronto', 'Entregue']
+
+// Smart filters: each has a `match(p, ctx)` predicate
+const SMART_FILTROS = [
+  { key: 'todos',      label: 'Todos',     match: () => true },
+  { key: 'atrasados',  label: '🔴 Atrasados', match: p => {
+      if (['Entregue', 'Cancelado'].includes(p.status)) return false
+      if (!p.dataEntrega) return false
+      const t = new Date(); t.setHours(0,0,0,0)
+      return new Date(p.dataEntrega + 'T00:00:00') < t
+    }},
+  { key: 'hoje',       label: '🟠 Hoje',   match: p => {
+      if (!p.dataEntrega) return false
+      const t = new Date(); t.setHours(0,0,0,0)
+      const d = new Date(p.dataEntrega + 'T00:00:00')
+      return d.getTime() === t.getTime() && p.status !== 'Cancelado'
+    }},
+  { key: 'amanha',     label: '🟡 Amanhã', match: p => {
+      if (!p.dataEntrega) return false
+      const t = new Date(); t.setHours(0,0,0,0); t.setDate(t.getDate() + 1)
+      const d = new Date(p.dataEntrega + 'T00:00:00')
+      return d.getTime() === t.getTime() && p.status !== 'Cancelado'
+    }},
+  { key: 'areceber',   label: '💰 A receber', match: p => p.status !== 'Cancelado' && p.pgto !== 'Pago' },
+  { key: 'Pendente',   label: 'Pendente',   match: p => p.status === 'Pendente' },
+  { key: 'Produzindo', label: 'Produzindo', match: p => p.status === 'Produzindo' },
+  { key: 'Pronto',     label: 'Pronto',     match: p => p.status === 'Pronto' },
+  { key: 'Entregue',   label: 'Entregue',   match: p => p.status === 'Entregue' },
+]
+
+// WhatsApp message templates
+const WA_TEMPLATES = [
+  { label: '✅ Pedido pronto',     msg: 'Oi {nome}! Seu pedido {id} tá pronto pra retirada. ❤️' },
+  { label: '🛵 Saiu pra entrega',  msg: 'Oi {nome}! Saiu pra entrega o pedido {id}, chega em breve!' },
+  { label: '⏰ Lembrete entrega',  msg: 'Oi {nome}! Passando pra lembrar do seu pedido {id} pra {data}. Tudo certo?' },
+  { label: '⭐ Pedir feedback',    msg: 'Oi {nome}! Espero que tenha curtido o pedido {id}. Manda foto e me conta o que achou! 😍' },
+  { label: '💰 Cobrança gentil',   msg: 'Oi {nome}! Passando pra lembrar do pagamento do pedido {id} (R$ {valor}). Posso te enviar o pix?' },
+]
+function fillTemplate(tpl, pedido) {
+  const nome = (pedido.cliente || '').split(' ')[0]
+  return tpl
+    .replace('{nome}', nome)
+    .replace('{id}', pedido.id)
+    .replace('{data}', fmtDate(pedido.dataEntrega))
+    .replace('{valor}', fmtR(pedido.valor))
+}
 
 const STATUS_STYLE = {
   Pendente:   { bg: '#334155', color: '#94a3b8' },
@@ -122,14 +166,35 @@ function Badge({ label, style }) {
 }
 
 // ── Order card ────────────────────────────────────────────────
-function PedidoCard({ pedido, alertMap, onClick }) {
+function PedidoCard({ pedido, alertMap, onClick, onLongPress, selected, selecaoMode }) {
   const urg      = urgency(pedido.dataEntrega)
   const stStyle  = STATUS_STYLE[pedido.status] || STATUS_STYLE.Pendente
   const pgStyle  = PGTO_STYLE[pedido.pgto]     || PGTO_STYLE.Aguardando
   const hasAlert = (pedido.itens || []).some(it => alertMap[it.produto])
 
+  // Long press to enter selection mode (mobile)
+  const [pressTimer, setPressTimer] = useState(null)
+  const startPress = () => {
+    if (selecaoMode) return
+    const t = setTimeout(() => {
+      onLongPress?.()
+      if (navigator.vibrate) navigator.vibrate(40)
+    }, 500)
+    setPressTimer(t)
+  }
+  const cancelPress = () => { if (pressTimer) clearTimeout(pressTimer); setPressTimer(null) }
+
   return (
-    <div className="card" onClick={onClick} style={{ padding: '12px 14px', marginBottom: 8, cursor: 'pointer' }}>
+    <div className="card"
+      onClick={onClick}
+      onTouchStart={startPress} onTouchEnd={cancelPress} onTouchMove={cancelPress}
+      onMouseDown={startPress} onMouseUp={cancelPress} onMouseLeave={cancelPress}
+      style={{
+        padding: '12px 14px', marginBottom: 8, cursor: 'pointer',
+        border: selected ? '2px solid var(--teal)' : undefined,
+        background: selected ? 'var(--teal-light)' : undefined,
+        position: 'relative',
+      }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 3 }}>
@@ -224,16 +289,36 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
 
         {/* WhatsApp */}
         {wa && (
-          <a href={wa} target="_blank" rel="noreferrer" style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            background: 'var(--card-bg)', border: '1px solid #14532d', color: '#4ade80',
-            borderRadius: 10, padding: '10px 14px', marginBottom: 14,
-            textDecoration: 'none', fontSize: 13, fontWeight: 500,
-          }}>
-            <span>📲</span>
-            <span>{pedido.contato}</span>
-            <span style={{ marginLeft: 'auto', fontSize: 11, opacity: 0.7 }}>Abrir WhatsApp →</span>
-          </a>
+          <>
+            <a href={wa} target="_blank" rel="noreferrer" style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: 'var(--card-bg)', border: '1px solid #14532d', color: '#4ade80',
+              borderRadius: 10, padding: '10px 14px', marginBottom: 8,
+              textDecoration: 'none', fontSize: 13, fontWeight: 500,
+            }}>
+              <span>📲</span>
+              <span>{pedido.contato}</span>
+              <span style={{ marginLeft: 'auto', fontSize: 11, opacity: 0.7 }}>Abrir WhatsApp →</span>
+            </a>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, letterSpacing: 1, textTransform: 'uppercase' }}>Mensagens rápidas</div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+              {WA_TEMPLATES.map(t => {
+                const msg = fillTemplate(t.msg, pedido)
+                const href = `${wa}?text=${encodeURIComponent(msg)}`
+                return (
+                  <a key={t.label} href={href} target="_blank" rel="noreferrer"
+                    style={{
+                      fontSize: 11, padding: '5px 10px',
+                      background: 'var(--card-bg)', border: '1px solid var(--border)',
+                      borderRadius: 16, color: 'var(--text-secondary)',
+                      textDecoration: 'none', whiteSpace: 'nowrap',
+                    }}>
+                    {t.label}
+                  </a>
+                )
+              })}
+            </div>
+          </>
         )}
 
         {/* Itens */}
@@ -996,8 +1081,15 @@ export default function Pedidos() {
 
   // mode: 'list' | 'novo' | pedido-object
   const [mode, setMode]   = useState('list')
-  const [filtro, setFiltro] = useState('Todos')
+  const [filtro, setFiltro] = useState(() => localStorage.getItem('pedidos_filtro') || 'todos')
   const [aba, setAba]     = useState('pedidos') // 'pedidos' | 'producao'
+  const [selecao, setSelecao] = useState({}) // { [pedidoId]: true }
+  const selecaoMode = Object.keys(selecao).some(k => selecao[k])
+
+  const setFiltroAndSave = (f) => {
+    setFiltro(f)
+    localStorage.setItem('pedidos_filtro', f)
+  }
 
   const alertMap = useMemo(
     () => buildAlertMap(produtos || [], receitas || [], insumos || []),
@@ -1006,8 +1098,35 @@ export default function Pedidos() {
 
   const pedidosFiltrados = useMemo(() => {
     const list = pedidos || []
-    return filtro === 'Todos' ? list : list.filter(p => p.status === filtro)
+    const f = SMART_FILTROS.find(x => x.key === filtro) || SMART_FILTROS[0]
+    return list.filter(p => f.match(p))
   }, [pedidos, filtro])
+
+  // Counts for filter chip badges
+  const filterCounts = useMemo(() => {
+    const out = {}
+    for (const f of SMART_FILTROS) {
+      if (f.key === 'todos') continue
+      out[f.key] = (pedidos || []).filter(p => f.match(p)).length
+    }
+    return out
+  }, [pedidos])
+
+  const handleBulkStatus = async (novoStatus) => {
+    const ids = Object.keys(selecao).filter(k => selecao[k])
+    try {
+      await Promise.all(ids.map(id => {
+        const p = (pedidos || []).find(x => x.id === id)
+        if (!p) return null
+        const novoPgto = novoStatus === 'Entregue' && p.pgto !== 'Pago' ? 'Atrasado' : p.pgto
+        return updateStatusEncomenda(id, novoStatus, novoPgto, p.tipoEntrega, p.frete, p.valor)
+      }))
+      setSelecao({})
+      reloadPedidos()
+    } catch (e) {
+      alert('Erro: ' + e.message)
+    }
+  }
 
   if (loadingPed || loadingProd) return <div className="loading">Carregando...</div>
 
@@ -1073,27 +1192,67 @@ export default function Pedidos() {
           <ProducaoView pedidos={pedidos} produtos={produtos} receitas={receitas} onEstoqueUpdated={reloadProdutos} />
         ) : (
           <>
-            {/* Filtros */}
+            {/* Smart filter chips com contadores */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto', paddingBottom: 2 }}>
-              {FILTROS.map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFiltro(f)}
-                  style={{
-                    padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                    border: '1px solid',
-                    borderColor: filtro === f ? 'var(--teal)' : 'var(--border)',
-                    background:  filtro === f ? 'var(--teal-light)' : 'transparent',
-                    color:       filtro === f ? 'var(--teal)' : 'var(--text-secondary)',
-                    cursor: 'pointer', whiteSpace: 'nowrap',
-                  }}
-                >{f}</button>
-              ))}
+              {SMART_FILTROS.map(f => {
+                const count = filterCounts[f.key]
+                const active = filtro === f.key
+                return (
+                  <button
+                    key={f.key}
+                    onClick={() => setFiltroAndSave(f.key)}
+                    style={{
+                      padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                      border: '1px solid',
+                      borderColor: active ? 'var(--teal)' : 'var(--border)',
+                      background:  active ? 'var(--teal-light)' : 'transparent',
+                      color:       active ? 'var(--teal)' : 'var(--text-secondary)',
+                      cursor: 'pointer', whiteSpace: 'nowrap',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                    }}
+                  >
+                    {f.label}
+                    {count > 0 && (
+                      <span style={{
+                        background: active ? 'var(--teal)' : 'var(--border)',
+                        color: active ? '#fff' : 'var(--text-secondary)',
+                        fontSize: 10, padding: '1px 5px', borderRadius: 10,
+                      }}>{count}</span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
+
+            {/* Bulk action bar */}
+            {selecaoMode && (
+              <div style={{
+                display: 'flex', gap: 8, alignItems: 'center',
+                background: 'var(--teal-light)', border: '1px solid var(--teal)',
+                borderRadius: 10, padding: '8px 12px', marginBottom: 10,
+                flexWrap: 'wrap',
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
+                  {Object.values(selecao).filter(Boolean).length} selecionado(s)
+                </span>
+                <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
+                  {['Produzindo', 'Pronto', 'Entregue'].map(s => (
+                    <button key={s} onClick={() => handleBulkStatus(s)}
+                      style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      → {s}
+                    </button>
+                  ))}
+                  <button onClick={() => setSelecao({})}
+                    style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
 
             {pedidosFiltrados.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>
-                {filtro === 'Todos' ? 'Nenhum pedido ainda' : `Nenhum pedido ${filtro.toLowerCase()}`}
+                {filtro === 'todos' ? 'Nenhum pedido ainda' : 'Nenhum pedido neste filtro'}
               </div>
             ) : (
               pedidosFiltrados.map(p => (
@@ -1101,7 +1260,11 @@ export default function Pedidos() {
                   key={p.id}
                   pedido={p}
                   alertMap={alertMap}
-                  onClick={() => setMode(p)}
+                  selected={!!selecao[p.id]}
+                  selecaoMode={selecaoMode}
+                  onToggleSelect={() => setSelecao(s => ({ ...s, [p.id]: !s[p.id] }))}
+                  onClick={() => selecaoMode ? setSelecao(s => ({ ...s, [p.id]: !s[p.id] })) : setMode(p)}
+                  onLongPress={() => setSelecao({ [p.id]: true })}
                 />
               ))
             )}
