@@ -426,6 +426,138 @@ function fmtR(val) {
   return `R$ ${Number(val).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
 }
 
+// ── Lista de compras agrupada por fornecedor ─────────────────
+function ListaComprasView({ insumos, embalagens }) {
+  // Calcula items abaixo do mínimo
+  const items = []
+  for (const i of (insumos || [])) {
+    if (i.estoqueMin > 0 && i.estoqueAtual !== null && i.estoqueAtual !== undefined && i.estoqueAtual < i.estoqueMin) {
+      const falta = i.estoqueMin - i.estoqueAtual
+      const buffer = Math.ceil(falta * 1.5)
+      items.push({
+        tipo: 'insumo', nome: i.nome, unidade: i.unidade,
+        atual: i.estoqueAtual, min: i.estoqueMin,
+        comprar: buffer, fornecedor: i.fornecedor || '(sem fornecedor)',
+        whatsapp: i.whatsapp, linkCompra: i.linkCompra,
+        custo: (i.custoUnit || 0) * buffer,
+        critico: i.estoqueAtual <= i.estoqueMin * 0.5,
+      })
+    }
+  }
+  for (const e of (embalagens || [])) {
+    if (e.estoqueMin > 0 && e.estoqueAtual !== null && e.estoqueAtual !== undefined && e.estoqueAtual < e.estoqueMin) {
+      const falta = e.estoqueMin - e.estoqueAtual
+      const buffer = Math.ceil(falta * 1.5)
+      items.push({
+        tipo: 'embalagem', nome: e.nome, unidade: 'un',
+        atual: e.estoqueAtual, min: e.estoqueMin,
+        comprar: buffer, fornecedor: e.fornecedor || '(sem fornecedor)',
+        whatsapp: e.whatsapp, linkCompra: e.linkCompra,
+        custo: (e.custoUnit || 0) * buffer,
+        critico: e.estoqueAtual <= e.estoqueMin * 0.5,
+      })
+    }
+  }
+
+  // Agrupa por fornecedor
+  const grupos = {}
+  for (const it of items) {
+    if (!grupos[it.fornecedor]) grupos[it.fornecedor] = { items: [], total: 0, wa: it.whatsapp, link: it.linkCompra }
+    grupos[it.fornecedor].items.push(it)
+    grupos[it.fornecedor].total += it.custo
+    if (!grupos[it.fornecedor].wa && it.whatsapp) grupos[it.fornecedor].wa = it.whatsapp
+  }
+  const fornecedores = Object.entries(grupos).sort((a, b) => b[1].total - a[1].total)
+
+  if (items.length === 0) {
+    return (
+      <div className="empty" style={{ marginTop: 32 }}>
+        <span style={{ fontSize: 32, marginBottom: 8 }}>✅</span>
+        <span>Tudo em estoque! Sem itens pra comprar.</span>
+      </div>
+    )
+  }
+
+  const totalGeral = items.reduce((s, it) => s + it.custo, 0)
+  const criticosCount = items.filter(it => it.critico).length
+
+  return (
+    <>
+      <div className="card" style={{ padding: '12px 14px', marginBottom: 12, background: 'var(--teal-light)', border: '1px solid var(--teal)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal)' }}>
+              {items.length} item{items.length !== 1 ? 's' : ''} a comprar
+              {criticosCount > 0 && <span style={{ color: 'var(--alert-text)', marginLeft: 8 }}>· {criticosCount} crítico{criticosCount !== 1 ? 's' : ''}</span>}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{fornecedores.length} fornecedor(es)</div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--teal)' }}>R$ {fmtR(totalGeral)}</div>
+            <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>estimado</div>
+          </div>
+        </div>
+      </div>
+
+      {fornecedores.map(([forn, grupo]) => {
+        const wa = waLink(grupo.wa)
+        const msg = `Olá! Vou fazer um pedido:\n\n${grupo.items.map(it => `• ${it.nome} — ${it.comprar} ${it.unidade}`).join('\n')}\n\nValor estimado: R$ ${fmtR(grupo.total)}`
+        const waHref = wa ? `${wa}?text=${encodeURIComponent(msg)}` : null
+        return (
+          <div key={forn} className="card" style={{ marginBottom: 10, padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-card)' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{forn}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                  {grupo.items.length} item{grupo.items.length !== 1 ? 's' : ''} · R$ {fmtR(grupo.total)}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {waHref && (
+                  <a href={waHref} target="_blank" rel="noreferrer" style={{
+                    fontSize: 12, padding: '6px 12px', background: '#14532d', color: '#4ade80',
+                    borderRadius: 8, textDecoration: 'none', fontWeight: 600,
+                  }}>📲 Enviar</a>
+                )}
+                {grupo.link && (
+                  <a href={grupo.link} target="_blank" rel="noreferrer" style={{
+                    fontSize: 12, padding: '6px 12px', background: 'transparent',
+                    color: 'var(--teal)', border: '1px solid var(--teal)',
+                    borderRadius: 8, textDecoration: 'none',
+                  }}>🛒 Loja</a>
+                )}
+              </div>
+            </div>
+            <div style={{ padding: '4px 14px' }}>
+              {grupo.items.map((it, i) => (
+                <div key={i} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '8px 0',
+                  borderBottom: i < grupo.items.length - 1 ? '1px solid var(--border)' : 'none',
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                      {it.critico && <span style={{ color: 'var(--alert-text)', marginRight: 4 }}>🔴</span>}
+                      {it.nome}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      estoque {it.atual} · min {it.min} {it.unidade}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal)' }}>{it.comprar} {it.unidade}</div>
+                    <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>~R$ {fmtR(it.custo)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
 export default function Cadastros() {
   const [tab, setTab] = useState('insumos')
   const [sheet, setSheet] = useState(null)
@@ -556,6 +688,7 @@ export default function Cadastros() {
         <div className="tab-bar">
           <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => { setTab('insumos'); setBusca('') }}>Insumos</button>
           <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => { setTab('embalagens'); setBusca('') }}>Embalagens</button>
+          <button className={`tab-btn ${tab === 'compras'    ? 'active' : ''}`} onClick={() => { setTab('compras'); setBusca('') }}>Compras</button>
         </div>
 
         <div style={{ position: 'relative', marginBottom: 12 }}>
@@ -708,7 +841,7 @@ export default function Cadastros() {
               </div>
             </div>
           </>
-        ) : (
+        ) : tab === 'embalagens' ? (
           <>
             {/* Desktop */}
             <div className="desktop-only">
@@ -782,6 +915,8 @@ export default function Cadastros() {
               </div>
             </div>
           </>
+        ) : (
+          <ListaComprasView insumos={insumos} embalagens={embalagens} />
         )}
       </div>
 
