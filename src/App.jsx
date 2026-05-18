@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from './contexts/AuthContext'
 import { initConfig } from './hooks/useConfig'
 import Login from './pages/Login'
@@ -18,12 +18,15 @@ const NAV = [
   { path: '/',              label: 'Home',      icon: HomeIcon },
   { path: '/pedidos',       label: 'Pedidos',   icon: PedidosIcon },
   { path: '/contagem',      label: 'Contagem',  icon: ContagemIcon },
-  { path: '/cadastros',     label: 'Insumos',   icon: CadastrosIcon,  desktopOnly: true },
   { path: '/fichas',        label: 'Receitas',  icon: FichasIcon },
   { path: '/produtos',      label: 'Produtos',  icon: ProdutosIcon },
   { path: '/vendas',        label: 'Vendas',    icon: VendasIcon },
-  { path: '/configuracoes', label: 'Preços',    icon: ConfigIcon,     desktopOnly: true },
+  { path: '/cadastros',     label: 'Insumos',   icon: CadastrosIcon },
+  { path: '/configuracoes', label: 'Preços',    icon: ConfigIcon },
 ]
+
+const NAV_BOTTOM_FIXED = NAV.slice(0, 5)   // Home Pedidos Contagem Receitas Produtos
+const NAV_MAIS         = NAV.slice(5)       // Vendas Insumos Preços
 
 function Sidebar() {
   const { user, signOut } = useAuth()
@@ -38,7 +41,7 @@ function Sidebar() {
         <div className="sidebar-logo-name">Guaxi</div>
       </div>
       <nav className="sidebar-nav">
-        {NAV.map(({ path, label, icon: Icon, desktopOnly: _ }) => {
+        {NAV.map(({ path, label, icon: Icon }) => {
           const active = path === '/'
             ? location.pathname === '/'
             : location.pathname.startsWith(path)
@@ -73,15 +76,21 @@ export default function App() {
   const { isAuthenticated, loading, session } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
+  const [maisOpen, setMaisOpen] = useState(false)
 
   useEffect(() => {
     initConfig(session?.user?.id ?? null)
   }, [session?.user?.id])
 
+  useEffect(() => {
+    setMaisOpen(false)
+  }, [location.pathname])
+
   if (loading) return <div className="loading" style={{ minHeight: '100dvh' }}>Carregando...</div>
   if (!isAuthenticated) return <Login />
 
   const isReceitaForm = location.pathname.match(/^\/fichas\/(nova|\d+\/editar)/)
+  const maisActive = NAV_MAIS.some(n => location.pathname.startsWith(n.path))
 
   return (
     <div className="app-shell">
@@ -106,7 +115,7 @@ export default function App() {
 
       {!isReceitaForm && (
         <nav className="bottom-nav">
-          {NAV.filter(n => !n.desktopOnly).map(({ path, label, icon: Icon }) => {
+          {NAV_BOTTOM_FIXED.map(({ path, label, icon: Icon }) => {
             const active = path === '/'
               ? location.pathname === '/'
               : location.pathname.startsWith(path)
@@ -122,7 +131,51 @@ export default function App() {
               </button>
             )
           })}
+          <button
+            className={`nav-item ${maisActive || maisOpen ? 'active' : ''}`}
+            onClick={() => setMaisOpen(o => !o)}
+          >
+            <MaisIcon />
+            <span>Mais</span>
+            <div className="nav-indicator" />
+          </button>
         </nav>
+      )}
+
+      {maisOpen && (
+        <>
+          <div className="sheet-overlay" style={{ zIndex: 45 }} onClick={() => setMaisOpen(false)} />
+          <div className="sheet" style={{ zIndex: 55, paddingBottom: 80 }}>
+            <div className="sheet-title">
+              <span>Menu</span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setMaisOpen(false)}>×</button>
+            </div>
+            {NAV_MAIS.map(({ path, label, icon: Icon }) => {
+              const active = location.pathname.startsWith(path)
+              return (
+                <button
+                  key={path}
+                  onClick={() => navigate(path)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 14,
+                    width: '100%', padding: '14px 8px',
+                    background: active ? 'var(--teal-subtle, rgba(20,184,166,.1))' : 'none',
+                    border: 'none', borderBottom: '1px solid var(--border)',
+                    borderRadius: active ? 10 : 0,
+                    color: active ? 'var(--teal)' : 'var(--text-primary)',
+                    fontSize: 15, fontWeight: active ? 600 : 400,
+                    cursor: 'pointer', textAlign: 'left',
+                  }}
+                >
+                  <span style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', color: active ? 'var(--teal)' : 'var(--text-secondary)' }}>
+                    <Icon />
+                  </span>
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )
@@ -180,5 +233,12 @@ function ConfigIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <line x1="12" y1="1" x2="12" y2="23"/>
     <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+  </svg>
+}
+function MaisIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+    <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/>
   </svg>
 }
