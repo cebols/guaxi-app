@@ -968,7 +968,7 @@ export default function Vendas() {
                 {todasVendasAll.length > 0 && (
                   <>
                     <div className="section-label">Heatmap por dia da semana (6 semanas)</div>
-                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
+                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12, maxWidth: 520 }}>
                       <HeatmapDOW vendas={todasVendasAll} />
                       <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center', marginTop: 8 }}>
                         Identifica dias fortes/fracos pra decidir promoção e horário de funcionamento

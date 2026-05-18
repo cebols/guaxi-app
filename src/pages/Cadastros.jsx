@@ -688,7 +688,6 @@ export default function Cadastros() {
         <div className="tab-bar">
           <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => { setTab('insumos'); setBusca('') }}>Insumos</button>
           <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => { setTab('embalagens'); setBusca('') }}>Embalagens</button>
-          <button className={`tab-btn ${tab === 'compras'    ? 'active' : ''}`} onClick={() => { setTab('compras'); setBusca('') }}>Compras</button>
         </div>
 
         <div style={{ position: 'relative', marginBottom: 12 }}>
@@ -915,9 +914,7 @@ export default function Cadastros() {
               </div>
             </div>
           </>
-        ) : (
-          <ListaComprasView insumos={insumos} embalagens={embalagens} />
-        )}
+        ) : null}
       </div>
 
       <button className="fab mobile-only" onClick={openNew}>+</button>

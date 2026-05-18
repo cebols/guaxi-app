@@ -4,7 +4,7 @@ import { useToast } from '../hooks/useToast'
 import { getConfig, calcPrecos } from '../hooks/useConfig'
 import {
   getProdutos, saveProduto, deleteProduto,
-  getReceitas, getEmbalagens, getVendas, getEncomendas,
+  getReceitas, getEmbalagens,
 } from '../services/db'
 
 const PLAT_COLOR  = { Direta: 'var(--teal)', '99Food': '#f59e0b', iFood: '#ef4444' }
@@ -310,34 +310,6 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
   )
 }
 
-// Velocity badge: average sales per week over last 4 weeks
-function VelocityBadge({ unitsPerWeek }) {
-  if (!unitsPerWeek || unitsPerWeek < 0.5) return null
-  const label = unitsPerWeek >= 1 ? `${Math.round(unitsPerWeek)}/sem` : '<1/sem'
-  const fire  = unitsPerWeek >= 10 ? ' 🔥' : ''
-  return (
-    <span style={{
-      fontSize: 10, fontWeight: 700, padding: '2px 6px',
-      background: unitsPerWeek >= 5 ? '#14532d' : '#1e3a5f',
-      color:      unitsPerWeek >= 5 ? '#4ade80' : '#60a5fa',
-      borderRadius: 8, marginLeft: 6, whiteSpace: 'nowrap',
-    }}>{label}{fire}</span>
-  )
-}
-
-// Margin warning: actual margin vs target
-function MarginWarning({ actualMargin, targetMargin }) {
-  if (actualMargin === null || actualMargin >= targetMargin - 5) return null
-  const critical = actualMargin < targetMargin - 15
-  return (
-    <span style={{
-      fontSize: 10, fontWeight: 700, padding: '2px 6px',
-      background: critical ? '#3b1f1f' : '#3b2700',
-      color:      critical ? '#fca5a5' : '#fbbf24',
-      borderRadius: 8, marginLeft: 6, whiteSpace: 'nowrap',
-    }}>↓ margem {Math.round(actualMargin)}%</span>
-  )
-}
 
 function PlatPrecos({ prod, cfg }) {
   const precos = calcPrecos(prod.custoTotal, cfg)
@@ -370,41 +342,11 @@ export default function Produtos() {
   const { data: produtos,   loading: lProd, reload: rProd } = useData(getProdutos)
   const { data: receitas,   loading: lRec  } = useData(getReceitas)
   const { data: embalagens, loading: lEmb  } = useData(getEmbalagens)
-  const { data: vendas    } = useData(getVendas)
-  const { data: encomendas } = useData(getEncomendas)
-
   const loading = lProd || lRec || lEmb
 
   const TIPO_MAP = { Todos: null, Produzido: 'produto', Avulso: 'avulso', Combo: 'combo' }
   const produtosFiltrados = (produtos || []).filter(p => !TIPO_MAP[filtroTipo] || p.tipo === TIPO_MAP[filtroTipo])
 
-  // Velocity per product: units sold in last 28 days / 4 weeks
-  const velocityMap = useMemo(() => {
-    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 28)
-    const map = {}
-    for (const v of (vendas || [])) {
-      if (v.data && new Date(v.data + 'T12:00:00') >= cutoff) {
-        map[v.produtoNome] = (map[v.produtoNome] || 0) + (v.quantidade || 0)
-      }
-    }
-    for (const e of (encomendas || [])) {
-      if (e.status === 'Cancelado') continue
-      if (e.dataEntrega && new Date(e.dataEntrega + 'T12:00:00') >= cutoff) {
-        for (const it of (e.itens || [])) {
-          map[it.produto] = (map[it.produto] || 0) + (it.quantidade || 0)
-        }
-      }
-    }
-    return Object.fromEntries(Object.entries(map).map(([k, v]) => [k, v / 4]))
-  }, [vendas, encomendas])
-
-  function marginInfo(prod) {
-    if (!prod.custoTotal || prod.custoTotal <= 0) return null
-    const price = prod.precoDireta ?? prod.precoPraticado ?? calcPrecos(prod.custoTotal, cfg).base
-    if (!price || price <= 0) return null
-    const actualMargin = ((price - prod.custoTotal) / price) * 100
-    return actualMargin
-  }
 
   const handleSave = async (prod, recItems, embItems) => {
     await saveProduto(prod, recItems, embItems)
@@ -460,14 +402,10 @@ export default function Produtos() {
                       <tbody>
                         {produtosFiltrados.map(prod => {
                           const p = calcPrecos(prod.custoTotal, cfg)
-                          const vel = velocityMap[prod.nome]
-                          const margin = marginInfo(prod)
                           return (
                             <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })}>
                               <td style={{ fontWeight: 600 }}>
                                 {prod.nome}<TipoBadge tipo={prod.tipo} />
-                                <VelocityBadge unitsPerWeek={vel} />
-                                <MarginWarning actualMargin={margin} targetMargin={cfg.margem} />
                               </td>
                               <td className="muted" style={{ fontSize: 12 }}>{subtext(prod)}</td>
                               <td className="muted">{prod.custoTotal > 0 ? fmtR(prod.custoTotal) : '—'}</td>
@@ -495,16 +433,12 @@ export default function Produtos() {
               ) : (
                 <div className="card card-flush" style={{ padding: '0 14px' }}>
                   {produtosFiltrados.map(prod => {
-                    const vel = velocityMap[prod.nome]
-                    const margin = marginInfo(prod)
                     return (
                       <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div className="list-item-name" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
                             <span>{prod.nome}</span>
                             <TipoBadge tipo={prod.tipo} />
-                            <VelocityBadge unitsPerWeek={vel} />
-                            <MarginWarning actualMargin={margin} targetMargin={cfg.margem} />
                           </div>
                           <div className="list-item-sub">{subtext(prod)}</div>
                           <PlatPrecos prod={prod} cfg={cfg} />

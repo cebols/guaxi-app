@@ -6,12 +6,11 @@ import { NovoPedidoSheet } from './Pedidos'
 import { useToast } from '../hooks/useToast'
 import { useNavigate } from 'react-router-dom'
 
-const STATUS_PROD = ['Pendente', 'Produzindo', 'Pronto', 'Entregue', 'Cancelado']
+const STATUS_PROD = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
 const STATUS_PGTO = ['Aguardando', 'Pago', 'Atrasado']
 
 const PROD_BADGE = {
   'Pendente':   'badge-warn',
-  'Produzindo': 'badge-info',
   'Pronto':     'badge-info',
   'Entregue':   'badge-teal',
   'Cancelado':  '',
@@ -338,11 +337,8 @@ export default function Home() {
       const tot = cobranca.reduce((s, e) => s + (e.saldo || 0), 0)
       out.push({ icon: '💰', label: `Cobrar R$ ${tot.toLocaleString('pt-BR', { minimumFractionDigits: 0 })} (${cobranca.length})`, color: '#fbbf24', bg: '#3b2700', onClick: () => navigate('/pedidos') })
     }
-    if (criticos.length > 0) {
-      out.push({ icon: '📦', label: `${criticos.length} item(ns) crítico(s)`, color: 'var(--alert-text)', bg: '#3b1f1f', onClick: () => navigate('/cadastros') })
-    }
     return out
-  }, [encomendas, criticos.length, navigate])
+  }, [encomendas, navigate])
 
   // Clientes recorrentes (últimos 60 dias)
   const recorrentes = useMemo(() => {
@@ -375,8 +371,12 @@ export default function Home() {
   const mesAtual  = new Date().toISOString().slice(0, 7)
   const mesAnt    = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().slice(0, 7)
 
-  const fatLiquido7  = vendas7.reduce((a, b) => a + b, 0) - compras7.reduce((a, b) => a + b, 0)
-  const fatLiquido7p = vendas7p.reduce((a, b) => a + b, 0) - compras7p.reduce((a, b) => a + b, 0)
+  const enc7cut  = new Date(); enc7cut.setDate(enc7cut.getDate() - 7); enc7cut.setHours(0,0,0,0)
+  const enc14cut = new Date(); enc14cut.setDate(enc14cut.getDate() - 14); enc14cut.setHours(0,0,0,0)
+  const enc7  = (encomendas || []).filter(e => e.status !== 'Cancelado' && e.dataEntrega && new Date(e.dataEntrega + 'T00:00:00') >= enc7cut).reduce((s, e) => s + (e.valor || 0), 0)
+  const enc7p = (encomendas || []).filter(e => e.status !== 'Cancelado' && e.dataEntrega && new Date(e.dataEntrega + 'T00:00:00') >= enc14cut && new Date(e.dataEntrega + 'T00:00:00') < enc7cut).reduce((s, e) => s + (e.valor || 0), 0)
+  const fatLiquido7  = vendas7.reduce((a, b) => a + b, 0) + enc7
+  const fatLiquido7p = vendas7p.reduce((a, b) => a + b, 0) + enc7p
   const fatLiquidoDiff = fatLiquido7p !== 0 ? Math.round(((fatLiquido7 - fatLiquido7p) / Math.abs(fatLiquido7p)) * 100) : null
 
   const fmtR = (v) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
@@ -444,7 +444,7 @@ export default function Home() {
             valueColor={fatLiquido7 < 0 ? 'var(--alert-text)' : undefined}
             diff={fatLiquidoDiff}
             diffPositive
-            sparkData={vendas7.map((v, i) => Math.max(0, v - (compras7[i] || 0)))}
+            sparkData={vendas7}
             sparkColor="#a78bfa"
           />
         </div>

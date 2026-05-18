@@ -4,7 +4,7 @@ import { useToast } from '../hooks/useToast'
 import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, deletePedido, adjustEstoqueProduto } from '../services/db'
 
 // ── Constants ─────────────────────────────────────────────────
-const STATUS_OPTS = ['Pendente', 'Produzindo', 'Pronto', 'Entregue', 'Cancelado']
+const STATUS_OPTS = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
 const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
 const CANAL_OPTS  = ['WhatsApp', 'iFood', '99Food', 'Keeta', 'Presencial']
 
@@ -31,7 +31,6 @@ const SMART_FILTROS = [
     }},
   { key: 'areceber',   label: '💰 A receber', match: p => p.status !== 'Cancelado' && p.pgto !== 'Pago' },
   { key: 'Pendente',   label: 'Pendente',   match: p => p.status === 'Pendente' },
-  { key: 'Produzindo', label: 'Produzindo', match: p => p.status === 'Produzindo' },
   { key: 'Pronto',     label: 'Pronto',     match: p => p.status === 'Pronto' },
   { key: 'Entregue',   label: 'Entregue',   match: p => p.status === 'Entregue' },
 ]
@@ -55,7 +54,6 @@ function fillTemplate(tpl, pedido) {
 
 const STATUS_STYLE = {
   Pendente:   { bg: '#334155', color: '#94a3b8' },
-  Produzindo: { bg: '#1e3a5f', color: '#60a5fa' },
   Pronto:     { bg: '#14532d', color: '#4ade80' },
   Entregue:   { bg: '#1a1a2e', color: '#6b7280' },
   Cancelado:  { bg: '#3b1f1f', color: '#ef4444' },
@@ -1236,7 +1234,7 @@ export default function Pedidos() {
                   {Object.values(selecao).filter(Boolean).length} selecionado(s)
                 </span>
                 <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
-                  {['Produzindo', 'Pronto', 'Entregue'].map(s => (
+                  {['Pronto', 'Entregue'].map(s => (
                     <button key={s} onClick={() => handleBulkStatus(s)}
                       style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                       → {s}
