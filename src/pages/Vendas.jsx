@@ -567,7 +567,7 @@ function ComparadorProdutos({ vendas, produtos }) {
   }, [nomesProdutos, busca])
 
   // SVG line chart
-  const W = 320, H = 120, PL = 36, PR = 8, PT = 8, PB = 24
+  const W = 560, H = 160, PL = 40, PR = 12, PT = 12, PB = 28
   const chartW = W - PL - PR, chartH = H - PT - PB
 
   const allVals = selecionados.flatMap(nome =>
@@ -635,7 +635,7 @@ function ComparadorProdutos({ vendas, produtos }) {
       {/* Line chart */}
       {selecionados.length > 0 && (
         <div className="card" style={{ padding: '12px 16px', marginBottom: 12, overflowX: 'auto' }}>
-          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, display: 'block' }}>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
             {/* Grid lines */}
             {[0.25, 0.5, 0.75, 1].map(pct => (
               <line key={pct}
@@ -654,14 +654,14 @@ function ComparadorProdutos({ vendas, produtos }) {
                 </text>
               )
             })}
-            {/* X axis labels */}
+            {/* X axis labels — every week */}
             {semanas.map((s, i) => (
-              (i === 0 || i === N_WEEKS - 1 || i === Math.floor(N_WEEKS / 2)) && (
-                <text key={i} x={xPos(i)} y={H - 4}
-                  fontSize="8" fill="var(--text-tertiary)" textAnchor="middle">
-                  {s.label}
-                </text>
-              )
+              <text key={i} x={xPos(i)} y={H - 4}
+                fontSize="7.5" fill={i === N_WEEKS - 1 ? 'var(--teal)' : 'var(--text-tertiary)'}
+                textAnchor={i === 0 ? 'start' : i === N_WEEKS - 1 ? 'end' : 'middle'}
+                fontWeight={i === N_WEEKS - 1 ? '700' : '400'}>
+                {s.label}
+              </text>
             ))}
             {/* Lines */}
             {selecionados.map((nome, ci) => (
@@ -678,9 +678,59 @@ function ComparadorProdutos({ vendas, produtos }) {
             {selecionados.map((nome, ci) => (
               <div key={nome} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
                 <span style={{ width: 16, height: 2, background: CMP_COLORS[ci], borderRadius: 1, display: 'inline-block' }} />
-                <span style={{ color: 'var(--text-secondary)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</span>
+                <span style={{ color: 'var(--text-secondary)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</span>
               </div>
             ))}
+          </div>
+
+          {/* Weekly values table */}
+          <div style={{ overflowX: 'auto', marginTop: 16 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-tertiary)', fontWeight: 600, fontSize: 11, borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>Semana</th>
+                  {selecionados.map((nome, ci) => (
+                    <th key={nome} colSpan={2} style={{ textAlign: 'center', padding: '4px 8px', color: CMP_COLORS[ci], fontWeight: 700, fontSize: 11, borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap', maxWidth: 120 }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{nome}</span>
+                    </th>
+                  ))}
+                </tr>
+                <tr>
+                  <th style={{ padding: '2px 8px', borderBottom: '1px solid var(--border-color)' }} />
+                  {selecionados.map((_, ci) => (
+                    <>
+                      <th key={`r${ci}`} style={{ padding: '2px 8px', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 10, borderBottom: '1px solid var(--border-color)', textAlign: 'right', whiteSpace: 'nowrap' }}>R$</th>
+                      <th key={`u${ci}`} style={{ padding: '2px 8px', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 10, borderBottom: '1px solid var(--border-color)', textAlign: 'right', whiteSpace: 'nowrap' }}>un</th>
+                    </>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {semanas.map((s, wi) => {
+                  const isLast = wi === semanas.length - 1
+                  return (
+                    <tr key={wi} style={{ background: isLast ? 'var(--teal-light)' : 'transparent' }}>
+                      <td style={{ padding: '5px 8px', color: isLast ? 'var(--teal)' : 'var(--text-secondary)', fontWeight: isLast ? 700 : 400, fontSize: 11, whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)' }}>
+                        {s.label}
+                      </td>
+                      {selecionados.map((nome, ci) => {
+                        const d = (dadosPorProd[nome] || [])[wi] || { receita: 0, unidades: 0 }
+                        return (
+                          <>
+                            <td key={`r${ci}`} style={{ padding: '5px 8px', textAlign: 'right', color: d.receita > 0 ? CMP_COLORS[ci] : 'var(--text-tertiary)', fontWeight: d.receita > 0 ? 600 : 400, fontSize: 12, borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>
+                              {d.receita > 0 ? fmtR(d.receita) : '—'}
+                            </td>
+                            <td key={`u${ci}`} style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: 12, borderBottom: '1px solid var(--border-color)' }}>
+                              {d.unidades > 0 ? fmtN(d.unidades, 0) : '—'}
+                            </td>
+                          </>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
