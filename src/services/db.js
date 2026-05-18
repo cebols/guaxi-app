@@ -580,12 +580,20 @@ export async function updateStatusEncomenda(id, status, pgto, tipoEntrega, frete
 const TIPO_ORDER = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
 
 export async function getReceitas() {
-  const { data, error } = await supabase
-    .from('receitas')
-    .select('*, receita_ingredientes!receita_ingredientes_receita_id_fkey(*)')
-    .order('nome')
-  if (error) throw error
-  return data
+  const [recRes, ingRes] = await Promise.all([
+    supabase.from('receitas').select('*').order('nome'),
+    supabase.from('receita_ingredientes').select('*'),
+  ])
+  if (recRes.error) throw recRes.error
+  if (ingRes.error) throw ingRes.error
+
+  const ingsByReceita = {}
+  for (const i of (ingRes.data || [])) {
+    if (!ingsByReceita[i.receita_id]) ingsByReceita[i.receita_id] = []
+    ingsByReceita[i.receita_id].push(i)
+  }
+
+  return (recRes.data || [])
     .map(r => ({
       id: r.id,
       nome: r.nome,
@@ -598,7 +606,7 @@ export async function getReceitas() {
       pesoLiquido: r.peso_liquido || null,
       fatorPerda: r.fator_perda ?? null,
       instrucoes: r.instrucoes || '',
-      ingredientes: (r.receita_ingredientes || []).map(i => ({
+      ingredientes: (ingsByReceita[r.id] || []).map(i => ({
         id: i.id,
         insumoId: i.insumo_id || null,
         subReceitaId: i.sub_receita_id || null,
