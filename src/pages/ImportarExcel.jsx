@@ -123,7 +123,13 @@ function ImportReceitas({ allSheets, onDone }) {
   const setM = (k, v) => setMap(m => ({ ...m, [k]: v }))
 
   function toggleSheet(name) {
-    setSelected(s => s.includes(name) ? s.filter(n => n !== name) : [...s, name])
+    setSelected(s => {
+      const next = s.includes(name) ? s.filter(n => n !== name) : [...s, name]
+      // atualiza preview para a primeira aba selecionada
+      const firstSelected = allSheets.find(sh => next.includes(sh.name))
+      setPreviewSheet(firstSelected || null)
+      return next
+    })
   }
 
   function parseSheet(sheet) {
@@ -197,7 +203,6 @@ function ImportReceitas({ allSheets, onDone }) {
             {rec.ingredientes.map((ing, ii) => (
               <div key={ii} style={{ fontSize: 12, padding: '2px 0' }}>
                 • {ing.quantidade} {ing.unidade} — {ing.nome}
-                {ing.custo != null ? <span style={{ color: 'var(--teal)' }}> (R$ {ing.custo})</span> : ''}
               </div>
             ))}
           </div>
