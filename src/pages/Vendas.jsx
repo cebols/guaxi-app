@@ -90,6 +90,117 @@ function BarrasQtd({ itens }) {
   )
 }
 
+// ── Top/Bottom ranking ───────────────────────────────────────
+function RankingProdutos({ stats, mode = 'top', criterio = 'margem' }) {
+  const items = Object.entries(stats)
+    .filter(([, s]) => s.units > 0)
+    .map(([nome, s]) => {
+      const profit = s.revNet - s.cost
+      const margin = s.revNet > 0 ? (profit / s.revNet) * 100 : 0
+      return { nome, units: s.units, revNet: s.revNet, profit, margin }
+    })
+    .sort((a, b) => criterio === 'margem' ? b.margin - a.margin : b.revNet - a.revNet)
+
+  const list = mode === 'top' ? items.slice(0, 5) : items.slice(-5).reverse()
+  if (list.length === 0) return null
+
+  return (
+    <div>
+      {list.map((it, i) => {
+        const cor = it.margin >= 40 ? 'var(--teal)' : it.margin >= 20 ? '#f59e0b' : 'var(--alert-text)'
+        return (
+          <div key={it.nome} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < list.length - 1 ? '1px solid var(--border)' : 'none' }}>
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', width: 16, fontWeight: 700 }}>{i + 1}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.nome}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{fmtN(it.units, 0)} un · {fmtR(it.revNet)}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: cor }}>{fmtN(it.margin)}%</div>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>margem</div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Day-of-week heatmap ──────────────────────────────────────
+function HeatmapDOW({ vendas }) {
+  const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+  const data = useMemo(() => {
+    const today = new Date()
+    const weeks = 6
+    const grid = Array.from({ length: weeks }, () => Array(7).fill(0))
+    const weekStarts = []
+    for (let w = 0; w < weeks; w++) {
+      const d = new Date(today)
+      d.setDate(today.getDate() - today.getDay() - w * 7)
+      d.setHours(0, 0, 0, 0)
+      weekStarts.push(d)
+    }
+    for (const v of vendas) {
+      if (!v.data) continue
+      const d = new Date(v.data + 'T12:00:00')
+      for (let w = 0; w < weeks; w++) {
+        const ws = weekStarts[w]
+        const we = new Date(ws); we.setDate(ws.getDate() + 7)
+        if (d >= ws && d < we) {
+          grid[w][d.getDay()] += (v.quantidade || 0) * (v.precoUnit || 0)
+          break
+        }
+      }
+    }
+    const max = Math.max(...grid.flat(), 0.01)
+    const dowTotals = Array(7).fill(0)
+    for (const row of grid) row.forEach((v, i) => dowTotals[i] += v)
+    return { grid: grid.reverse(), max, dowTotals }
+  }, [vendas])
+
+  if (data.max < 0.02) return <div style={{ fontSize: 13, color: 'var(--text-tertiary)', textAlign: 'center' }}>Sem dados suficientes</div>
+
+  const cell = (v) => {
+    const intensity = v / data.max
+    const bg = v === 0 ? 'transparent' : `rgba(20, 184, 166, ${0.15 + intensity * 0.7})`
+    return (
+      <div style={{
+        flex: 1, aspectRatio: '1', borderRadius: 4,
+        background: bg, border: '1px solid var(--border)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 9, color: intensity > 0.5 ? '#000' : 'var(--text-tertiary)',
+      }} title={fmtR(v)}>
+        {v > 0 ? fmtN(v, 0) : ''}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+        <div style={{ width: 28, flexShrink: 0 }} />
+        {DOW_LABELS.map(d => <div key={d} style={{ flex: 1, fontSize: 10, color: 'var(--text-tertiary)', textAlign: 'center' }}>{d}</div>)}
+      </div>
+      {data.grid.map((row, i) => (
+        <div key={i} style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+          <div style={{ width: 28, fontSize: 9, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+            -{data.grid.length - 1 - i}s
+          </div>
+          {row.map((v, j) => <div key={j} style={{ flex: 1 }}>{cell(v)}</div>)}
+        </div>
+      ))}
+      <div style={{ display: 'flex', gap: 4, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+        <div style={{ width: 28, fontSize: 10, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>Σ</div>
+        {data.dowTotals.map((v, i) => (
+          <div key={i} style={{ flex: 1, fontSize: 10, fontWeight: 600, color: 'var(--teal)', textAlign: 'center' }}>
+            {v > 0 ? fmtN(v, 0) : '—'}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Weekly stacked bar chart (per product) ───────────────────
 function TendenciaSemanal({ vendas }) {
   const { semanas, prodNomes, colorMap } = useMemo(() => {
@@ -757,6 +868,20 @@ export default function Vendas() {
               </div>
             )}
 
+            {/* Ranking top/bottom */}
+            {!loading && Object.keys(statsPerProd).length >= 2 && (
+              <div className="metric-grid" style={{ marginBottom: 12 }}>
+                <div className="card" style={{ padding: '12px 14px' }}>
+                  <div className="section-label" style={{ marginTop: 0, marginBottom: 8 }}>🏆 Top 5 margem</div>
+                  <RankingProdutos stats={statsPerProd} mode="top" criterio="margem" />
+                </div>
+                <div className="card" style={{ padding: '12px 14px' }}>
+                  <div className="section-label" style={{ marginTop: 0, marginBottom: 8 }}>⚠️ Pior margem</div>
+                  <RankingProdutos stats={statsPerProd} mode="bottom" criterio="margem" />
+                </div>
+              </div>
+            )}
+
             {/* Pedidos section */}
             {!loading && pedidoEventos.length > 0 && (
               <>
@@ -835,6 +960,19 @@ export default function Vendas() {
                     <div className="section-label">Pedidos por canal ({periodo === 'semana' ? 'esta semana' : 'este mês'})</div>
                     <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
                       <Barras itens={barrasCanalPed} />
+                    </div>
+                  </>
+                )}
+
+                {/* Heatmap dia da semana */}
+                {todasVendasAll.length > 0 && (
+                  <>
+                    <div className="section-label">Heatmap por dia da semana (6 semanas)</div>
+                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
+                      <HeatmapDOW vendas={todasVendasAll} />
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center', marginTop: 8 }}>
+                        Identifica dias fortes/fracos pra decidir promoção e horário de funcionamento
+                      </div>
                     </div>
                   </>
                 )}
