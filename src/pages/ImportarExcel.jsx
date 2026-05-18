@@ -55,15 +55,48 @@ function parseNum(v) {
   return isNaN(n) ? null : n
 }
 
-const KG_VARIANTS = /^(kg|kilo|quilo|quilograma|kilograma|kgs|kilos|quilos)s?$/i
-const L_VARIANTS  = /^(l|lt|lts|litro|litros|litre|litres)s?$/i
+const KG_VARIANTS  = /^(kg|kilo|quilo|quilograma|kilograma|kgs|kilos|quilos)s?$/i
+const L_VARIANTS   = /^(l|lt|lts|litro|litros|litre|litres)s?$/i
+const G_VARIANTS   = /^(g|gr|grama|gramas|gram)s?$/i
+const ML_VARIANTS  = /^(ml|mL|mililitro|mililitros)s?$/i
+const UN_VARIANTS  = /^(un|und|unid|unidade|cx|caixa|pct|pacote|pc|peca|sach|sachê)s?$/i
+const DZ_VARIANTS  = /^d[uú]z(ia)?s?$/i
 
+// Retorna { unidade, pesoEmb, aviso }
+// pesoEmb = tamanho da embalagem na unidade final (para cálculo de custoUnit)
+// aviso = true quando não foi possível determinar pesoEmb (custo ficará R$0)
 function normalizeUnidade(raw) {
   const s = (raw || '').trim()
-  if (KG_VARIANTS.test(s)) return { unidade: 'g',  fator: 1000 }
-  if (L_VARIANTS.test(s))  return { unidade: 'ml', fator: 1000 }
-  const known = UNIDADES.find(u => u.toLowerCase() === s.toLowerCase())
-  return { unidade: known || 'g', fator: 1 }
+
+  // Dúzia → 12 un
+  if (DZ_VARIANTS.test(s)) return { unidade: 'un', pesoEmb: 12, aviso: false }
+
+  // Testa variantes simples
+  if (KG_VARIANTS.test(s))  return { unidade: 'g',  pesoEmb: 1000, aviso: false }
+  if (L_VARIANTS.test(s))   return { unidade: 'ml', pesoEmb: 1000, aviso: false }
+  if (G_VARIANTS.test(s))   return { unidade: 'g',  pesoEmb: 1,    aviso: false }
+  if (ML_VARIANTS.test(s))  return { unidade: 'ml', pesoEmb: 1,    aviso: false }
+
+  // "500g", "1,5kg", "30un", "cx12" — número embutido na string de unidade
+  const embed = s.match(/^([\d.,]+)\s*([a-zA-Záéíóúç]+)$/) || s.match(/^([a-zA-Z]+)\s*([\d.,]+)$/)
+  if (embed) {
+    const [, a, b] = embed
+    const num   = parseNum(a) ?? parseNum(b)
+    const uRaw  = isNaN(parseFloat(a)) ? a : b
+    if (num > 0) {
+      if (KG_VARIANTS.test(uRaw))  return { unidade: 'g',  pesoEmb: num * 1000, aviso: false }
+      if (L_VARIANTS.test(uRaw))   return { unidade: 'ml', pesoEmb: num * 1000, aviso: false }
+      if (G_VARIANTS.test(uRaw))   return { unidade: 'g',  pesoEmb: num,        aviso: false }
+      if (ML_VARIANTS.test(uRaw))  return { unidade: 'ml', pesoEmb: num,        aviso: false }
+      if (UN_VARIANTS.test(uRaw))  return { unidade: 'un', pesoEmb: num,        aviso: false }
+      if (DZ_VARIANTS.test(uRaw))  return { unidade: 'un', pesoEmb: num * 12,   aviso: false }
+    }
+  }
+
+  // Unidades sem quantidade conhecida — salva como 'un' mas avisa
+  if (UN_VARIANTS.test(s)) return { unidade: 'un', pesoEmb: '', aviso: true }
+
+  return { unidade: 'un', pesoEmb: '', aviso: true }
 }
 
 // Extrai número + unidade de strings como "500g", "1,5 kg", "12 un"
@@ -406,7 +439,7 @@ function ImportInsumos({ allSheets, onDone }) {
       for (const ins of parsed) {
         if (matchInsumo(ins.nome, existentes)) { pulados++; continue }
         const { unidade, pesoEmb } = normalizeUnidade(ins.unidade)
-        await saveInsumo({ nome: ins.nome, unidade, categoria: ins.categoria || '', marca: '', pesoEmb, custoEmb: ins.custo || '', linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '' })
+        await saveInsumo({ nome: ins.nome, unidade, categoria: ins.categoria || '', marca: '', pesoEmb: pesoEmb || '', custoEmb: ins.custo || '', linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '', pesoUn: '' })
         criados++
       }
       onDone({ insumosCriados: criados, pulados })
@@ -425,8 +458,16 @@ function ImportInsumos({ allSheets, onDone }) {
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--teal)', padding: '6px 0 2px', textTransform: 'uppercase' }}>{ins.categoria || 'Sem categoria'}</div>
               ))}
               <div style={{ fontSize: 12, padding: '2px 0' }}>
-                • {ins.nome} <span style={{ color: 'var(--text-secondary)' }}>({ins.unidade})</span>
-                {ins.custo != null ? <span style={{ color: 'var(--teal)' }}> R$ {ins.custo}</span> : ''}
+                {(() => { const { unidade, pesoEmb, aviso } = normalizeUnidade(ins.unidade); return (
+                  <>
+                    • {ins.nome}{' '}
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      ({ins.unidade}{pesoEmb ? ` → ${pesoEmb}${unidade}` : ''})
+                    </span>
+                    {ins.custo != null ? <span style={{ color: 'var(--teal)' }}> R$ {ins.custo}</span> : ''}
+                    {aviso && ins.custo > 0 && <span style={{ color: 'var(--danger, #ef4444)', marginLeft: 4 }}>⚠ custo/un não calculável</span>}
+                  </>
+                )})()}
               </div>
             </div>
           ))
