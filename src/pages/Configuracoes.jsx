@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getConfig, saveConfig, calcPrecos, CONFIG_DEFAULTS } from '../hooks/useConfig'
+import { getVendas, getEncomendas } from '../services/db'
 
 function fmtPct(v) { return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) }
 function fmtR(v) {
@@ -15,6 +17,9 @@ export default function Configuracoes() {
   const [exemplo, setExemplo] = useState(10)
   const [novoNome, setNovoNome] = useState('')
   const [adicionando, setAdicionando] = useState(false)
+  const [descontoPromo, setDescontoPromo] = useState(20)
+  const { data: vendas }     = useData(getVendas)
+  const { data: encomendas } = useData(getEncomendas)
 
   const set = (k, v) => setCfg(c => ({ ...c, [k]: parseFloat(v) || 0 }))
 
@@ -45,6 +50,38 @@ export default function Configuracoes() {
   const rateio = cfg.unidadesProjetadas > 0 ? custoFixoMensal / cfg.unidadesProjetadas : 0
   const cfgComTotal = { ...cfg, custoFixoMensal }
   const { base, p99, pIfood } = calcPrecos(exemplo, cfgComTotal)
+
+  // Vendas reais mês atual
+  const realStats = useMemo(() => {
+    const mes = new Date().toISOString().slice(0, 7)
+    let unidades = 0; let receita = 0
+    for (const v of (vendas || [])) {
+      if (v.data?.startsWith(mes)) {
+        unidades += v.quantidade || 0
+        receita  += (v.quantidade || 0) * (v.precoUnit || 0)
+      }
+    }
+    for (const e of (encomendas || [])) {
+      if (e.status === 'Cancelado') continue
+      if (e.dataEntrega?.startsWith(mes)) {
+        for (const it of (e.itens || [])) {
+          unidades += it.quantidade || 0
+          receita  += (it.quantidade || 0) * (it.precoUnit || 0)
+        }
+      }
+    }
+    return { unidades, receita }
+  }, [vendas, encomendas])
+
+  // Ponto de equilíbrio: unidades/mês necessárias pra cobrir custos fixos
+  const margemUnit = exemplo > 0 ? base - exemplo : 0
+  const pontoEquilibrio = margemUnit > 0 ? Math.ceil(custoFixoMensal / margemUnit) : null
+
+  // Promo
+  const precoPromo = base * (1 - descontoPromo / 100)
+  const margemPromo = precoPromo > 0 ? ((precoPromo - exemplo - rateio) / precoPromo) * 100 : 0
+  const lucroPromoUnit = precoPromo - exemplo - rateio
+  const promoColor = margemPromo >= 20 ? 'var(--teal)' : margemPromo >= 5 ? '#f59e0b' : 'var(--alert-text)'
 
   const handleSave = () => {
     saveConfig({ ...cfg, custoFixoMensal })
@@ -210,6 +247,88 @@ export default function Configuracoes() {
             <span style={{ fontSize: 13 }}>iFood <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>(−{fmtPct(cfg.taxaIfood)}%)</span></span>
             <span style={{ fontSize: 14, fontWeight: 600, color: '#ef4444' }}>R$ {fmtR(pIfood)}</span>
           </div>
+        </div>
+
+        {/* ── Ponto de equilíbrio ─────────────────────────── */}
+        <div className="section-label" style={{ marginTop: 16 }}>Ponto de equilíbrio</div>
+        <div className="card" style={{ padding: '12px 16px' }}>
+          {pontoEquilibrio !== null ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span style={{ fontSize: 28, fontWeight: 700, color: 'var(--teal)' }}>{pontoEquilibrio}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>un/mês pra zerar</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+                Custo fixo R$ {fmtR(custoFixoMensal)} ÷ lucro/un R$ {fmtR(margemUnit)} (a R$ {fmtR(base)} venda direta)
+              </div>
+              {realStats.unidades > 0 && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>Mês atual:</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3 }}>
+                      <div style={{
+                        width: `${Math.min(100, (realStats.unidades / pontoEquilibrio) * 100)}%`,
+                        height: '100%',
+                        background: realStats.unidades >= pontoEquilibrio ? 'var(--teal)' : '#f59e0b',
+                        borderRadius: 3,
+                      }} />
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>
+                      {realStats.unidades}/{pontoEquilibrio} ({Math.round((realStats.unidades / pontoEquilibrio) * 100)}%)
+                    </span>
+                  </div>
+                  {realStats.unidades >= pontoEquilibrio ? (
+                    <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4 }}>✓ Você já cobriu os custos fixos do mês</div>
+                  ) : (
+                    <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 4 }}>
+                      Faltam {pontoEquilibrio - realStats.unidades} un pra equilíbrio
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Preencha custo do produto acima pra calcular</div>
+          )}
+        </div>
+
+        {/* ── Calculadora de promoção ─────────────────────── */}
+        <div className="section-label" style={{ marginTop: 16 }}>Calculadora de promoção</div>
+        <div className="card" style={{ padding: '12px 16px' }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Desconto</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal)' }}>{descontoPromo}%</span>
+            </div>
+            <input
+              type="range" min="0" max="60" step="5"
+              value={descontoPromo}
+              onChange={e => setDescontoPromo(parseInt(e.target.value))}
+              style={{ width: '100%', accentColor: 'var(--teal)' }}
+            />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Preço promo</span>
+            <span style={{ fontSize: 14, fontWeight: 600 }}>R$ {fmtR(precoPromo)} <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textDecoration: 'line-through', marginLeft: 4 }}>R$ {fmtR(base)}</span></span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Lucro por unidade</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: promoColor }}>R$ {fmtR(lucroPromoUnit)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Margem resultante</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: promoColor }}>{fmtPct(margemPromo)}%</span>
+          </div>
+          {lucroPromoUnit < 0 && (
+            <div style={{ fontSize: 11, color: 'var(--alert-text)', marginTop: 8, padding: '6px 10px', background: '#3b1f1f', borderRadius: 6 }}>
+              ⚠ Você está vendendo no prejuízo. Cada un perde R$ {fmtR(Math.abs(lucroPromoUnit))}
+            </div>
+          )}
+          {lucroPromoUnit >= 0 && margemPromo < 15 && (
+            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 8, padding: '6px 10px', background: '#3b2700', borderRadius: 6 }}>
+              ⚠ Margem apertada — só vale se compensar em volume
+            </div>
+          )}
         </div>
 
         <button className="btn-primary" onClick={handleSave} style={{ marginTop: 16 }}>
