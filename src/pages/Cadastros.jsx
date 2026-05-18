@@ -434,6 +434,7 @@ export default function Cadastros() {
   const [bulkDelete, setBulkDelete] = useState(false)
   const [bulkSel, setBulkSel]       = useState([])
   const [bulkConfirm, setBulkConfirm] = useState(false)
+  const [bulkBusca, setBulkBusca]   = useState('')
   const { toast, show } = useToast()
 
   const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
@@ -534,7 +535,7 @@ export default function Cadastros() {
               style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               ↑ Excel
             </button>
-            <button onClick={() => { setBulkSel([]); setBulkDelete(true) }}
+            <button onClick={() => { setBulkSel([]); setBulkBusca(''); setBulkDelete(true) }}
               style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               Excluir
             </button>
@@ -786,7 +787,12 @@ export default function Cadastros() {
         <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />
       )}
 
-      {bulkDelete && (
+      {bulkDelete && (() => {
+        const q = norm(bulkBusca)
+        const filtrados = (insumos || []).filter(i => !q || norm(i.nome).includes(q) || norm(i.categoria).includes(q))
+        const filtradosIds = filtrados.map(i => i.id)
+        const todosFiltradosSel = filtradosIds.length > 0 && filtradosIds.every(id => bulkSel.includes(id))
+        return (
         <>
           <div className="sheet-overlay" onClick={() => setBulkDelete(false)} />
           <div className="sheet">
@@ -795,18 +801,27 @@ export default function Cadastros() {
               <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setBulkDelete(false)}>×</button>
             </div>
 
+            <input
+              value={bulkBusca} onChange={e => setBulkBusca(e.target.value)}
+              placeholder="Buscar..."
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--input-bg)', color: 'var(--text)', fontSize: 14, boxSizing: 'border-box', marginBottom: 10 }}
+            />
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-secondary)' }}>
                 <input type="checkbox"
-                  checked={bulkSel.length === (insumos || []).length && (insumos || []).length > 0}
-                  onChange={e => setBulkSel(e.target.checked ? (insumos || []).map(i => i.id) : [])}
-                /> Todos
+                  checked={todosFiltradosSel}
+                  onChange={e => {
+                    if (e.target.checked) setBulkSel(s => [...new Set([...s, ...filtradosIds])])
+                    else setBulkSel(s => s.filter(id => !filtradosIds.includes(id)))
+                  }}
+                /> {bulkBusca ? `Todos os resultados (${filtrados.length})` : `Todos (${filtrados.length})`}
               </label>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{bulkSel.length} selecionado(s)</span>
             </div>
 
-            <div style={{ maxHeight: '55vh', overflowY: 'auto', marginBottom: 16 }}>
-              {(insumos || []).map(ins => (
+            <div style={{ maxHeight: '50vh', overflowY: 'auto', marginBottom: 16 }}>
+              {filtrados.map(ins => (
                 <label key={ins.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
                   <input type="checkbox"
                     checked={bulkSel.includes(ins.id)}
@@ -818,17 +833,18 @@ export default function Cadastros() {
                   </div>
                 </label>
               ))}
+              {filtrados.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '12px 4px' }}>Nenhum resultado</div>}
             </div>
 
-            <button
-              disabled={!bulkSel.length}
-              onClick={() => bulkSel.length && setBulkConfirm(true)}
+            <button disabled={!bulkSel.length} onClick={() => bulkSel.length && setBulkConfirm(true)}
               style={{ width: '100%', padding: '12px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 700, cursor: bulkSel.length ? 'pointer' : 'not-allowed',
-                background: bulkSel.length ? 'var(--danger, #ef4444)' : 'var(--border)', color: '#fff' }}
-            >
+                background: bulkSel.length ? 'var(--danger, #ef4444)' : 'var(--border)', color: '#fff' }}>
               {bulkSel.length ? `Excluir ${bulkSel.length} insumo(s)` : 'Selecione insumos'}
             </button>
           </div>
+        </>
+        )
+      })()}
         </>
       )}
 
