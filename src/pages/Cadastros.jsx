@@ -844,8 +844,6 @@ export default function Cadastros() {
           </div>
         </>
       )}
-        </>
-      )}
 
       {bulkConfirm && (
         <>
