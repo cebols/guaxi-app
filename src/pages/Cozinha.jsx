@@ -18,6 +18,7 @@ export default function Cozinha() {
 
   const [fator, setFator] = useState(1)
   const [pesoInput, setPesoInput] = useState('')
+  const [checked, setChecked] = useState({})
 
   const pesoBase = ingredientes.reduce((s, i) => {
     if (['g', 'ml'].includes(i.unidade)) return s + i.quantidade
@@ -39,6 +40,13 @@ export default function Cozinha() {
       setFator(Math.round((p / pesoBase) * 100) / 100)
     }
   }, [pesoBase])
+
+  const toggleChecked = (i) => {
+    setChecked(prev => ({ ...prev, [i]: !prev[i] }))
+    if (navigator.vibrate) navigator.vibrate(30)
+  }
+
+  const checkedCount = Object.values(checked).filter(Boolean).length
 
   return (
     <>
@@ -73,48 +81,135 @@ export default function Cozinha() {
           </div>
         ) : (
           <>
-            <div className="scale-box">
-              <div className="scale-row">
-                <span className="scale-label">Fator (doses)</span>
+            {/* DOSES + RENDIMENTO — compact controls */}
+            <div className="card" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Doses</span>
                 <input
-                  className="scale-input"
-                  type="text" inputMode="decimal"
-                  min="0.1"
-                  step="0.5"
+                  type="text"
+                  inputMode="decimal"
                   value={fator}
                   onChange={e => onFatorChange(e.target.value)}
+                  style={{
+                    fontSize: 22,
+                    fontWeight: 700,
+                    width: 56,
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
+                    borderRadius: 8,
+                    outline: 'none',
+                    textAlign: 'center',
+                    color: 'var(--text-primary)',
+                    padding: '4px 0',
+                  }}
                 />
-                <span className="scale-unit">x</span>
+                <span style={{ fontSize: 16, color: 'var(--text-secondary)' }}>×</span>
               </div>
+
               {pesoBase > 0 && (
-                <div className="scale-row">
-                  <span className="scale-label">Rendimento bruto</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Rendimento</span>
                   <input
-                    className="scale-input"
-                    type="text" inputMode="decimal"
-                    min="1"
-                    step="10"
-                    value={pesoInput || Math.round(pesoBase)}
+                    type="text"
+                    inputMode="decimal"
+                    value={pesoInput || Math.round(pesoBase * fator).toLocaleString('pt-BR')}
                     onChange={e => onPesoChange(e.target.value)}
+                    style={{
+                      fontSize: 22,
+                      fontWeight: 700,
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      outline: 'none',
+                      textAlign: 'center',
+                      color: 'var(--text-primary)',
+                      padding: '4px 8px',
+                      width: `${Math.max(4, String(Math.round(pesoBase * fator)).length + 1)}ch`,
+                    }}
                   />
-                  <span className="scale-unit">g</span>
+                  <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>g</span>
+                  {receita.rendimento > 0 && (
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                      · {Math.round(receita.rendimento * fator)} un
+                    </span>
+                  )}
                 </div>
               )}
             </div>
 
-            <div className="section-label">Ingredientes</div>
-            <div className="card card-flush" style={{ padding: '0 14px' }}>
-              {ingredientes.map((ing, i) => (
-                <div key={i} className="ing-row">
-                  <span className="ing-name">
-                    {ing.subReceitaId && (
-                      <span style={{ fontSize: 10, background: 'var(--teal)', color: '#fff', borderRadius: 4, padding: '1px 4px', marginRight: 6, fontWeight: 700 }}>R</span>
-                    )}
-                    {ing.nome}
-                  </span>
-                  <span className="ing-qty">{fmtQty(ing.quantidade * fator, ing.unidade)}</span>
-                </div>
-              ))}
+            {/* INGREDIENTES checklist */}
+            <div style={{ fontSize: 11, letterSpacing: 2, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
+              Ingredientes · {checkedCount} de {ingredientes.length} prontos
+            </div>
+            <div className="card card-flush">
+              {ingredientes.map((ing, i) => {
+                const isChecked = !!checked[i]
+                return (
+                  <div
+                    key={i}
+                    onClick={() => toggleChecked(i)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 16,
+                      padding: '16px 14px',
+                      borderBottom: i < ingredientes.length - 1 ? '1px solid var(--border)' : 'none',
+                      cursor: 'pointer',
+                      opacity: isChecked ? 0.4 : 1,
+                      transition: 'opacity 0.15s',
+                      userSelect: 'none',
+                      WebkitTapHighlightColor: 'transparent',
+                    }}
+                  >
+                    {/* Circle checkbox */}
+                    <div style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      border: `2.5px solid ${isChecked ? 'var(--teal)' : 'var(--border)'}`,
+                      background: isChecked ? 'var(--teal)' : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      transition: 'all 0.15s',
+                    }}>
+                      {isChecked && (
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </div>
+
+                    {/* Name */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      {ing.subReceitaId && (
+                        <span style={{ fontSize: 10, background: 'var(--teal)', color: '#fff', borderRadius: 4, padding: '1px 4px', marginRight: 6, fontWeight: 700 }}>R</span>
+                      )}
+                      <span style={{
+                        fontSize: 18,
+                        fontWeight: 500,
+                        textDecoration: isChecked ? 'line-through' : 'none',
+                        color: isChecked ? 'var(--text-secondary)' : 'var(--text-primary)',
+                      }}>
+                        {ing.nome}
+                      </span>
+                    </div>
+
+                    {/* Quantity — large */}
+                    <span style={{
+                      fontSize: 44,
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      color: isChecked ? 'var(--text-secondary)' : 'var(--teal)',
+                      letterSpacing: -1,
+                      flexShrink: 0,
+                    }}>
+                      {fmtQty(ing.quantidade * fator, ing.unidade)}
+                    </span>
+                  </div>
+                )
+              })}
             </div>
 
             {receita.rendimento > 0 && (
