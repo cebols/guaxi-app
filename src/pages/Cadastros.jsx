@@ -525,6 +525,11 @@ export default function Cadastros() {
   const loading = tab === 'insumos' ? lIns : lEmb
   const openNew = () => setSheet({ type: tab === 'embalagens' ? 'embalagem' : 'insumo' })
 
+  const bulkQ = norm(bulkBusca)
+  const bulkFiltrados = (insumos || []).filter(i => !bulkQ || norm(i.nome).includes(bulkQ) || norm(i.categoria).includes(bulkQ))
+  const bulkFiltradosIds = bulkFiltrados.map(i => i.id)
+  const bulkTodosSel = bulkFiltradosIds.length > 0 && bulkFiltradosIds.every(id => bulkSel.includes(id))
+
   return (
     <>
       <div className="topbar">
@@ -787,12 +792,7 @@ export default function Cadastros() {
         <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />
       )}
 
-      {bulkDelete && (() => {
-        const q = norm(bulkBusca)
-        const filtrados = (insumos || []).filter(i => !q || norm(i.nome).includes(q) || norm(i.categoria).includes(q))
-        const filtradosIds = filtrados.map(i => i.id)
-        const todosFiltradosSel = filtradosIds.length > 0 && filtradosIds.every(id => bulkSel.includes(id))
-        return (
+      {bulkDelete && (
         <>
           <div className="sheet-overlay" onClick={() => setBulkDelete(false)} />
           <div className="sheet">
@@ -810,18 +810,18 @@ export default function Cadastros() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-secondary)' }}>
                 <input type="checkbox"
-                  checked={todosFiltradosSel}
+                  checked={bulkTodosSel}
                   onChange={e => {
-                    if (e.target.checked) setBulkSel(s => [...new Set([...s, ...filtradosIds])])
-                    else setBulkSel(s => s.filter(id => !filtradosIds.includes(id)))
+                    if (e.target.checked) setBulkSel(s => [...new Set([...s, ...bulkFiltradosIds])])
+                    else setBulkSel(s => s.filter(id => !bulkFiltradosIds.includes(id)))
                   }}
-                /> {bulkBusca ? `Todos os resultados (${filtrados.length})` : `Todos (${filtrados.length})`}
+                /> {bulkBusca ? `Todos os resultados (${bulkFiltrados.length})` : `Todos (${bulkFiltrados.length})`}
               </label>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{bulkSel.length} selecionado(s)</span>
             </div>
 
             <div style={{ maxHeight: '50vh', overflowY: 'auto', marginBottom: 16 }}>
-              {filtrados.map(ins => (
+              {bulkFiltrados.map(ins => (
                 <label key={ins.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
                   <input type="checkbox"
                     checked={bulkSel.includes(ins.id)}
@@ -833,7 +833,7 @@ export default function Cadastros() {
                   </div>
                 </label>
               ))}
-              {filtrados.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '12px 4px' }}>Nenhum resultado</div>}
+              {bulkFiltrados.length === 0 && <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '12px 4px' }}>Nenhum resultado</div>}
             </div>
 
             <button disabled={!bulkSel.length} onClick={() => bulkSel.length && setBulkConfirm(true)}
@@ -843,8 +843,7 @@ export default function Cadastros() {
             </button>
           </div>
         </>
-        )
-      })()}
+      )}
         </>
       )}
 
