@@ -40,7 +40,7 @@ function TipoBadge({ tipo }) {
 
 const FORM_EMPTY = { nome: '', tipo: 'produto', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '' }
 
-function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, onClose }) {
+function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item
     ? {
         nome:        item.nome,
@@ -163,7 +163,14 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
             value={form.custoDireto} onChange={e => set('custoDireto', e.target.value)} />
 
           <div className="field-label">Fornecedor</div>
-          <input className="field-input" placeholder="Nome do fornecedor" value={form.fornecedor} onChange={e => set('fornecedor', e.target.value)} />
+          <input className="field-input" list="forn-prod-list" placeholder="Nome do fornecedor" value={form.fornecedor}
+            onChange={e => {
+              const val = e.target.value
+              set('fornecedor', val)
+              const match = (fornecedoresList || []).find(f => f.nome === val)
+              if (match) set('whatsapp', match.whatsapp || '')
+            }} />
+          <datalist id="forn-prod-list">{(fornecedoresList || []).map(f => <option key={f.nome} value={f.nome} />)}</datalist>
 
           <div className="field-row">
             <div>
@@ -248,16 +255,26 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
 
           <div className="section-label" style={{ marginTop: 8 }}>Composição — Embalagens</div>
           <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 4 }}>
-            {embRows.map((row, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '6px 0', borderBottom: i < embRows.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                <input className="field-input" style={{ flex: 3, marginBottom: 0, fontSize: 13 }}
-                  list="embalagens-list" placeholder="Embalagem" value={row.nome} onChange={e => handleEmbSelect(i, e.target.value)} />
-                <input className="item-qty" type="text" inputMode="decimal" min="0" step="1" placeholder="Qtd"
-                  value={row.quantidade} onChange={e => setEmbField(i, 'quantidade', e.target.value)} />
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 28 }}>un</span>
-                {embRows.length > 1 && <button className="item-rm" onClick={() => removeEmb(i)}>&#215;</button>}
-              </div>
-            ))}
+            {embRows.map((row, i) => {
+              const lineCost = (row.custoUnit || 0) * (parseFloat(row.quantidade) || 1)
+              return (
+                <div key={i} style={{ padding: '6px 0', borderBottom: i < embRows.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input className="field-input" style={{ flex: 3, marginBottom: 0, fontSize: 13 }}
+                      list="embalagens-list" placeholder="Embalagem" value={row.nome} onChange={e => handleEmbSelect(i, e.target.value)} />
+                    <input className="item-qty" type="text" inputMode="decimal" min="0" step="1" placeholder="Qtd"
+                      value={row.quantidade} onChange={e => setEmbField(i, 'quantidade', e.target.value)} />
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 28 }}>un</span>
+                    {embRows.length > 1 && <button className="item-rm" onClick={() => removeEmb(i)}>&#215;</button>}
+                  </div>
+                  {lineCost > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 2, paddingLeft: 2 }}>
+                      {fmtR(row.custoUnit)}/un × {row.quantidade} = <strong>{fmtR(lineCost)}</strong>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
           <datalist id="embalagens-list">{(embalagens || []).map(e => <option key={e.id} value={e.nome} />)}</datalist>
           <button className="btn-add-item" onClick={addEmb}>+ embalagem</button>
@@ -343,6 +360,14 @@ export default function Produtos() {
   const { data: receitas,   loading: lRec  } = useData(getReceitas)
   const { data: embalagens, loading: lEmb  } = useData(getEmbalagens)
   const loading = lProd || lRec || lEmb
+
+  const fornecedoresList = useMemo(() => {
+    const map = {}
+    ;(embalagens || []).forEach(e => {
+      if (e.fornecedor && !map[e.fornecedor]) map[e.fornecedor] = { nome: e.fornecedor, whatsapp: e.whatsapp || '' }
+    })
+    return Object.values(map).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }, [embalagens])
 
   const TIPO_MAP = { Todos: null, Produzido: 'produto', Avulso: 'avulso', Combo: 'combo' }
   const produtosFiltrados = (produtos || []).filter(p => !TIPO_MAP[filtroTipo] || p.tipo === TIPO_MAP[filtroTipo])
@@ -466,6 +491,7 @@ export default function Produtos() {
           receitas={receitas}
           embalagens={embalagens}
           produtos={produtos}
+          fornecedoresList={fornecedoresList}
           onSave={handleSave}
           onDelete={handleDelete}
           onClose={() => setSheet(null)}
