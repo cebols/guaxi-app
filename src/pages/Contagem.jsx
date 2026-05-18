@@ -97,8 +97,46 @@ function ListaCompras({ contagem, itens }) {
   )
 }
 
-function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir' }) {
-  const grupos = groupBy(itens, 'categoria')
+function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', filtro = 'todos' }) {
+  // Apply filter
+  const filtered = useMemo(() => {
+    if (filtro === 'todos') return itens
+    return itens.filter(item => {
+      const val = contagem[item.id]
+      const effectiveMin = minValues?.[item.id] ?? item.estoqueMin
+      const stockVal = val !== undefined && val !== '' ? parseFloat(val) : item.estoqueAtual
+      if (filtro === 'faltando') return stockVal !== null && stockVal !== undefined && stockVal < effectiveMin
+      if (filtro === 'naocontados') return val === undefined || val === ''
+      return true
+    })
+  }, [itens, contagem, minValues, filtro])
+
+  const grupos = groupBy(filtered, 'categoria')
+
+  // Flat ordered list for Enter-to-next navigation
+  const orderedIds = useMemo(() =>
+    Object.values(grupos).flat().map(i => i.id),
+    [grupos]
+  )
+  const inputRefs = useRef({})
+  const handleKey = (id) => (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      const idx = orderedIds.indexOf(id)
+      const nextId = orderedIds[idx + 1]
+      if (nextId && inputRefs.current[nextId]) {
+        inputRefs.current[nextId].focus()
+        inputRefs.current[nextId].select()
+      } else {
+        e.target.blur()
+      }
+    }
+  }
+
+  if (filtered.length === 0) {
+    return <div className="empty" style={{ marginTop: 24 }}><span>Nenhum item neste filtro</span></div>
+  }
+
   return (
     <>
       {Object.entries(grupos).map(([cat, items]) => (
@@ -117,11 +155,14 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir' }
                   </div>
                   <div>
                     <input
+                      ref={el => { if (el) inputRefs.current[item.id] = el }}
                       className="stock-input"
                       type="text" inputMode="decimal" min="0"
                       value={val}
                       placeholder="—"
                       onChange={e => onChange(item.id, e.target.value)}
+                      onKeyDown={handleKey(item.id)}
+                      onFocus={e => e.target.select()}
                     />
                     {falta !== null && falta > 0 && <div className="pedir-txt">{labelPedir} {falta} {item.unidade}</div>}
                     {falta !== null && falta === 0 && <div className="ok-txt">ok</div>}
@@ -355,6 +396,7 @@ export default function Contagem() {
 
   const [tab, setTab] = useState('insumos')
   const [busca, setBusca] = useState('')
+  const [filtroContagem, setFiltroContagem] = useState('todos') // todos | faltando | naocontados
   const [contagemIns,  setContagemIns]  = useState({})
   const [contagemEmb,  setContagemEmb]  = useState({})
   const [contagemProd, setContagemProd] = useState({})
@@ -569,7 +611,21 @@ export default function Contagem() {
 
               return (
                 <>
-                  <StockTab itens={itensFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} />
+                  {/* Filter chips */}
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto' }}>
+                    {[['todos', 'Tudo'], ['faltando', '🔴 Faltando'], ['naocontados', '👁 Não contados']].map(([k, l]) => (
+                      <button key={k} onClick={() => setFiltroContagem(k)} style={{
+                        padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                        border: '1px solid',
+                        borderColor: filtroContagem === k ? 'var(--teal)' : 'var(--border)',
+                        background:  filtroContagem === k ? 'var(--teal-light)' : 'transparent',
+                        color:       filtroContagem === k ? 'var(--teal)' : 'var(--text-secondary)',
+                        cursor: 'pointer', whiteSpace: 'nowrap',
+                      }}>{l}</button>
+                    ))}
+                  </div>
+
+                  <StockTab itens={itensFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} filtro={filtroContagem} />
 
                   {/* Resultados sem estoque na busca */}
                   {busca && semFiltrados.length > 0 && (
@@ -577,7 +633,7 @@ export default function Contagem() {
                       <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, margin: '12px 0 6px', textTransform: 'uppercase', letterSpacing: 1 }}>
                         Sem estoque
                       </div>
-                      <StockTab itens={semFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} />
+                      <StockTab itens={semFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} filtro={filtroContagem} />
                     </>
                   )}
 
