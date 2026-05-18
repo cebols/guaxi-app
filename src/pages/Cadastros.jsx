@@ -763,18 +763,19 @@ export default function Cadastros() {
           const cats = tab === 'insumos' ? catsInsumo : catsEmbalagem
           if (cats.length < 2) return null
           return (
-            <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 12, paddingBottom: 2 }}>
-              {['', ...cats].map(cat => (
-                <button key={cat || '__todos'} onClick={() => setFiltroCat(cat)} style={{
-                  flexShrink: 0, padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                  cursor: 'pointer', border: '1px solid',
-                  borderColor: filtroCat === cat ? 'var(--teal)' : 'var(--border-color)',
-                  background:  filtroCat === cat ? 'var(--teal-light)' : 'transparent',
-                  color:       filtroCat === cat ? 'var(--teal)' : 'var(--text-secondary)',
-                  whiteSpace: 'nowrap',
-                }}>{cat || 'Todos'}</button>
-              ))}
-            </div>
+            <select
+              value={filtroCat}
+              onChange={e => setFiltroCat(e.target.value)}
+              style={{
+                width: '100%', marginBottom: 12, padding: '8px 12px', borderRadius: 8,
+                border: `1px solid ${filtroCat ? 'var(--teal)' : 'var(--border-color)'}`,
+                background: 'var(--bg-secondary)', color: filtroCat ? 'var(--teal)' : 'var(--text-secondary)',
+                fontSize: 13, cursor: 'pointer', fontWeight: filtroCat ? 600 : 400,
+              }}
+            >
+              <option value=''>Todas as categorias</option>
+              {cats.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+            </select>
           )
         })()}
 
