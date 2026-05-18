@@ -373,6 +373,8 @@ export default function Produtos() {
   const produtosFiltrados = (produtos || []).filter(p => !TIPO_MAP[filtroTipo] || p.tipo === TIPO_MAP[filtroTipo])
 
 
+  const [duplicando, setDuplicando] = useState(null)
+
   const handleSave = async (prod, recItems, embItems) => {
     await saveProduto(prod, recItems, embItems)
     rProd()
@@ -382,6 +384,36 @@ export default function Produtos() {
     await deleteProduto(id)
     rProd()
     show('Excluído!')
+  }
+  const handleDuplicar = async (prod, e) => {
+    e?.stopPropagation()
+    setDuplicando(prod.id)
+    try {
+      const recItems = (prod.receitas || []).map(r => ({
+        receitaId: r.receitaId, nome: r.nome, quantidade: r.quantidade,
+        unidade: r.unidadeGera || 'un', custoUnid: r.custoUnid,
+      }))
+      const embItems = (prod.embalagens || []).map(em => ({
+        embalagemId: em.embalagemId, nome: em.nome, quantidade: em.quantidade, custoUnit: em.custoUnit,
+      }))
+      const componentes = (prod.componentes || []).map(c => ({
+        produtoId: c.produtoId, produtoNome: c.produtoNome, quantidade: c.quantidade, custoUnit: c.custoUnit,
+      }))
+      await saveProduto({
+        nome: `${prod.nome} (cópia)`,
+        tipo: prod.tipo,
+        custoDireto: prod.custoDireto,
+        fornecedor: prod.fornecedor, whatsapp: prod.whatsapp, linkCompra: prod.linkCompra,
+        precoDireta: prod.precoDireta, preco99: prod.preco99, precoIfood: prod.precoIfood,
+        estoqueMin: prod.estoqueMin, componentes,
+      }, recItems, embItems)
+      rProd()
+      show('Duplicado!')
+    } catch (err) {
+      alert('Erro ao duplicar: ' + err.message)
+    } finally {
+      setDuplicando(null)
+    }
   }
 
   return (
@@ -423,6 +455,7 @@ export default function Produtos() {
                         <th style={{ color: PLAT_COLOR.Direta }}>Direta</th>
                         <th style={{ color: PLAT_COLOR['99Food'] }}>99Food</th>
                         <th style={{ color: PLAT_COLOR.iFood }}>iFood</th>
+                        <th></th>
                       </tr></thead>
                       <tbody>
                         {produtosFiltrados.map(prod => {
@@ -437,6 +470,12 @@ export default function Produtos() {
                               <td style={{ color: PLAT_COLOR.Direta }}>{fmtR(prod.precoDireta ?? p.base)}</td>
                               <td style={{ color: PLAT_COLOR['99Food'] }}>{fmtR(prod.preco99 ?? p.p99)}</td>
                               <td style={{ color: PLAT_COLOR.iFood }}>{fmtR(prod.precoIfood ?? p.pIfood)}</td>
+                              <td onClick={e => e.stopPropagation()} style={{ textAlign: 'right' }}>
+                                <button onClick={e => handleDuplicar(prod, e)} disabled={duplicando === prod.id} title="Duplicar"
+                                  style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, padding: 4 }}>
+                                  {duplicando === prod.id ? '⏳' : '⎘'}
+                                </button>
+                              </td>
                             </tr>
                           )
                         })}
@@ -473,6 +512,10 @@ export default function Produtos() {
                             custo<br />{fmtR(prod.custoTotal)}
                           </div>
                         )}
+                        <button onClick={e => handleDuplicar(prod, e)} disabled={duplicando === prod.id} title="Duplicar"
+                          style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 16, padding: '4px 6px', marginLeft: 4 }}>
+                          {duplicando === prod.id ? '⏳' : '⎘'}
+                        </button>
                       </div>
                     )
                   })}
