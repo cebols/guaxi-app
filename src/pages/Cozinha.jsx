@@ -78,7 +78,7 @@ export default function Cozinha() {
                 <span className="scale-label">Fator (doses)</span>
                 <input
                   className="scale-input"
-                  type="number" inputMode="decimal"
+                  type="text" inputMode="decimal"
                   min="0.1"
                   step="0.5"
                   value={fator}
@@ -91,7 +91,7 @@ export default function Cozinha() {
                   <span className="scale-label">Rendimento bruto</span>
                   <input
                     className="scale-input"
-                    type="number" inputMode="decimal"
+                    type="text" inputMode="decimal"
                     min="1"
                     step="10"
                     value={pesoInput || Math.round(pesoBase)}

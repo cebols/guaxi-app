@@ -201,7 +201,7 @@ export default function ReceitaForm() {
               <div className="field-label">Rendimento — qtd de {form.unidadeGera || 'unidades'}</div>
               <input
                 className="field-input"
-                type="number" inputMode="decimal" min="0"
+                type="text" inputMode="decimal" min="0"
                 placeholder="ex: 12"
                 value={form.rendimento}
                 onChange={e => setField('rendimento', e.target.value)}
@@ -215,7 +215,7 @@ export default function ReceitaForm() {
             </div>
             <input
               className="field-input"
-              type="number" inputMode="decimal"
+              type="text" inputMode="decimal"
               min="1" max="99"
               placeholder={isWeightUnit ? 'ex: 18 → aplica no bruto' : 'opcional'}
               value={form.fatorPerda}
@@ -263,7 +263,7 @@ export default function ReceitaForm() {
                   />
                   <input
                     className="item-qty"
-                    type="number" inputMode="decimal"
+                    type="text" inputMode="decimal"
                     min="0" step="0.1"
                     placeholder="Qtd"
                     value={ing.quantidade}

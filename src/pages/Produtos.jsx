@@ -159,7 +159,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
       {isAvulso && (
         <>
           <div className="field-label">Custo de aquisição (R$/un)</div>
-          <input className="field-input" type="number" inputMode="decimal" min="0" step="0.10" placeholder="ex: 3.50"
+          <input className="field-input" type="text" inputMode="decimal" min="0" step="0.10" placeholder="ex: 3.50"
             value={form.custoDireto} onChange={e => set('custoDireto', e.target.value)} />
 
           <div className="field-label">Fornecedor</div>
@@ -196,7 +196,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
                       value={row.nome}
                       onChange={e => handleComboSelect(i, e.target.value)}
                     />
-                    <input className="item-qty" type="number" inputMode="decimal" min="1" step="1" placeholder="Qtd"
+                    <input className="item-qty" type="text" inputMode="decimal" min="1" step="1" placeholder="Qtd"
                       value={row.quantidade} onChange={e => setComboField(i, 'quantidade', e.target.value)} />
                     {comboRows.length > 1 && <button className="item-rm" onClick={() => removeCombo(i)}>&#215;</button>}
                   </div>
@@ -228,7 +228,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     <input className="field-input" style={{ flex: '1 1 140px', minWidth: 100, marginBottom: 0, fontSize: 13 }}
                       list="receitas-list" placeholder="Receita" value={row.nome} onChange={e => handleRecSelect(i, e.target.value)} />
-                    <input className="item-qty" type="number" inputMode="decimal" min="0" step="0.5" placeholder="Qtd"
+                    <input className="item-qty" type="text" inputMode="decimal" min="0" step="0.5" placeholder="Qtd"
                       value={row.quantidade} onChange={e => setRecField(i, 'quantidade', e.target.value)} />
                     <input className="item-qty" style={{ width: 52, textAlign: 'left', fontSize: 12 }}
                       placeholder="un" value={row.unidade} onChange={e => setRecField(i, 'unidade', e.target.value)} />
@@ -252,7 +252,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
               <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '6px 0', borderBottom: i < embRows.length - 1 ? '1px solid var(--border)' : 'none' }}>
                 <input className="field-input" style={{ flex: 3, marginBottom: 0, fontSize: 13 }}
                   list="embalagens-list" placeholder="Embalagem" value={row.nome} onChange={e => handleEmbSelect(i, e.target.value)} />
-                <input className="item-qty" type="number" inputMode="decimal" min="0" step="1" placeholder="Qtd"
+                <input className="item-qty" type="text" inputMode="decimal" min="0" step="1" placeholder="Qtd"
                   value={row.quantidade} onChange={e => setEmbField(i, 'quantidade', e.target.value)} />
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 28 }}>un</span>
                 {embRows.length > 1 && <button className="item-rm" onClick={() => removeEmb(i)}>&#215;</button>}
@@ -286,7 +286,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
         {platFields.map(({ key, label, sugerido, color }) => (
           <div key={key} style={{ flex: 1 }}>
             <div className="field-label" style={{ color, marginBottom: 4 }}>{label}</div>
-            <input className="field-input" type="number" inputMode="decimal" min="0" step="0.50"
+            <input className="field-input" type="text" inputMode="decimal" min="0" step="0.50"
               placeholder={custoTotal > 0 ? fmtR(sugerido).replace('R$ ', '') : '—'}
               value={form[key]} onChange={e => set(key, e.target.value)} style={{ fontSize: 13 }} />
           </div>
@@ -294,7 +294,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, onSave, onDelete, o
       </div>
 
       <div className="section-label" style={{ marginTop: 10 }}>Estoque mínimo</div>
-      <input className="field-input" type="number" inputMode="decimal" min="0" step="1"
+      <input className="field-input" type="text" inputMode="decimal" min="0" step="1"
         placeholder="ex: 5 (deixe em branco para sem mínimo)"
         value={form.estoqueMin} onChange={e => set('estoqueMin', e.target.value)} />
 

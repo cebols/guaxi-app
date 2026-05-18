@@ -118,7 +118,7 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir' }
                   <div>
                     <input
                       className="stock-input"
-                      type="number" inputMode="decimal" min="0"
+                      type="text" inputMode="decimal" min="0"
                       value={val}
                       placeholder="—"
                       onChange={e => onChange(item.id, e.target.value)}
@@ -633,7 +633,7 @@ export default function Contagem() {
               <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid #1e1e1e' }}>
                 <div style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{item.nome}</div>
                 <input
-                  type="number" inputMode="decimal" min="0"
+                  type="text" inputMode="decimal" min="0"
                   value={modalMin.values[item.id] ?? ''}
                   onChange={e => setModalMin(m => ({ ...m, values: { ...m.values, [item.id]: e.target.value } }))}
                   style={{ width: 80, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'right' }}

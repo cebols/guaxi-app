@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
-import { getReceitas } from '../services/db'
+import { getReceitas, deleteReceitas } from '../services/db'
 import ImportarExcel from './ImportarExcel'
 
 const TIPO_COLOR = {
@@ -23,7 +23,10 @@ export default function Fichas() {
   const navigate = useNavigate()
   const { data: receitas, loading, reload } = useData(getReceitas)
   const [busca, setBusca] = useState('')
-  const [importando, setImportando] = useState(false)
+  const [importando, setImportando]   = useState(false)
+  const [bulkDelete, setBulkDelete]   = useState(false)
+  const [bulkSel, setBulkSel]         = useState([])
+  const [bulkConfirm, setBulkConfirm] = useState(false)
 
   const filtradas = (receitas || []).filter(r =>
     r.nome.toLowerCase().includes(busca.toLowerCase())
@@ -35,14 +38,12 @@ export default function Fichas() {
         <div className="topbar-inner">
           <div className="topbar-title">Receitas</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => setImportando(true)}
-              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            >↑ Excel</button>
-            <button
-              onClick={() => navigate('/fichas/nova')}
-              style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            >+ Nova</button>
+            <button onClick={() => setImportando(true)}
+              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>↑ Excel</button>
+            <button onClick={() => { setBulkSel([]); setBulkDelete(true) }}
+              style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Excluir</button>
+            <button onClick={() => navigate('/fichas/nova')}
+              style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Nova</button>
           </div>
         </div>
       </div>
@@ -129,6 +130,72 @@ export default function Fichas() {
           </>
         )}
       </div>
+
+      {bulkDelete && (
+        <>
+          <div className="sheet-overlay" onClick={() => setBulkDelete(false)} />
+          <div className="sheet">
+            <div className="sheet-title">
+              <span>Excluir receitas</span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setBulkDelete(false)}>×</button>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                <input type="checkbox"
+                  checked={bulkSel.length === (receitas || []).length && (receitas || []).length > 0}
+                  onChange={e => setBulkSel(e.target.checked ? (receitas || []).map(r => r.id) : [])}
+                /> Todas
+              </label>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{bulkSel.length} selecionada(s)</span>
+            </div>
+            <div style={{ maxHeight: '55vh', overflowY: 'auto', marginBottom: 16 }}>
+              {(receitas || []).map(rec => (
+                <label key={rec.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+                  <input type="checkbox"
+                    checked={bulkSel.includes(rec.id)}
+                    onChange={e => setBulkSel(s => e.target.checked ? [...s, rec.id] : s.filter(id => id !== rec.id))}
+                  />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{rec.nome}</div>
+                    {rec.tipo && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{rec.tipo}</div>}
+                  </div>
+                </label>
+              ))}
+            </div>
+            <button disabled={!bulkSel.length} onClick={() => bulkSel.length && setBulkConfirm(true)}
+              style={{ width: '100%', padding: '12px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 700,
+                cursor: bulkSel.length ? 'pointer' : 'not-allowed',
+                background: bulkSel.length ? 'var(--danger, #ef4444)' : 'var(--border)', color: '#fff' }}>
+              {bulkSel.length ? `Excluir ${bulkSel.length} receita(s)` : 'Selecione receitas'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {bulkConfirm && (
+        <>
+          <div className="sheet-overlay" onClick={() => setBulkConfirm(false)} />
+          <div className="sheet">
+            <div style={{ padding: '8px 0 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>🗑️</div>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Excluir {bulkSel.length} receita(s)?</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 24 }}>Essa ação não pode ser desfeita.</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn-outline-teal" style={{ flex: 1 }} onClick={() => setBulkConfirm(false)}>Cancelar</button>
+                <button style={{ flex: 1, padding: '12px', borderRadius: 10, border: 'none', fontSize: 14, fontWeight: 700, cursor: 'pointer', background: 'var(--danger, #ef4444)', color: '#fff' }}
+                  onClick={async () => {
+                    try {
+                      await deleteReceitas(bulkSel)
+                      reload()
+                      setBulkConfirm(false)
+                      setBulkDelete(false)
+                    } catch (e) { alert(e.message) }
+                  }}>Excluir</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {importando && (
         <ImportarExcel mode="receitas"

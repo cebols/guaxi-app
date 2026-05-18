@@ -84,7 +84,7 @@ export default function Configuracoes() {
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>R$</span>
                 <input
                   className="item-qty"
-                  type="number" inputMode="decimal"
+                  type="text" inputMode="decimal"
                   min="0"
                   step="10"
                   value={item.valor || ''}
@@ -154,7 +154,7 @@ export default function Configuracoes() {
         <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>quantas unidades você vende por mês</div>
         <input
           className="field-input"
-          type="number" inputMode="decimal" min="1" step="1"
+          type="text" inputMode="decimal" min="1" step="1"
           value={cfg.unidadesProjetadas}
           onChange={e => set('unidadesProjetadas', e.target.value)}
           style={{ maxWidth: 160 }}
@@ -165,7 +165,7 @@ export default function Configuracoes() {
         <div className="field-label">Margem desejada (%)</div>
         <input
           className="field-input"
-          type="number" inputMode="decimal" min="0" max="99" step="1"
+          type="text" inputMode="decimal" min="0" max="99" step="1"
           value={cfg.margem}
           onChange={e => set('margem', e.target.value)}
           style={{ maxWidth: 160 }}
@@ -176,11 +176,11 @@ export default function Configuracoes() {
         <div className="field-row">
           <div>
             <div className="field-label">Taxa 99Food (%)</div>
-            <input className="field-input" type="number" inputMode="decimal" min="0" max="99" step="0.5" value={cfg.taxa99} onChange={e => set('taxa99', e.target.value)} />
+            <input className="field-input" type="text" inputMode="decimal" min="0" max="99" step="0.5" value={cfg.taxa99} onChange={e => set('taxa99', e.target.value)} />
           </div>
           <div>
             <div className="field-label">Taxa iFood (%)</div>
-            <input className="field-input" type="number" inputMode="decimal" min="0" max="99" step="0.5" value={cfg.taxaIfood} onChange={e => set('taxaIfood', e.target.value)} />
+            <input className="field-input" type="text" inputMode="decimal" min="0" max="99" step="0.5" value={cfg.taxaIfood} onChange={e => set('taxaIfood', e.target.value)} />
           </div>
         </div>
 
@@ -189,7 +189,7 @@ export default function Configuracoes() {
         <div className="field-label">Custo do produto (R$) — preencha para simular</div>
         <input
           className="field-input"
-          type="number" inputMode="decimal" min="0" step="0.50"
+          type="text" inputMode="decimal" min="0" step="0.50"
           value={exemplo}
           onChange={e => setExemplo(parseFloat(e.target.value) || 0)}
           style={{ maxWidth: 160 }}

@@ -114,6 +114,7 @@ function ImportReceitas({ allSheets, onDone }) {
   const [previewSheet, setPreviewSheet] = useState(allSheets[0] || null)
   const [map, setMap] = useState({
     nomeMode: 'cell', nomeRow: 1, nomeCol: 3,
+    rendMode: 'cell', rendRow: 3, rendCol: 3,  // célula do rendimento
     dataRow: 5, colIng: 0, colQtd: 5, colUnid: 6, colCusto: 8,
   })
   const [parsed, setParsed]       = useState([])
@@ -130,6 +131,8 @@ function ImportReceitas({ allSheets, onDone }) {
     const nomeFinal = map.nomeMode === 'tabname'
       ? name
       : String((rows2d[map.nomeRow] || [])[map.nomeCol] || '').trim() || name
+    const rendRaw = String((rows2d[map.rendRow] || [])[map.rendCol] || '')
+    const rendimento = parseNum(rendRaw.match(/[\d,.']+/)?.[0] || '') || 1
     const ingredientes = []
     for (let r = map.dataRow; r < rows2d.length; r++) {
       const row = rows2d[r]
@@ -143,7 +146,7 @@ function ImportReceitas({ allSheets, onDone }) {
       const custo = map.colCusto >= 0 ? parseNum(row[map.colCusto]) : null
       ingredientes.push({ nome: ingNome, quantidade: qtd, unidade, custo })
     }
-    return { nome: nomeFinal, ingredientes }
+    return { nome: nomeFinal, rendimento, ingredientes }
   }
 
   function buildPreview() {
@@ -166,7 +169,7 @@ function ImportReceitas({ allSheets, onDone }) {
           } else { casados++ }
           ings.push({ insumoId: insumo.id, nome: ing.nome, quantidade: ing.quantidade, unidade: ing.unidade || insumo.unidade || 'g' })
         }
-        await saveReceita({ nome: rec.nome, tipo: 'Outro', rendimento: 1, unidadeGera: 'un', custoTotal: 0, custoUnid: 0 }, ings)
+        await saveReceita({ nome: rec.nome, tipo: 'Outro', rendimento: rec.rendimento || 1, unidadeGera: 'un', custoTotal: 0, custoUnid: 0 }, ings)
         receitasCriadas++
       }
       onDone({ receitasCriadas, criados, casados })
@@ -181,7 +184,8 @@ function ImportReceitas({ allSheets, onDone }) {
       <div style={{ maxHeight: '52vh', overflowY: 'auto', marginBottom: 16 }}>
         {parsed.map((rec, ri) => (
           <div key={ri} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>{rec.nome}</div>
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>{rec.nome}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>rendimento: {rec.rendimento}</div>
             {rec.ingredientes.map((ing, ii) => (
               <div key={ii} style={{ fontSize: 12, padding: '2px 0' }}>
                 • {ing.quantidade} {ing.unidade} — {ing.nome}
@@ -248,6 +252,11 @@ function ImportReceitas({ allSheets, onDone }) {
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+        <div>
+          <div className="field-label">Linha do rendimento</div>
+          <input className="field-input" type="number" min="0" value={map.rendRow} onChange={e => setM('rendRow', parseInt(e.target.value) || 0)} />
+        </div>
+        <ColInput label="Coluna do rendimento" value={map.rendCol} onChange={v => setM('rendCol', v)} />
         <ColInput label="Col ingrediente"  value={map.colIng}   onChange={v => setM('colIng', v)} />
         <ColInput label="Col quantidade"   value={map.colQtd}   onChange={v => setM('colQtd', v)} />
         <ColInput label="Col unidade"      value={map.colUnid}  onChange={v => setM('colUnid', v)}  optional />

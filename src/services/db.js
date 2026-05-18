@@ -719,3 +719,8 @@ export async function deleteReceita(id) {
   const { error } = await supabase.from('receitas').delete().eq('id', id)
   if (error) throw error
 }
+
+export async function deleteReceitas(ids) {
+  const { error } = await supabase.from('receitas').delete().in('id', ids)
+  if (error) throw error
+}

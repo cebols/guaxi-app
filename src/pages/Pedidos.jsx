@@ -272,7 +272,7 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
                 <div className="field-label">Frete (R$)</div>
                 <input
                   className="field-input"
-                  type="number" inputMode="decimal" placeholder="0,00"
+                  type="text" inputMode="decimal" placeholder="0,00"
                   value={frete}
                   onChange={e => setFrete(e.target.value)}
                 />
@@ -536,7 +536,7 @@ function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
               <div className="field-label">Frete (R$)</div>
               <input
                 className="field-input"
-                type="number" inputMode="decimal" placeholder="0,00"
+                type="text" inputMode="decimal" placeholder="0,00"
                 value={form.frete}
                 onChange={e => setField('frete', e.target.value)}
               />
@@ -563,13 +563,13 @@ function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
               />
               <input
                 className="item-qty"
-                type="number" inputMode="decimal" min="1"
+                type="text" inputMode="decimal" min="1"
                 value={it.quantidade}
                 onChange={e => setItem(i, 'quantidade', e.target.value)}
               />
               <input
                 className="item-price"
-                type="number" inputMode="decimal" placeholder="R$"
+                type="text" inputMode="decimal" placeholder="R$"
                 value={it.precoUnit}
                 onChange={e => setItem(i, 'precoUnit', e.target.value)}
               />
@@ -753,7 +753,7 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
               <div className="field-label">Frete (R$)</div>
               <input
                 className="field-input"
-                type="number" inputMode="decimal" placeholder="0,00"
+                type="text" inputMode="decimal" placeholder="0,00"
                 value={form.frete}
                 onChange={e => setField('frete', e.target.value)}
               />
@@ -770,9 +770,9 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
             <div key={i} className="item-row">
               <input className="item-select" list="sheet-produtos-list" placeholder="Produto ou item personalizado"
                 value={it.produto} onChange={e => handleProdutoChange(i, e.target.value)} autoComplete="off" style={{ fontFamily: 'inherit' }} />
-              <input className="item-qty" type="number" inputMode="decimal" min="1"
+              <input className="item-qty" type="text" inputMode="decimal" min="1"
                 value={it.quantidade} onChange={e => setItem(i, 'quantidade', e.target.value)} />
-              <input className="item-price" type="number" inputMode="decimal" placeholder="R$"
+              <input className="item-price" type="text" inputMode="decimal" placeholder="R$"
                 value={it.precoUnit} onChange={e => setItem(i, 'precoUnit', e.target.value)} />
               {itens.length > 1 && <button className="item-rm" onClick={() => removeItem(i)}>&#215;</button>}
             </div>
@@ -951,7 +951,7 @@ function ProducaoView({ pedidos, produtos, receitas, onEstoqueUpdated }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
                   <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Produziu hoje:</span>
                   <input
-                    type="number" inputMode="decimal" min="0"
+                    type="text" inputMode="decimal" min="0"
                     className="item-qty"
                     style={{ width: 64 }}
                     placeholder="0"
