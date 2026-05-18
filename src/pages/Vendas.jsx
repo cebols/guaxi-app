@@ -600,7 +600,7 @@ function ComparadorProdutos({ vendas, produtos }) {
       {/* Product picker */}
       <div className="card" style={{ marginBottom: 12, padding: '10px 14px' }}>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-          Selecione até 3 produtos {selecionados.length > 0 && `(${selecionados.length}/3)`}
+          Selecione até 3 produtos {selecionados.length > 0 && `· ${selecionados.length}/3`}
         </div>
         <input
           type="text"
@@ -609,24 +609,34 @@ function ComparadorProdutos({ vendas, produtos }) {
           onChange={e => setBusca(e.target.value)}
           style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box', marginBottom: 8 }}
         />
-        <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
           {filtered.map(nome => {
             const idx = selecionados.indexOf(nome)
             const sel = idx !== -1
-            const cor = sel ? CMP_COLORS[idx] : null
             const disabled = !sel && selecionados.length >= 3
+            const cor = sel ? CMP_COLORS[idx] : null
             return (
-              <button key={nome} onClick={() => toggle(nome)} disabled={disabled} style={{
-                textAlign: 'left', padding: '6px 10px', borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer',
-                border: `1px solid ${sel ? cor : 'var(--border-color)'}`,
-                background: sel ? `${cor}22` : 'transparent',
-                color: disabled ? 'var(--text-tertiary)' : sel ? cor : 'var(--text-primary)',
-                fontSize: 13, fontWeight: sel ? 600 : 400, opacity: disabled ? 0.5 : 1,
-                display: 'flex', alignItems: 'center', gap: 8,
+              <label key={nome} style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '7px 4px', cursor: disabled ? 'not-allowed' : 'pointer',
+                borderBottom: '1px solid var(--border-color)',
+                opacity: disabled ? 0.4 : 1,
               }}>
-                {sel && <span style={{ width: 8, height: 8, borderRadius: '50%', background: cor, flexShrink: 0 }} />}
-                {nome}
-              </button>
+                <div onClick={() => !disabled && toggle(nome)} style={{
+                  width: 18, height: 18, borderRadius: 4, flexShrink: 0,
+                  border: `2px solid ${sel ? cor : 'var(--border-color)'}`,
+                  background: sel ? cor : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.1s',
+                }}>
+                  {sel && <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <polyline points="1.5,5 4,7.5 8.5,2" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>}
+                </div>
+                <span onClick={() => !disabled && toggle(nome)} style={{ fontSize: 13, color: sel ? cor : 'var(--text-primary)', fontWeight: sel ? 600 : 400, flex: 1 }}>
+                  {nome}
+                </span>
+              </label>
             )
           })}
         </div>
