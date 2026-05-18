@@ -282,9 +282,18 @@ export default function ReceitaForm() {
         <div className="field-row">
           <div>
             <div className="field-label">Tipo</div>
-            <select className="field-input" value={form.tipo} onChange={e => setField('tipo', e.target.value)}>
-              {TIPO_OPTS.map(t => <option key={t}>{t}</option>)}
-            </select>
+            <input
+              className="field-input"
+              list="tipo-opts"
+              placeholder="ex: Bolo"
+              value={form.tipo}
+              onChange={e => setField('tipo', e.target.value)}
+            />
+            <datalist id="tipo-opts">
+              {[...new Set([...TIPO_OPTS, ...(receitas || []).map(r => r.tipo).filter(Boolean)])].map(t => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
           </div>
           <div>
             <div className="field-label">Unidade gerada</div>
