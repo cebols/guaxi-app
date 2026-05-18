@@ -169,7 +169,15 @@ function ImportReceitas({ allSheets, onDone }) {
           } else { casados++ }
           ings.push({ insumoId: insumo.id, nome: ing.nome, quantidade: ing.quantidade, unidade: ing.unidade || insumo.unidade || 'g' })
         }
-        await saveReceita({ nome: rec.nome, tipo: 'Outro', rendimento: rec.rendimento || 1, unidadeGera: 'un', custoTotal: 0, custoUnid: 0 }, ings)
+        const custoTotal = ingredientesFinais.reduce((sum, ing) => {
+          const ins = insumos.find(i => i.id === ing.insumoId)
+          return sum + ing.quantidade * (ins?.custoUnit || 0)
+        }, 0)
+        const rendimento = rec.rendimento || 1
+        await saveReceita(
+          { nome: rec.nome, tipo: 'Outro', rendimento, unidadeGera: 'un', custoTotal, custoUnid: custoTotal / rendimento },
+          ings
+        )
         receitasCriadas++
       }
       onDone({ receitasCriadas, criados, casados })
