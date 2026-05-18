@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { useAuth } from './contexts/AuthContext'
-import { initConfig } from './hooks/useConfig'
+import { initConfig, syncConfigFromSupabase } from './hooks/useConfig'
 import Login from './pages/Login'
 import Home from './pages/Home'
 import Pedidos from './pages/Pedidos'
@@ -80,6 +80,7 @@ export default function App() {
 
   useEffect(() => {
     initConfig(session?.user?.id ?? null)
+    if (session?.user?.id) syncConfigFromSupabase()
   }, [session?.user?.id])
 
   useEffect(() => {

@@ -738,3 +738,24 @@ export async function deleteReceitas(ids) {
   const { error } = await supabase.from('receitas').delete().in('id', ids)
   if (error) throw error
 }
+
+// ── User Config ───────────────────────────────────────────────
+
+export async function loadUserConfig() {
+  try {
+    const { data, error } = await supabase.from('user_config').select('config').single()
+    if (error) return null
+    return data?.config || null
+  } catch { return null }
+}
+
+export async function saveUserConfig(config) {
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    await supabase.from('user_config').upsert(
+      { user_id: user.id, config, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' }
+    )
+  } catch {}
+}

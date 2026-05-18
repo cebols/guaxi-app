@@ -1,28 +1,7 @@
-let _key = 'guaxi_config'
+import { loadUserConfig, saveUserConfig } from '../services/db'
 
-// Chamado uma vez após login (App.jsx). Migra dados da chave genérica se necessário.
-export function initConfig(userId) {
-  const userKey = userId ? `guaxi_config_${userId}` : 'guaxi_config'
-  if (userId) {
-    const legacy = localStorage.getItem('guaxi_config')
-    const existing = localStorage.getItem(userKey)
-    // migra se: não tem chave do user, OU tem mas está vazia/zerada e legacy tem dados reais
-    if (legacy && legacy !== '{}') {
-      if (!existing) {
-        localStorage.setItem(userKey, legacy)
-      } else {
-        try {
-          const parsed = JSON.parse(existing)
-          const hasRealData = parsed.custoItens?.some(i => i.valor > 0) ||
-            parsed.margem || parsed.taxa99 || parsed.taxaIfood ||
-            parsed.unidadesProjetadas
-          if (!hasRealData) localStorage.setItem(userKey, legacy)
-        } catch { localStorage.setItem(userKey, legacy) }
-      }
-    }
-  }
-  _key = userKey
-}
+let _key = 'guaxi_config'
+let _cache = null  // in-memory so getConfig() stays sync
 
 export const DEFAULT_ITENS = [
   { id: 'agua',    nome: 'Água',    valor: 0 },
@@ -44,26 +23,61 @@ function somaItens(itens) {
   return (itens || []).reduce((s, i) => s + (parseFloat(i.valor) || 0), 0)
 }
 
-export function getConfig() {
+function parseRaw(raw) {
   try {
-    const raw = localStorage.getItem(_key)
-    if (!raw) return { ...CONFIG_DEFAULTS }
-    const saved = JSON.parse(raw)
+    const saved = typeof raw === 'string' ? JSON.parse(raw) : raw
+    if (!saved) return null
     if (saved.rateio != null && saved.custoFixoMensal == null) {
       saved.custoFixoMensal = saved.rateio * (saved.unidadesProjetadas || CONFIG_DEFAULTS.unidadesProjetadas)
     }
     const custoItens = saved.custoItens || DEFAULT_ITENS
     const custoFixoMensal = somaItens(custoItens) || saved.custoFixoMensal || 0
     return { ...CONFIG_DEFAULTS, ...saved, custoItens, custoFixoMensal }
-  } catch {
-    return { ...CONFIG_DEFAULTS }
+  } catch { return null }
+}
+
+export function initConfig(userId) {
+  const userKey = userId ? `guaxi_config_${userId}` : 'guaxi_config'
+  if (userId) {
+    const legacy = localStorage.getItem('guaxi_config')
+    const existing = localStorage.getItem(userKey)
+    if (legacy && legacy !== '{}' && !existing) {
+      localStorage.setItem(userKey, legacy)
+    }
   }
+  _key = userKey
+  _cache = parseRaw(localStorage.getItem(_key)) || { ...CONFIG_DEFAULTS }
+}
+
+// Call once after login — loads from Supabase and wins over localStorage
+export async function syncConfigFromSupabase() {
+  try {
+    const remote = await loadUserConfig()
+    if (remote) {
+      const parsed = parseRaw(remote)
+      if (parsed) {
+        _cache = parsed
+        localStorage.setItem(_key, JSON.stringify(parsed))
+      }
+    } else {
+      // No remote config yet — push localStorage data up
+      const local = _cache || parseRaw(localStorage.getItem(_key))
+      if (local) saveUserConfig(local)
+    }
+  } catch {}
+}
+
+export function getConfig() {
+  if (!_cache) _cache = parseRaw(localStorage.getItem(_key)) || { ...CONFIG_DEFAULTS }
+  return _cache
 }
 
 export function saveConfig(updates) {
   const next = { ...getConfig(), ...updates }
   next.custoFixoMensal = somaItens(next.custoItens)
+  _cache = next
   localStorage.setItem(_key, JSON.stringify(next))
+  saveUserConfig(next)  // async, fire-and-forget
   return next
 }
 

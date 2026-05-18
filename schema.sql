@@ -281,3 +281,13 @@ CREATE POLICY "own_data" ON encomenda_itens      FOR ALL USING (user_id = auth.u
 CREATE POLICY "own_data" ON clientes             FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 CREATE POLICY "own_data" ON compras              FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 CREATE POLICY "own_data" ON vendas               FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+-- ── User Config ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_config (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  config     jsonb not null default '{}',
+  updated_at timestamptz default now()
+);
+ALTER TABLE user_config ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own_data" ON user_config;
+CREATE POLICY "own_data" ON user_config FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
