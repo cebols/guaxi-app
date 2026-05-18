@@ -332,7 +332,7 @@ const EMB_EMPTY = {
   linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '',
 }
 
-function EmbalagemForm({ item, categorias, onSave, onDelete, onClose }) {
+function EmbalagemForm({ item, categorias, fornecedoresList, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item ? {
     ...item,
     qtdCompra: item.qtdCompra || '',
@@ -398,7 +398,14 @@ function EmbalagemForm({ item, categorias, onSave, onDelete, onClose }) {
       </div>
 
       <div className="section-label" style={{ marginTop: 4 }}>Fornecedor</div>
-      <input className="field-input" placeholder="Nome do fornecedor" value={form.fornecedor} onChange={e => set('fornecedor', e.target.value)} />
+      <input className="field-input" list="forn-emb" placeholder="Nome do fornecedor" value={form.fornecedor}
+        onChange={e => {
+          const val = e.target.value
+          set('fornecedor', val)
+          const match = (fornecedoresList || []).find(f => f.nome === val)
+          if (match) set('whatsapp', match.whatsapp || '')
+        }} />
+      <datalist id="forn-emb">{(fornecedoresList || []).map(f => <option key={f.nome} value={f.nome} />)}</datalist>
       <div className="field-label">Telefone</div>
       <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
 
@@ -923,7 +930,7 @@ export default function Cadastros() {
         <InsumoForm item={sheet.item} categorias={catsInsumo} fornecedoresList={fornecedores} onSave={insActions.save} onDelete={insActions.del} onClose={() => setSheet(null)} />
       )}
       {sheet?.type === 'embalagem' && (
-        <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />
+        <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} fornecedoresList={fornecedores} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />
       )}
 
       {bulkDelete && (
