@@ -135,7 +135,7 @@ function SupplierFields({ s, i, unidade, onChange, children }) {
   )
 }
 
-function InsumoForm({ item, categorias, fornecedoresList, onSave, onDelete, onClose }) {
+function InsumoForm({ item, categorias, fornecedoresList, onSave, onDelete, onDuplicate, onClose }) {
   const [form, setForm] = useState(item ? {
     ...item,
     marca: item.marca || '',
@@ -346,6 +346,14 @@ function InsumoForm({ item, categorias, fornecedoresList, onSave, onDelete, onCl
       {!item && (
         <button className="btn-outline-teal" onClick={() => handle(true)} disabled={saving || !form.nome}>
           Salvar e adicionar outro
+        </button>
+      )}
+      {item && (
+        <button className="btn-outline-teal" onClick={async () => {
+          try { await onDuplicate(item, suppliers); onClose() }
+          catch (e) { alert(e.message) }
+        }}>
+          Duplicar insumo
         </button>
       )}
       {item && (
@@ -678,6 +686,13 @@ export default function Cadastros() {
       rIns(); rFontes(); show('Salvo!')
     },
     del: withReload(deleteInsumo, rIns),
+    dup: async (item, suppliers) => {
+      const copy = { ...item, id: undefined, nome: `${item.nome} (cópia)` }
+      const data = await saveInsumo(copy)
+      const fontes = (suppliers || []).slice(1).map(s => ({ ...s }))
+      if (fontes.length > 0) await saveInsumoFornecedores(data.id, fontes, calcCustoUnitInsumo(copy) || 0)
+      rIns(); rFontes(); show('Duplicado!')
+    },
     swapPrimary: async (ins, selectedIdx) => {
       const fontes = fontesMap[ins.id] || []
       const all = [
@@ -964,7 +979,7 @@ export default function Cadastros() {
       <button className="fab mobile-only" onClick={openNew}>+</button>
 
       {sheet?.type === 'insumo' && (
-        <InsumoForm item={sheet.item} categorias={catsInsumo} fornecedoresList={fornecedores} onSave={insActions.save} onDelete={insActions.del} onClose={() => setSheet(null)} />
+        <InsumoForm item={sheet.item} categorias={catsInsumo} fornecedoresList={fornecedores} onSave={insActions.save} onDelete={insActions.del} onDuplicate={insActions.dup} onClose={() => setSheet(null)} />
       )}
       {sheet?.type === 'embalagem' && (
         <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} fornecedoresList={fornecedores} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />
