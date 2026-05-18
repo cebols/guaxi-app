@@ -19,6 +19,7 @@ export default function Cozinha() {
   const [fator, setFator] = useState(1)
   const [pesoInput, setPesoInput] = useState('')
   const [checked, setChecked] = useState({})
+  const [modoSimples, setModoSimples] = useState(false)
 
   const pesoBase = ingredientes.reduce((s, i) => {
     if (['g', 'ml'].includes(i.unidade)) return s + i.quantidade
@@ -57,11 +58,14 @@ export default function Cozinha() {
             <div className="topbar-sub">Modo cozinha</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn-ghost" onClick={() => setModoSimples(s => !s)}>
+              {modoSimples ? 'Completo' : 'Simples'}
+            </button>
             <button className="btn-ghost" onClick={() => navigate(`/fichas/${id}/editar`)}>
               Editar
             </button>
             <button className="btn-ghost" onClick={() => navigate('/fichas')}>
-              ← Voltar
+              ←
             </button>
           </div>
         </div>
@@ -212,7 +216,7 @@ export default function Cozinha() {
               })}
             </div>
 
-            {receita.rendimento > 0 && (
+            {!modoSimples && receita.rendimento > 0 && (
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center', marginTop: 12 }}>
                 Rendimento base: {receita.rendimento} {receita.unidadeGera || 'un'}
                 {receita.fatorPerda > 0 && <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>(−{receita.fatorPerda}% perda)</span>}
@@ -220,7 +224,7 @@ export default function Cozinha() {
               </div>
             )}
 
-            {(receita.tempForno || receita.tempoForno) && (
+            {!modoSimples && (receita.tempForno || receita.tempoForno) && (
               <div className="card" style={{ background: '#2a1a00', border: '1px solid #6b3d00', marginTop: 16, display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
                 <span style={{ fontSize: 28 }}>🔥</span>
                 <div>
@@ -233,7 +237,7 @@ export default function Cozinha() {
               </div>
             )}
 
-            {receita.tipoResfriamento && (
+            {!modoSimples && receita.tipoResfriamento && (
               <div className="card" style={{ background: '#001a2a', border: '1px solid #00436b', marginTop: 12, display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
                 <span style={{ fontSize: 28 }}>{receita.tipoResfriamento === 'congelador' ? '🧊' : receita.tipoResfriamento === 'geladeira' ? '❄️' : '🌡️'}</span>
                 <div>
@@ -247,7 +251,7 @@ export default function Cozinha() {
               </div>
             )}
 
-            {receita.instrucoes && (
+            {!modoSimples && receita.instrucoes && (
               <>
                 <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>
                 <div className="card" style={{ padding: '12px 14px', whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)' }}>

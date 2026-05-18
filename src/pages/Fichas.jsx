@@ -140,7 +140,11 @@ export default function Fichas() {
                         <td className="muted">{r.rendimento > 0 ? `${r.rendimento} ${r.unidadeGera || 'un'}` : '—'}</td>
                         <td className="muted">{r.custoTotal > 0 ? `R$ ${fmt(r.custoTotal)}` : '—'}</td>
                         <td className="teal">{r.custoUnid > 0 ? `R$ ${fmt(r.custoUnid)}` : '—'}</td>
-                        <td onClick={e => e.stopPropagation()}>
+                        <td onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <button onClick={e => { e.stopPropagation(); navigate(`/fichas/${r.id}/editar`) }} title="Editar"
+                            style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 14, cursor: 'pointer', padding: '2px 6px' }}>
+                            ✏️
+                          </button>
                           <button onClick={e => handleDuplicar(r, e)} disabled={duplicando === r.id} title="Duplicar"
                             style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 14, cursor: 'pointer' }}>
                             {duplicando === r.id ? '⏳' : '⎘'}
@@ -169,6 +173,13 @@ export default function Fichas() {
                         ? <span style={{ fontWeight: 600, fontSize: 14 }}>R$ {fmt(r.custoUnid)}/un</span>
                         : <span style={{ fontSize: 13, color: '#aaa' }}>—</span>
                       }
+                      <button
+                        onClick={e => { e.stopPropagation(); navigate(`/fichas/${r.id}/editar`) }}
+                        title="Editar"
+                        style={{
+                          background: 'none', border: 'none', color: 'var(--text-tertiary)',
+                          fontSize: 14, cursor: 'pointer', padding: '2px 6px', borderRadius: 4,
+                        }}>✏️</button>
                       <button
                         onClick={e => handleDuplicar(r, e)}
                         disabled={duplicando === r.id}
