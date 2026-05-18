@@ -310,6 +310,58 @@ export default function Home() {
   const totalAlertas = alertasInsumos.length + alertasEmb.length + alertasProd.length
   const criticos = [...alertasInsumos, ...alertasEmb, ...alertasProd].filter(i => nivelEstoque(i.estoqueAtual, i.estoqueMin) === 0)
 
+  // Ações de agora
+  const acoesAgora = useMemo(() => {
+    const out = []
+    const t = new Date(); t.setHours(0, 0, 0, 0)
+    const atrasados = (encomendas || []).filter(e =>
+      e.status !== 'Cancelado' && e.status !== 'Entregue' &&
+      e.dataEntrega && new Date(e.dataEntrega + 'T00:00:00') < t
+    )
+    if (atrasados.length > 0) {
+      out.push({ icon: '🔴', label: `${atrasados.length} pedido(s) atrasado(s)`, color: 'var(--alert-text)', bg: '#3b1f1f', onClick: () => navigate('/pedidos') })
+    }
+    const hoje = (encomendas || []).filter(e => {
+      if (['Cancelado', 'Entregue'].includes(e.status)) return false
+      if (!e.dataEntrega) return false
+      const d = new Date(e.dataEntrega + 'T00:00:00')
+      return d.getTime() === t.getTime()
+    })
+    if (hoje.length > 0) {
+      out.push({ icon: '🟠', label: `${hoje.length} entrega(s) hoje`, color: '#fb923c', bg: '#7c2d12', onClick: () => navigate('/pedidos') })
+    }
+    const cobranca = (encomendas || []).filter(e =>
+      e.status !== 'Cancelado' && e.pgto !== 'Pago' && e.saldo > 0 &&
+      e.dataEntrega && new Date(e.dataEntrega + 'T00:00:00') < t
+    )
+    if (cobranca.length > 0) {
+      const tot = cobranca.reduce((s, e) => s + (e.saldo || 0), 0)
+      out.push({ icon: '💰', label: `Cobrar R$ ${tot.toLocaleString('pt-BR', { minimumFractionDigits: 0 })} (${cobranca.length})`, color: '#fbbf24', bg: '#3b2700', onClick: () => navigate('/pedidos') })
+    }
+    if (criticos.length > 0) {
+      out.push({ icon: '📦', label: `${criticos.length} item(ns) crítico(s)`, color: 'var(--alert-text)', bg: '#3b1f1f', onClick: () => navigate('/cadastros') })
+    }
+    return out
+  }, [encomendas, criticos.length, navigate])
+
+  // Clientes recorrentes (últimos 60 dias)
+  const recorrentes = useMemo(() => {
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 60)
+    const map = {}
+    for (const e of (encomendas || [])) {
+      if (e.status === 'Cancelado') continue
+      if (!e.dataEntrega) continue
+      const d = new Date(e.dataEntrega + 'T00:00:00')
+      if (d < cutoff) continue
+      const k = e.cliente
+      if (!map[k]) map[k] = { nome: k, count: 0, totalValor: 0, ultima: null }
+      map[k].count++
+      map[k].totalValor += e.valor || 0
+      if (!map[k].ultima || d > map[k].ultima) map[k].ultima = d
+    }
+    return Object.values(map).filter(c => c.count >= 2).sort((a, b) => b.count - a.count).slice(0, 3)
+  }, [encomendas])
+
   // ── Sparkline data ──────────────────────────────────────────
   const vendas7  = dailyValues(vendas, r => r.data, r => (r.quantidade || 0) * (r.precoUnit || 0), 7)
   const vendas7p = dailyValues(vendas, r => r.data, r => (r.quantidade || 0) * (r.precoUnit || 0), 14).slice(0, 7)
@@ -397,6 +449,25 @@ export default function Home() {
           />
         </div>
 
+        {acoesAgora.length > 0 && (
+          <>
+            <div className="section-label">Ações de agora</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+              {acoesAgora.map((a, i) => (
+                <button key={i} onClick={a.onClick} style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '8px 12px', borderRadius: 20,
+                  background: a.bg, border: 'none', color: a.color,
+                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                }}>
+                  <span>{a.icon}</span>
+                  <span>{a.label}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
         <div className="section-label">Próximas entregas</div>
         {loadEnc ? (
           <div className="loading">Carregando...</div>
@@ -411,6 +482,31 @@ export default function Home() {
           proximas.map(enc => (
             <EncomendaCard key={enc.id} enc={enc} onUpdateStatus={handleUpdateStatus} />
           ))
+        )}
+
+        {recorrentes.length > 0 && (
+          <>
+            <div className="section-label" style={{ marginTop: 16 }}>⭐ Clientes recorrentes</div>
+            <div className="card card-flush" style={{ padding: '0 14px' }}>
+              {recorrentes.map((c, i) => (
+                <div key={c.nome} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '10px 0',
+                  borderBottom: i < recorrentes.length - 1 ? '1px solid var(--border)' : 'none',
+                }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{c.nome}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      {c.count} pedidos · R$ {c.totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 0 })}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 10, background: 'var(--teal-light)', color: 'var(--teal)', fontWeight: 600 }}>
+                    {c.count}× em 60d
+                  </span>
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
         {totalAlertas > 0 && (
