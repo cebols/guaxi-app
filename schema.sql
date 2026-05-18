@@ -52,8 +52,12 @@ CREATE TABLE IF NOT EXISTS receitas (
   custo_unid    numeric default 0,
   peso_liquido  numeric,
   unidade_gera  text    default 'un',
-  fator_perda   numeric default null,
-  instrucoes    text    default null,
+  fator_perda        numeric default null,
+  instrucoes         text    default null,
+  tempo_forno        integer default null,
+  temp_forno         integer default null,
+  tempo_resfriamento integer default null,
+  tipo_resfriamento  text    default null,
   user_id       uuid    default auth.uid() references auth.users(id) on delete cascade,
   created_at    timestamptz default now()
 );
@@ -197,11 +201,15 @@ ALTER TABLE embalagens           ADD COLUMN IF NOT EXISTS custo_compra numeric d
 ALTER TABLE embalagens           ADD COLUMN IF NOT EXISTS link_compra  text default '';
 ALTER TABLE embalagens           ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
 
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS peso_liquido numeric;
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS unidade_gera text default 'un';
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS fator_perda  numeric default null;
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS instrucoes   text default null;
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS peso_liquido       numeric;
+ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS unidade_gera       text default 'un';
+ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS fator_perda        numeric default null;
+ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS instrucoes         text default null;
+ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS tempo_forno        integer default null;
+ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS temp_forno         integer default null;
+ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS tempo_resfriamento integer default null;
+ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS tipo_resfriamento  text default null;
+ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS user_id            uuid default auth.uid() references auth.users(id) on delete cascade;
 
 ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS insumo_id      bigint references insumos(id) on delete set null;
 ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS sub_receita_id bigint;  -- sem FK, evita ciclo PostgREST

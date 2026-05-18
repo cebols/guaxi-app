@@ -641,6 +641,10 @@ export async function getReceitas() {
       pesoLiquido: r.peso_liquido || null,
       fatorPerda: r.fator_perda ?? null,
       instrucoes: r.instrucoes || '',
+      tempoForno: r.tempo_forno ?? null,
+      tempForno: r.temp_forno ?? null,
+      tempoResfriamento: r.tempo_resfriamento ?? null,
+      tipoResfriamento: r.tipo_resfriamento ?? null,
       ingredientes: (ingsByReceita[r.id] || []).map(i => ({
         id: i.id,
         insumoId: i.insumo_id || null,
@@ -666,6 +670,10 @@ export async function saveReceita(receita, ingredientes) {
     peso_liquido: receita.pesoLiquido ? parseFloat(receita.pesoLiquido) : null,
     fator_perda: receita.fatorPerda != null && receita.fatorPerda !== '' ? parseFloat(receita.fatorPerda) : null,
     instrucoes: receita.instrucoes || null,
+    tempo_forno: receita.tempoForno != null && receita.tempoForno !== '' ? parseInt(receita.tempoForno) : null,
+    temp_forno: receita.tempForno != null && receita.tempForno !== '' ? parseInt(receita.tempForno) : null,
+    tempo_resfriamento: receita.tempoResfriamento != null && receita.tempoResfriamento !== '' ? parseInt(receita.tempoResfriamento) : null,
+    tipo_resfriamento: receita.tipoResfriamento || null,
     custo_total: parseFloat(receita.custoTotal) || 0,
     custo_unid: parseFloat(receita.custoUnid) || 0,
   }
@@ -701,7 +709,7 @@ export async function saveReceita(receita, ingredientes) {
     }
   }
 
-  const OPTIONAL = ['unidade_gera', 'peso_liquido', 'fator_perda', 'instrucoes']
+  const OPTIONAL = ['unidade_gera', 'peso_liquido', 'fator_perda', 'instrucoes', 'tempo_forno', 'temp_forno', 'tempo_resfriamento', 'tipo_resfriamento']
 
   if (receita.id) {
     await upsert('receitas', row, receita.id, OPTIONAL)

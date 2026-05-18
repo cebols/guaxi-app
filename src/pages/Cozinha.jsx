@@ -220,6 +220,38 @@ export default function Cozinha() {
               </div>
             )}
 
+            {(receita.tempForno || receita.tempoForno) && (
+              <div className="card" style={{ background: '#2a1a00', border: '1px solid #6b3d00', marginTop: 16, display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
+                <span style={{ fontSize: 28 }}>🔥</span>
+                <div>
+                  <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#c97a30', fontWeight: 700 }}>Forno</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#f0a050', marginTop: 2, lineHeight: 1 }}>
+                    {receita.tempForno ? `${receita.tempForno}°C` : '—'}
+                    {receita.tempoForno ? <span style={{ fontSize: 15, fontWeight: 500, marginLeft: 10, color: '#c97a30' }}>{receita.tempoForno} min</span> : null}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {receita.tipoResfriamento && (
+              <div className="card" style={{ background: '#001a2a', border: '1px solid #00436b', marginTop: 12, display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
+                <span style={{ fontSize: 28 }}>{receita.tipoResfriamento === 'congelador' ? '🧊' : receita.tipoResfriamento === 'geladeira' ? '❄️' : '🌡️'}</span>
+                <div>
+                  <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#30a0c9', fontWeight: 700 }}>
+                    {{ geladeira: 'Geladeira', congelador: 'Congelador', ambiente: 'Temperatura ambiente' }[receita.tipoResfriamento] || receita.tipoResfriamento}
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#50c0f0', marginTop: 2, lineHeight: 1 }}>
+                    {receita.tempoResfriamento ? `${receita.tempoResfriamento} min` : 'Tempo a definir'}
+                    {receita.tempoResfriamento >= 60 && (
+                      <span style={{ fontSize: 13, fontWeight: 500, marginLeft: 8, color: '#30a0c9' }}>
+                        ({Math.floor(receita.tempoResfriamento / 60)}h{receita.tempoResfriamento % 60 > 0 ? `${receita.tempoResfriamento % 60}min` : ''})
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {receita.instrucoes && (
               <>
                 <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>

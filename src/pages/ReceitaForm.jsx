@@ -19,6 +19,7 @@ export default function ReceitaForm() {
   const [form, setForm] = useState({
     nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'un', fatorPerda: '',
     instrucoes: '',
+    tempoForno: '', tempForno: '', tempoResfriamento: '', tipoResfriamento: '',
   })
   const [ingredientes, setIngredientes] = useState([
     { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' },
@@ -39,6 +40,10 @@ export default function ReceitaForm() {
       unidadeGera: rec.unidadeGera || 'un',
       fatorPerda: rec.fatorPerda != null ? String(rec.fatorPerda) : '',
       instrucoes: rec.instrucoes || '',
+      tempoForno: rec.tempoForno != null ? String(rec.tempoForno) : '',
+      tempForno: rec.tempForno != null ? String(rec.tempForno) : '',
+      tempoResfriamento: rec.tempoResfriamento != null ? String(rec.tempoResfriamento) : '',
+      tipoResfriamento: rec.tipoResfriamento || '',
     })
     if (rec.ingredientes?.length > 0) {
       setIngredientes(rec.ingredientes.map(i => ({
@@ -326,11 +331,40 @@ export default function ReceitaForm() {
           </div>
         )}
 
+        <div className="section-label" style={{ marginTop: 16 }}>Forno <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', fontSize: 11 }}>(opcional)</span></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div className="field-label">Temperatura (°C)</div>
+            <input className="field-input" type="text" inputMode="numeric" placeholder="ex: 180" value={form.tempForno} onChange={e => setField('tempForno', e.target.value)} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="field-label">Tempo (min)</div>
+            <input className="field-input" type="text" inputMode="numeric" placeholder="ex: 35" value={form.tempoForno} onChange={e => setField('tempoForno', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="section-label" style={{ marginTop: 16 }}>Resfriamento / Congelamento <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', fontSize: 11 }}>(opcional)</span></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div className="field-label">Tipo</div>
+            <select className="field-input" value={form.tipoResfriamento} onChange={e => setField('tipoResfriamento', e.target.value)}>
+              <option value="">Nenhum</option>
+              <option value="geladeira">Geladeira</option>
+              <option value="congelador">Congelador</option>
+              <option value="ambiente">Temperatura ambiente</option>
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="field-label">Tempo mínimo (min)</div>
+            <input className="field-input" type="text" inputMode="numeric" placeholder="ex: 120" value={form.tempoResfriamento} onChange={e => setField('tempoResfriamento', e.target.value)} disabled={!form.tipoResfriamento} />
+          </div>
+        </div>
+
         <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>
         <textarea
           className="field-input"
           rows={6}
-          placeholder="Passo a passo, dicas, temperatura do forno..."
+          placeholder="Passo a passo, dicas..."
           value={form.instrucoes}
           onChange={e => setField('instrucoes', e.target.value)}
           style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6 }}
