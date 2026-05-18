@@ -241,12 +241,7 @@ export default function Cozinha() {
                     {{ geladeira: 'Geladeira', congelador: 'Congelador', ambiente: 'Temperatura ambiente' }[receita.tipoResfriamento] || receita.tipoResfriamento}
                   </div>
                   <div style={{ fontSize: 22, fontWeight: 700, color: '#50c0f0', marginTop: 2, lineHeight: 1 }}>
-                    {receita.tempoResfriamento ? `${receita.tempoResfriamento} min` : 'Tempo a definir'}
-                    {receita.tempoResfriamento >= 60 && (
-                      <span style={{ fontSize: 13, fontWeight: 500, marginLeft: 8, color: '#30a0c9' }}>
-                        ({Math.floor(receita.tempoResfriamento / 60)}h{receita.tempoResfriamento % 60 > 0 ? `${receita.tempoResfriamento % 60}min` : ''})
-                      </span>
-                    )}
+                    {receita.tempoResfriamento ? `${receita.tempoResfriamento}h` : 'Tempo a definir'}
                   </div>
                 </div>
               </div>

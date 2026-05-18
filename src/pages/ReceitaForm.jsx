@@ -355,8 +355,8 @@ export default function ReceitaForm() {
             </select>
           </div>
           <div style={{ flex: 1 }}>
-            <div className="field-label">Tempo mínimo (min)</div>
-            <input className="field-input" type="text" inputMode="numeric" placeholder="ex: 120" value={form.tempoResfriamento} onChange={e => setField('tempoResfriamento', e.target.value)} disabled={!form.tipoResfriamento} />
+            <div className="field-label">Tempo mínimo (horas)</div>
+            <input className="field-input" type="text" inputMode="decimal" placeholder="ex: 2" value={form.tempoResfriamento} onChange={e => setField('tempoResfriamento', e.target.value)} disabled={!form.tipoResfriamento} />
           </div>
         </div>
 
