@@ -4,7 +4,7 @@ import { useToast } from '../hooks/useToast'
 import { getConfig, calcPrecos } from '../hooks/useConfig'
 import {
   getProdutos, saveProduto, deleteProduto,
-  getReceitas, getEmbalagens,
+  getReceitas, getEmbalagens, getInsumos,
 } from '../services/db'
 
 const PLAT_COLOR  = { Direta: 'var(--teal)', '99Food': '#f59e0b', iFood: '#ef4444' }
@@ -359,15 +359,19 @@ export default function Produtos() {
   const { data: produtos,   loading: lProd, reload: rProd } = useData(getProdutos)
   const { data: receitas,   loading: lRec  } = useData(getReceitas)
   const { data: embalagens, loading: lEmb  } = useData(getEmbalagens)
+  const { data: insumos } = useData(getInsumos)
   const loading = lProd || lRec || lEmb
 
   const fornecedoresList = useMemo(() => {
     const map = {}
-    ;(embalagens || []).forEach(e => {
-      if (e.fornecedor && !map[e.fornecedor]) map[e.fornecedor] = { nome: e.fornecedor, whatsapp: e.whatsapp || '' }
-    })
+    const addForn = (nome, whatsapp) => {
+      if (nome && !map[nome]) map[nome] = { nome, whatsapp: whatsapp || '' }
+    }
+    ;(insumos    || []).forEach(i => addForn(i.fornecedor, i.whatsapp))
+    ;(embalagens || []).forEach(e => addForn(e.fornecedor, e.whatsapp))
+    ;(produtos   || []).filter(p => p.tipo === 'avulso').forEach(p => addForn(p.fornecedor, p.whatsapp))
     return Object.values(map).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-  }, [embalagens])
+  }, [insumos, embalagens, produtos])
 
   const TIPO_MAP = { Todos: null, Produzido: 'produto', Avulso: 'avulso', Combo: 'combo' }
   const produtosFiltrados = (produtos || []).filter(p => !TIPO_MAP[filtroTipo] || p.tipo === TIPO_MAP[filtroTipo])
