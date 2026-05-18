@@ -86,7 +86,7 @@ function StepBuilder({ steps, onChange }) {
               placeholder="Descreva esta etapa..."
               value={step.descricao}
               onChange={e => update(i, { descricao: e.target.value })}
-              style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, border: 'none', borderRadius: 0, margin: 0, minHeight: 96 }}
+              style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, border: 'none', borderRadius: 0, margin: 0, minHeight: 140, fontSize: 16 }}
             />
           </div>
         )
