@@ -39,35 +39,44 @@ function serializeInstrucoes(steps) {
 }
 
 function StepBuilder({ steps, onChange }) {
-  const [openPicker, setOpenPicker] = useState(null) // index | null
+  const [openPicker, setOpenPicker] = useState(null)
 
   const update = (i, patch) => onChange(steps.map((s, idx) => idx === i ? { ...s, ...patch } : s))
-  const remove  = (i) => onChange(steps.filter((_, idx) => idx !== i))
+  const remove  = (i) => { onChange(steps.filter((_, idx) => idx !== i)); setOpenPicker(null) }
   const add     = () => onChange([...steps, { tipo: 'misturar', descricao: '' }])
 
   return (
-    <div>
+    <div className="card card-flush">
       {steps.map((step, i) => {
         const acao = ACAO_MAP[step.tipo] || ACAO_MAP.misturar
         return (
-          <div key={i} style={{ marginBottom: 8, border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
-            {/* Tipo selector row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--bg-secondary)', borderBottom: openPicker === i ? '1px solid var(--border-color)' : 'none' }}>
+          <div key={i}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border-color)' }}>
               <button
                 onClick={() => setOpenPicker(openPicker === i ? null : i)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px',
-                  borderRadius: 6, border: '1px solid var(--teal)', background: 'var(--teal-light)',
-                  color: 'var(--teal)', fontSize: 12, fontWeight: 700, cursor: 'pointer', letterSpacing: 0.5,
+                  flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '4px 8px', borderRadius: 6,
+                  border: '1px solid var(--teal)', background: 'var(--teal-light)',
+                  color: 'var(--teal)', fontSize: 11, fontWeight: 700,
+                  cursor: 'pointer', letterSpacing: 0.5, whiteSpace: 'nowrap',
                 }}>
                 {acao.icon} {acao.label.toUpperCase()}
               </button>
-              <span style={{ flex: 1, fontSize: 11, color: 'var(--text-tertiary)' }}>Etapa {i + 1}</span>
-              <button onClick={() => remove(i)} style={{ background: 'none', border: 'none', color: '#555', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>×</button>
+              <input
+                type="text"
+                value={step.descricao}
+                onChange={e => update(i, { descricao: e.target.value })}
+                placeholder="Descreva esta etapa..."
+                style={{
+                  flex: 1, background: 'none', border: 'none', outline: 'none',
+                  color: 'var(--text-primary)', fontSize: 15, fontFamily: 'inherit', minWidth: 0,
+                }}
+              />
+              <button onClick={() => remove(i)} style={{ flexShrink: 0, background: 'none', border: 'none', color: '#555', fontSize: 18, cursor: 'pointer', lineHeight: 1, padding: '0 2px' }}>×</button>
             </div>
-            {/* Tipo picker grid */}
             {openPicker === i && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '10px 14px', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }}>
                 {ACOES.map(a => (
                   <button key={a.tipo} onClick={() => { update(i, { tipo: a.tipo }); setOpenPicker(null) }} style={{
                     padding: '5px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
@@ -79,15 +88,6 @@ function StepBuilder({ steps, onChange }) {
                 ))}
               </div>
             )}
-            {/* Description */}
-            <textarea
-              className="field-input"
-              rows={4}
-              placeholder="Descreva esta etapa..."
-              value={step.descricao}
-              onChange={e => update(i, { descricao: e.target.value })}
-              style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, border: 'none', borderRadius: 0, margin: 0, minHeight: 140, fontSize: 16 }}
-            />
           </div>
         )
       })}
