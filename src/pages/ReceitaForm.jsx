@@ -48,7 +48,7 @@ function StepBuilder({ steps, onChange }) {
   return (
     <div>
       {steps.map((step, i) => {
-        const acao = ACAO_MAP[step.tipo] || ACAO_MAP.nota
+        const acao = ACAO_MAP[step.tipo] || ACAO_MAP.misturar
         return (
           <div key={i} style={{ marginBottom: 8, border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
             {/* Tipo selector row */}
