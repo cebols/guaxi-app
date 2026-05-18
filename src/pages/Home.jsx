@@ -112,12 +112,13 @@ function InlineDiff({ pct, positive = true }) {
 function MetricCard({ label, value, valueColor, diff, diffPositive = true, sparkData, sparkColor, subValue }) {
   return (
     <div style={{
-      background: 'var(--bg-card)',
-      border: '1px solid #2a2a2a',
-      borderRadius: 12,
+      background: '#242424',
+      border: '1px solid #333',
+      borderRadius: 14,
       overflow: 'hidden',
       display: 'flex',
       flexDirection: 'column',
+      boxShadow: '0 2px 12px rgba(0,0,0,0.45)',
     }}>
       <div style={{ padding: '14px 14px 8px', flex: 1 }}>
         <div style={{ fontSize: 10, color: 'var(--text-secondary)', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 }}>
@@ -321,8 +322,10 @@ export default function Home() {
 
   const mesAtual  = new Date().toISOString().slice(0, 7)
   const mesAnt    = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().slice(0, 7)
-  const comprasMes    = (compras || []).filter(c => c.data?.startsWith(mesAtual)).reduce((s, c) => s + (c.total || 0), 0)
-  const comprasMesAnt = (compras || []).filter(c => c.data?.startsWith(mesAnt)).reduce((s, c) => s + (c.total || 0), 0)
+
+  const fatLiquido7  = vendas7.reduce((a, b) => a + b, 0) - compras7.reduce((a, b) => a + b, 0)
+  const fatLiquido7p = vendas7p.reduce((a, b) => a + b, 0) - compras7p.reduce((a, b) => a + b, 0)
+  const fatLiquidoDiff = fatLiquido7p !== 0 ? Math.round(((fatLiquido7 - fatLiquido7p) / Math.abs(fatLiquido7p)) * 100) : null
 
   const fmtR = (v) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 
@@ -384,13 +387,13 @@ export default function Home() {
             sparkColor="#eab308"
           />
           <MetricCard
-            label="Compras mês"
-            value={compras === null ? '—' : fmtR(comprasMes)}
-            subValue={comprasMesAnt > 0 ? `de ${fmtR(comprasMesAnt)}` : undefined}
-            diff={comprasDiff !== null ? -comprasDiff : undefined}
+            label="Fat. líquido 7d"
+            value={vendas === null ? '—' : fmtR(fatLiquido7)}
+            valueColor={fatLiquido7 < 0 ? 'var(--alert-text)' : undefined}
+            diff={fatLiquidoDiff}
             diffPositive
-            sparkData={compras7}
-            sparkColor="#f97316"
+            sparkData={vendas7.map((v, i) => Math.max(0, v - (compras7[i] || 0)))}
+            sparkColor="#a78bfa"
           />
         </div>
 
