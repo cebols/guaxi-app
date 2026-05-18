@@ -687,20 +687,21 @@ function ComparadorProdutos({ vendas, produtos }) {
           <div style={{ overflowX: 'auto', marginTop: 16 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
-                <tr>
-                  <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-tertiary)', fontWeight: 600, fontSize: 11, borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>Semana</th>
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-tertiary)', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>Semana</th>
                   {selecionados.map((nome, ci) => (
-                    <th key={nome} colSpan={2} style={{ textAlign: 'center', padding: '4px 8px', color: CMP_COLORS[ci], fontWeight: 700, fontSize: 11, borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap', maxWidth: 120 }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{nome}</span>
+                    <th key={nome} colSpan={3} style={{ textAlign: 'center', padding: '4px 8px', color: CMP_COLORS[ci], fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap' }}>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: 140 }}>{nome}</span>
                     </th>
                   ))}
                 </tr>
-                <tr>
-                  <th style={{ padding: '2px 8px', borderBottom: '1px solid var(--border-color)' }} />
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <th />
                   {selecionados.map((_, ci) => (
                     <>
-                      <th key={`r${ci}`} style={{ padding: '2px 8px', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 10, borderBottom: '1px solid var(--border-color)', textAlign: 'right', whiteSpace: 'nowrap' }}>R$</th>
-                      <th key={`u${ci}`} style={{ padding: '2px 8px', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 10, borderBottom: '1px solid var(--border-color)', textAlign: 'right', whiteSpace: 'nowrap' }}>un</th>
+                      <th key={`r${ci}`} style={{ padding: '2px 8px', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 10, textAlign: 'right', whiteSpace: 'nowrap' }}>R$</th>
+                      <th key={`u${ci}`} style={{ padding: '2px 8px', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 10, textAlign: 'right', whiteSpace: 'nowrap' }}>un</th>
+                      <th key={`d${ci}`} style={{ padding: '2px 8px', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 10, textAlign: 'right', whiteSpace: 'nowrap' }}>vs ant.</th>
                     </>
                   ))}
                 </tr>
@@ -710,18 +711,31 @@ function ComparadorProdutos({ vendas, produtos }) {
                   const isLast = wi === semanas.length - 1
                   return (
                     <tr key={wi} style={{ background: isLast ? 'var(--teal-light)' : 'transparent' }}>
-                      <td style={{ padding: '5px 8px', color: isLast ? 'var(--teal)' : 'var(--text-secondary)', fontWeight: isLast ? 700 : 400, fontSize: 11, whiteSpace: 'nowrap', borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '5px 8px', color: isLast ? 'var(--teal)' : 'var(--text-secondary)', fontWeight: isLast ? 700 : 400, fontSize: 11, whiteSpace: 'nowrap' }}>
                         {s.label}
                       </td>
                       {selecionados.map((nome, ci) => {
-                        const d = (dadosPorProd[nome] || [])[wi] || { receita: 0, unidades: 0 }
+                        const d    = (dadosPorProd[nome] || [])[wi]    || { receita: 0, unidades: 0 }
+                        const prev = (dadosPorProd[nome] || [])[wi - 1] || { receita: 0, unidades: 0 }
+                        const val  = metric === 'receita' ? d.receita : d.unidades
+                        const pval = metric === 'receita' ? prev.receita : prev.unidades
+                        const pct  = pval > 0 && val > 0 ? ((val - pval) / pval) * 100 : null
+                        const up   = pct !== null && pct >= 0
                         return (
                           <>
-                            <td key={`r${ci}`} style={{ padding: '5px 8px', textAlign: 'right', color: d.receita > 0 ? CMP_COLORS[ci] : 'var(--text-tertiary)', fontWeight: d.receita > 0 ? 600 : 400, fontSize: 12, borderBottom: '1px solid var(--border-color)', whiteSpace: 'nowrap' }}>
+                            <td key={`r${ci}`} style={{ padding: '5px 8px', textAlign: 'right', color: d.receita > 0 ? CMP_COLORS[ci] : 'var(--text-tertiary)', fontWeight: d.receita > 0 ? 600 : 400, fontSize: 12, whiteSpace: 'nowrap' }}>
                               {d.receita > 0 ? fmtR(d.receita) : '—'}
                             </td>
-                            <td key={`u${ci}`} style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: 12, borderBottom: '1px solid var(--border-color)' }}>
+                            <td key={`u${ci}`} style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: 12 }}>
                               {d.unidades > 0 ? fmtN(d.unidades, 0) : '—'}
+                            </td>
+                            <td key={`d${ci}`} style={{ padding: '5px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              {pct !== null
+                                ? <span style={{ fontSize: 11, fontWeight: 700, color: up ? '#22c55e' : '#ef4444' }}>
+                                    {up ? '↑' : '↓'}{Math.abs(pct).toFixed(0)}%
+                                  </span>
+                                : <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>—</span>
+                              }
                             </td>
                           </>
                         )
