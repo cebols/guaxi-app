@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
 import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda, getCompras, getVendas } from '../services/db'
