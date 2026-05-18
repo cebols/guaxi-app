@@ -4,17 +4,19 @@ import { useData } from '../hooks/useData'
 import { getReceitas } from '../services/db'
 
 const ACAO_MAP = {
-  misturar:   { icon: '🥣', label: 'Misturar' },
-  bater:      { icon: '⚡', label: 'Bater' },
-  incorporar: { icon: '🫙', label: 'Incorporar' },
-  ferver:     { icon: '🔥', label: 'Ferver' },
-  aquecer:    { icon: '🌡️', label: 'Aquecer' },
-  assar:      { icon: '🍳', label: 'Assar' },
-  resfriar:   { icon: '❄️', label: 'Resfriar' },
-  congelar:   { icon: '🧊', label: 'Congelar' },
-  descansar:  { icon: '⏱️', label: 'Descansar' },
-  cortar:     { icon: '🔪', label: 'Cortar' },
-  nota:       { icon: '📝', label: 'Nota' },
+  misturar:     { icon: '🥣', label: 'Misturar' },
+  bater:        { icon: '⚡', label: 'Bater' },
+  mixar:        { icon: '🌀', label: 'Mixar' },
+  liquidificar: { icon: '🫧', label: 'Liquidificar' },
+  processar:    { icon: '⚙️', label: 'Processar' },
+  incorporar:   { icon: '🫙', label: 'Incorporar' },
+  ferver:       { icon: '🔥', label: 'Ferver' },
+  aquecer:      { icon: '🌡️', label: 'Aquecer' },
+  assar:        { icon: '🍳', label: 'Assar' },
+  resfriar:     { icon: '❄️', label: 'Resfriar' },
+  congelar:     { icon: '🧊', label: 'Congelar' },
+  descansar:    { icon: '⏱️', label: 'Descansar' },
+  cortar:       { icon: '🔪', label: 'Cortar' },
 }
 
 function parseInstrucoes(raw) {
@@ -290,7 +292,7 @@ export default function Cozinha() {
                     </div>
                     <div className="card card-flush">
                       {parsed.map((step, i) => {
-                        const acao = ACAO_MAP[step.tipo] || ACAO_MAP.nota
+                        const acao = ACAO_MAP[step.tipo] || ACAO_MAP.misturar
                         const done = !!checkedStep[i]
                         return (
                           <div key={i} onClick={() => toggleStep(i)} style={{

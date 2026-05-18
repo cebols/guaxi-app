@@ -8,17 +8,19 @@ const TIPO_OPTS = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Pr
 const WEIGHT_UNITS = ['g', 'ml', 'kg', 'L']
 
 const ACOES = [
-  { tipo: 'misturar',   icon: '🥣', label: 'Misturar' },
-  { tipo: 'bater',      icon: '⚡', label: 'Bater' },
-  { tipo: 'incorporar', icon: '🫙', label: 'Incorporar' },
-  { tipo: 'ferver',     icon: '🔥', label: 'Ferver' },
-  { tipo: 'aquecer',    icon: '🌡️', label: 'Aquecer' },
-  { tipo: 'assar',      icon: '🍳', label: 'Assar' },
-  { tipo: 'resfriar',   icon: '❄️', label: 'Resfriar' },
-  { tipo: 'congelar',   icon: '🧊', label: 'Congelar' },
-  { tipo: 'descansar',  icon: '⏱️', label: 'Descansar' },
-  { tipo: 'cortar',     icon: '🔪', label: 'Cortar' },
-  { tipo: 'nota',       icon: '📝', label: 'Nota' },
+  { tipo: 'misturar',     icon: '🥣', label: 'Misturar' },
+  { tipo: 'bater',        icon: '⚡', label: 'Bater' },
+  { tipo: 'mixar',        icon: '🌀', label: 'Mixar' },
+  { tipo: 'liquidificar', icon: '🫧', label: 'Liquidificar' },
+  { tipo: 'processar',    icon: '⚙️', label: 'Processar' },
+  { tipo: 'incorporar',   icon: '🫙', label: 'Incorporar' },
+  { tipo: 'ferver',       icon: '🔥', label: 'Ferver' },
+  { tipo: 'aquecer',      icon: '🌡️', label: 'Aquecer' },
+  { tipo: 'assar',        icon: '🍳', label: 'Assar' },
+  { tipo: 'resfriar',     icon: '❄️', label: 'Resfriar' },
+  { tipo: 'congelar',     icon: '🧊', label: 'Congelar' },
+  { tipo: 'descansar',    icon: '⏱️', label: 'Descansar' },
+  { tipo: 'cortar',       icon: '🔪', label: 'Cortar' },
 ]
 const ACAO_MAP = Object.fromEntries(ACOES.map(a => [a.tipo, a]))
 
