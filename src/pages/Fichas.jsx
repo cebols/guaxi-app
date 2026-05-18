@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
-import { getReceitas, deleteReceitas } from '../services/db'
+import { getReceitas, deleteReceitas, saveReceita } from '../services/db'
 import ImportarExcel from './ImportarExcel'
 
 const TIPO_COLOR = {
@@ -23,14 +23,44 @@ export default function Fichas() {
   const navigate = useNavigate()
   const { data: receitas, loading, reload } = useData(getReceitas)
   const [busca, setBusca] = useState('')
+  const [filtroTipo, setFiltroTipo] = useState('todos')
   const [importando, setImportando]   = useState(false)
   const [bulkDelete, setBulkDelete]   = useState(false)
   const [bulkSel, setBulkSel]         = useState([])
   const [bulkConfirm, setBulkConfirm] = useState(false)
+  const [duplicando, setDuplicando]   = useState(null)
 
-  const filtradas = (receitas || []).filter(r =>
-    r.nome.toLowerCase().includes(busca.toLowerCase())
+  const tiposDisponiveis = useMemo(() =>
+    [...new Set((receitas || []).map(r => r.tipo).filter(Boolean))].sort(),
+    [receitas]
   )
+
+  const filtradas = (receitas || []).filter(r => {
+    if (filtroTipo !== 'todos' && r.tipo !== filtroTipo) return false
+    return r.nome.toLowerCase().includes(busca.toLowerCase())
+  })
+
+  const handleDuplicar = async (rec, e) => {
+    e?.stopPropagation()
+    setDuplicando(rec.id)
+    try {
+      const ingredientes = (rec.ingredientes || []).map(i => ({
+        nome: i.nome, quantidade: i.quantidade, unidade: i.unidade,
+        insumoId: i.insumoId, subReceitaId: i.subReceitaId,
+      }))
+      await saveReceita({
+        nome: `${rec.nome} (cópia)`,
+        tipo: rec.tipo, rendimento: rec.rendimento, unidadeGera: rec.unidadeGera,
+        pesoLiquido: rec.pesoLiquido, fatorPerda: rec.fatorPerda,
+        instrucoes: rec.instrucoes, custoTotal: rec.custoTotal, custoUnid: rec.custoUnid,
+      }, ingredientes)
+      reload()
+    } catch (err) {
+      alert('Erro ao duplicar: ' + err.message)
+    } finally {
+      setDuplicando(null)
+    }
+  }
 
   return (
     <>
@@ -59,6 +89,20 @@ export default function Fichas() {
               onChange={e => setBusca(e.target.value)}
             />
           </div>
+          {tiposDisponiveis.length > 1 && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto' }}>
+              {['todos', ...tiposDisponiveis].map(t => (
+                <button key={t} onClick={() => setFiltroTipo(t)} style={{
+                  padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+                  border: '1px solid',
+                  borderColor: filtroTipo === t ? 'var(--teal)' : 'var(--border)',
+                  background:  filtroTipo === t ? 'var(--teal-light)' : 'transparent',
+                  color:       filtroTipo === t ? 'var(--teal)' : 'var(--text-secondary)',
+                  cursor: 'pointer', whiteSpace: 'nowrap',
+                }}>{t === 'todos' ? 'Todos' : t}</button>
+              ))}
+            </div>
+          )}
         </div>
 
         {loading ? (
@@ -83,6 +127,7 @@ export default function Fichas() {
                       <th>Rendimento</th>
                       <th>Custo lote</th>
                       <th>Custo/un</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -95,6 +140,12 @@ export default function Fichas() {
                         <td className="muted">{r.rendimento > 0 ? `${r.rendimento} ${r.unidadeGera || 'un'}` : '—'}</td>
                         <td className="muted">{r.custoTotal > 0 ? `R$ ${fmt(r.custoTotal)}` : '—'}</td>
                         <td className="teal">{r.custoUnid > 0 ? `R$ ${fmt(r.custoUnid)}` : '—'}</td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <button onClick={e => handleDuplicar(r, e)} disabled={duplicando === r.id} title="Duplicar"
+                            style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 14, cursor: 'pointer' }}>
+                            {duplicando === r.id ? '⏳' : '⎘'}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -108,15 +159,27 @@ export default function Fichas() {
                 <div
                   key={r.id}
                   className="card"
-                  style={{ cursor: 'pointer' }}
+                  style={{ cursor: 'pointer', position: 'relative' }}
                   onClick={() => navigate(`/fichas/${r.id}`)}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontWeight: 600, fontSize: 15 }}>{r.nome}</span>
-                    {r.custoUnid > 0
-                      ? <span style={{ fontWeight: 600, fontSize: 14 }}>R$ {fmt(r.custoUnid)}/un</span>
-                      : <span style={{ fontSize: 13, color: '#aaa' }}>—</span>
-                    }
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      {r.custoUnid > 0
+                        ? <span style={{ fontWeight: 600, fontSize: 14 }}>R$ {fmt(r.custoUnid)}/un</span>
+                        : <span style={{ fontSize: 13, color: '#aaa' }}>—</span>
+                      }
+                      <button
+                        onClick={e => handleDuplicar(r, e)}
+                        disabled={duplicando === r.id}
+                        title="Duplicar"
+                        style={{
+                          background: 'none', border: 'none', color: 'var(--text-tertiary)',
+                          fontSize: 14, cursor: 'pointer', padding: '2px 6px', borderRadius: 4,
+                        }}>
+                        {duplicando === r.id ? '⏳' : '⎘'}
+                      </button>
+                    </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
                     <span style={{ fontSize: 12, color: '#aaa' }}>
