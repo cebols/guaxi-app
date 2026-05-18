@@ -148,13 +148,12 @@ export async function saveInsumoFornecedores(insumoId, fontes, mainCustoUnit = 0
   const { error: insErr } = await supabase.from('insumo_fornecedores').insert(rows)
   if (insErr?.code !== '42P01' && insErr) throw insErr
 
-  // Update effective custo_unit to cheapest across all suppliers (fontes + main)
-  const costs = rows.filter(r => r.custo_unit > 0).map(r => r.custo_unit)
-  if (mainCustoUnit > 0) costs.push(mainCustoUnit)
-  if (costs.length > 0) {
-    const cheapest = Math.min(...costs)
-    await supabase.from('insumos').update({ custo_unit: cheapest }).eq('id', insumoId)
-    snapshotInsumoCost(insumoId, cheapest).catch(() => {})
+  // Update effective custo_unit to priority supplier (first in list)
+  const priority = rows.find(r => r.custo_unit > 0)
+  const effectiveCost = priority ? priority.custo_unit : (mainCustoUnit > 0 ? mainCustoUnit : null)
+  if (effectiveCost != null) {
+    await supabase.from('insumos').update({ custo_unit: effectiveCost }).eq('id', insumoId)
+    snapshotInsumoCost(insumoId, effectiveCost).catch(() => {})
   }
 }
 

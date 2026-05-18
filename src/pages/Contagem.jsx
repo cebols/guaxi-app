@@ -1,7 +1,7 @@
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useEffect } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra } from '../services/db'
+import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores } from '../services/db'
 
 function waLink(phone) {
   const digits = (phone || '').replace(/\D/g, '')
@@ -317,14 +317,44 @@ function fmtN(v) {
 
 function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
   const tabLabel = { insumos: 'Insumos', embalagens: 'Embalagens', produtos: 'Produtos' }[tab]
+  const [fornecedores, setFornecedores] = useState({}) // item.id → [{fornecedor, marca, custoUnit}]
+  const [fornSel, setFornSel] = useState({})           // item.id → {fornecedor, marca, custoUnit}
+  const [openPicker, setOpenPicker] = useState(null)   // item.id | null
 
   const alterados = itens.filter(item =>
     contagem[item.id] !== undefined && contagem[item.id] !== ''
   )
 
+  const aumentos = alterados.filter(item => parseFloat(contagem[item.id]) - (item.estoqueAtual ?? 0) > 0)
+
+  useEffect(() => {
+    if (tab !== 'insumos' || aumentos.length === 0) return
+    Promise.all(
+      aumentos.map(item =>
+        getInsumoFornecedores(item.id).then(fs => ({ id: item.id, fs, item }))
+      )
+    ).then(results => {
+      const map = {}
+      results.forEach(({ id, fs, item }) => {
+        const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0 }] : [])
+        map[id] = opts
+        // Pre-select first supplier
+        if (opts.length > 0) setFornSel(s => ({ ...s, [id]: opts[0] }))
+      })
+      setFornecedores(map)
+    }).catch(() => {})
+  }, [])
+
+  function getOpts(item) {
+    if (tab === 'insumos') return fornecedores[item.id] || []
+    return item.fornecedor ? [{ fornecedor: item.fornecedor, marca: '', custoUnit: item.custoUnit || 0 }] : []
+  }
+
   const totalCompra = alterados.reduce((sum, item) => {
     const diff = parseFloat(contagem[item.id]) - (item.estoqueAtual ?? 0)
-    return diff > 0 && item.custoUnit > 0 ? sum + diff * item.custoUnit : sum
+    const sel = fornSel[item.id]
+    const price = sel?.custoUnit ?? item.custoUnit ?? 0
+    return diff > 0 && price > 0 ? sum + diff * price : sum
   }, 0)
 
   return (
@@ -344,23 +374,55 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
             const old = item.estoqueAtual ?? 0
             const novo = parseFloat(contagem[item.id])
             const diff = novo - old
+            const isAumento = diff > 0
+            const opts = isAumento ? getOpts(item) : []
+            const sel = fornSel[item.id]
+            const selLabel = sel ? (sel.fornecedor || sel.marca || 'Fornecedor') : 'Selecionar fornecedor'
             return (
               <div key={item.id} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
                 padding: '11px 0',
                 borderBottom: i < alterados.length - 1 ? '1px solid #222' : 'none',
               }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-                    {fmtN(old)} → <strong style={{ color: 'var(--text-primary)' }}>{fmtN(novo)}</strong> {item.unidade}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                      {fmtN(old)} → <strong style={{ color: 'var(--text-primary)' }}>{fmtN(novo)}</strong> {item.unidade}
+                    </div>
+                  </div>
+                  <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                    {diff > 0 && <div style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>+{fmtN(diff)} compra</div>}
+                    {diff < 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{fmtN(diff)} {item.unidade}</div>}
+                    {diff === 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>sem alteração</div>}
                   </div>
                 </div>
-                <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                  {diff > 0 && <div style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>+{fmtN(diff)} compra</div>}
-                  {diff < 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{fmtN(diff)} {item.unidade}</div>}
-                  {diff === 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>sem alteração</div>}
-                </div>
+                {isAumento && opts.length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <button onClick={() => setOpenPicker(openPicker === item.id ? null : item.id)} style={{
+                      fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                      border: sel ? '1px solid var(--teal)' : '1px dashed #555',
+                      background: sel ? 'var(--teal-light)' : 'transparent',
+                      color: sel ? 'var(--teal)' : 'var(--text-secondary)',
+                      fontWeight: sel ? 600 : 400,
+                    }}>
+                      {selLabel}{sel?.custoUnit > 0 ? ` · R$${fmt(sel.custoUnit)}` : ''}
+                    </button>
+                    {openPicker === item.id && (
+                      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {opts.map((opt, oi) => (
+                          <button key={oi} onClick={() => { setFornSel(s => ({ ...s, [item.id]: opt })); setOpenPicker(null) }} style={{
+                            textAlign: 'left', fontSize: 12, padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
+                            border: '1px solid #333', background: '#1a1a1a', color: 'var(--text-primary)',
+                          }}>
+                            <span style={{ fontWeight: 600 }}>{opt.fornecedor || opt.marca || '—'}</span>
+                            {opt.marca && opt.fornecedor && <span style={{ color: 'var(--text-secondary)' }}> · {opt.marca}</span>}
+                            {opt.custoUnit > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoUnit)}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -378,7 +440,7 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
             flex: 1, padding: 12, borderRadius: 8, border: '1px solid #444',
             background: 'transparent', color: 'var(--text-primary)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
           }}>← Editar</button>
-          <button onClick={onConfirmar} disabled={saving} style={{
+          <button onClick={() => onConfirmar(fornSel)} disabled={saving} style={{
             flex: 2, padding: 12, borderRadius: 8, border: 'none',
             background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
           }}>{saving ? 'Salvando...' : 'Confirmar contagem'}</button>
@@ -488,7 +550,7 @@ export default function Contagem() {
     setRecibo(tab)
   }
 
-  const handleConfirmar = async () => {
+  const handleConfirmar = async (fornSel = {}) => {
     setSaving(true)
     try {
       const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : produtosParaContagem
@@ -512,16 +574,20 @@ export default function Contagem() {
         }))
         const novasCompras = diffs
           .filter(({ novo, old }) => novo > old)
-          .map(({ item, novo, old }) => ({
-            tipo,
-            item_id: item.id,
-            item_nome: item.nome,
-            unidade: item.unidade || '',
-            quantidade: novo - old,
-            preco_unit: item.custoUnit || 0,
-            total: (novo - old) * (item.custoUnit || 0),
-            data: hoje,
-          }))
+          .map(({ item, novo, old }) => {
+            const sel = fornSel[item.id]
+            const precoUnit = sel?.custoUnit ?? item.custoUnit ?? 0
+            return {
+              tipo,
+              item_id: item.id,
+              item_nome: item.nome,
+              unidade: item.unidade || '',
+              quantidade: novo - old,
+              preco_unit: precoUnit,
+              total: (novo - old) * precoUnit,
+              data: hoje,
+            }
+          })
         comprasRegistradas = novasCompras.length
         if (novasCompras.length > 0) await registrarCompras(novasCompras)
       }
