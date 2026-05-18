@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase'
 
 // Upsert helper with graceful fallback for optional new columns
-// If a column doesn't exist (migration not run), it strips those columns and retries.
+// If a column doesn't exist (migration not run), strips only that column and retries.
 async function upsert(table, row, id, optionalCols = []) {
   const exec = async (r) => {
     if (id) {
@@ -10,15 +10,19 @@ async function upsert(table, row, id, optionalCols = []) {
     }
     return supabase.from(table).insert(r).select().single()
   }
-  let { data, error } = await exec(row)
-  if (error && optionalCols.some(c => error.message?.includes(c))) {
-    const reduced = Object.fromEntries(Object.entries(row).filter(([k]) => !optionalCols.includes(k)))
-    const res = await exec(reduced)
-    if (res.error) throw res.error
+  let currentRow = { ...row }
+  let remaining = [...optionalCols]
+  let { data, error } = await exec(currentRow)
+  while (error && remaining.length > 0) {
+    const failingCol = remaining.find(c => error.message?.includes(c))
+    if (!failingCol) break
+    remaining = remaining.filter(c => c !== failingCol)
+    currentRow = Object.fromEntries(Object.entries(currentRow).filter(([k]) => k !== failingCol))
+    const res = await exec(currentRow)
+    error = res.error
     data = res.data
-  } else if (error) {
-    throw error
   }
+  if (error) throw error
   return data
 }
 
