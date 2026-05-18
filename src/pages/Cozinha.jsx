@@ -106,7 +106,12 @@ export default function Cozinha() {
             <div className="card card-flush" style={{ padding: '0 14px' }}>
               {ingredientes.map((ing, i) => (
                 <div key={i} className="ing-row">
-                  <span className="ing-name">{ing.nome}</span>
+                  <span className="ing-name">
+                    {ing.subReceitaId && (
+                      <span style={{ fontSize: 10, background: 'var(--teal)', color: '#fff', borderRadius: 4, padding: '1px 4px', marginRight: 6, fontWeight: 700 }}>R</span>
+                    )}
+                    {ing.nome}
+                  </span>
                   <span className="ing-qty">{fmtQty(ing.quantidade * fator, ing.unidade)}</span>
                 </div>
               ))}

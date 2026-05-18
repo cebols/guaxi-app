@@ -21,9 +21,9 @@ export default function ReceitaForm() {
     instrucoes: '',
   })
   const [ingredientes, setIngredientes] = useState([
-    { insumoId: null, nome: '', quantidade: '', unidade: 'g' },
-    { insumoId: null, nome: '', quantidade: '', unidade: 'g' },
-    { insumoId: null, nome: '', quantidade: '', unidade: 'g' },
+    { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' },
+    { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' },
+    { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' },
   ])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -43,6 +43,7 @@ export default function ReceitaForm() {
     if (rec.ingredientes?.length > 0) {
       setIngredientes(rec.ingredientes.map(i => ({
         insumoId: i.insumoId || null,
+        subReceitaId: i.subReceitaId || null,
         nome: i.nome,
         quantidade: i.quantidade,
         unidade: i.unidade,
@@ -53,25 +54,38 @@ export default function ReceitaForm() {
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const handleIngNome = (i, nome) => {
+    // Check sub-receita first (priority), then insumo
+    const recMatch = receitas?.find(r => r.nome === nome && String(r.id) !== String(id))
+    if (recMatch) {
+      setIngredientes(prev => prev.map((it, idx) =>
+        idx === i ? { ...it, nome, subReceitaId: recMatch.id, insumoId: null, unidade: recMatch.unidadeGera || 'un' } : it
+      ))
+      return
+    }
     const found = insumos?.find(ins => ins.nome === nome)
     setIngredientes(prev => prev.map((it, idx) =>
-      idx === i ? {
-        ...it,
-        nome,
-        insumoId: found?.id ?? null,
-        unidade: found ? found.unidade : it.unidade,
-      } : it
+      idx === i ? { ...it, nome, insumoId: found?.id ?? null, subReceitaId: null, unidade: found ? found.unidade : it.unidade } : it
     ))
   }
 
   const setIng = (i, k, v) => setIngredientes(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
-  const addIng = () => setIngredientes(prev => [...prev, { insumoId: null, nome: '', quantidade: '', unidade: 'g' }])
+  const addIng = () => setIngredientes(prev => [...prev, { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' }])
   const removeIng = i => setIngredientes(prev => prev.filter((_, idx) => idx !== i))
 
   const ingCusto = (ing) => {
+    if (ing.subReceitaId) {
+      const rec = receitas?.find(r => r.id === ing.subReceitaId)
+      if (!rec?.custoUnid || !ing.quantidade) return 0
+      return (parseFloat(ing.quantidade) || 0) * rec.custoUnid
+    }
     const insumo = insumos?.find(ins => ins.id === ing.insumoId || ins.nome === ing.nome)
     if (!insumo?.custoUnit || !ing.quantidade) return 0
-    return (parseFloat(ing.quantidade) || 0) * insumo.custoUnit
+    const qty = parseFloat(ing.quantidade) || 0
+    // insumo "un" with pesoUn: custoUnit is R$/g, so multiply by pesoUn to get R$/un
+    if (insumo.unidade === 'un' && ing.unidade === 'un' && insumo.pesoUn > 0) {
+      return qty * insumo.custoUnit * insumo.pesoUn
+    }
+    return qty * insumo.custoUnit
   }
 
   const custoTotal = useMemo(() =>
@@ -253,10 +267,13 @@ export default function ReceitaForm() {
             return (
               <div key={i} className="ing-form-row" style={{ flexWrap: 'wrap', gap: 6 }}>
                 <div style={{ display: 'flex', gap: 6, flex: '1 1 100%', alignItems: 'center' }}>
+                  {ing.subReceitaId && (
+                    <span style={{ fontSize: 10, background: 'var(--teal)', color: '#fff', borderRadius: 4, padding: '2px 5px', flexShrink: 0, fontWeight: 700 }}>R</span>
+                  )}
                   <input
                     className="field-input"
                     style={{ flex: 2, marginBottom: 0, fontSize: 13 }}
-                    list="insumos-list"
+                    list="ingredientes-list"
                     placeholder="Ingrediente"
                     value={ing.nome}
                     onChange={e => handleIngNome(i, e.target.value)}
@@ -283,8 +300,11 @@ export default function ReceitaForm() {
             )
           })}
         </div>
-        <datalist id="insumos-list">
-          {(insumos || []).map(ins => <option key={ins.id} value={ins.nome} />)}
+        <datalist id="ingredientes-list">
+          {(receitas || []).filter(r => String(r.id) !== String(id)).map(r => (
+            <option key={`r-${r.id}`} value={r.nome} />
+          ))}
+          {(insumos || []).map(ins => <option key={`i-${ins.id}`} value={ins.nome} />)}
         </datalist>
         <button className="btn-add-item" onClick={addIng}>+ adicionar ingrediente</button>
 

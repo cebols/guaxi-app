@@ -203,8 +203,9 @@ ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS fator_perda  numeric d
 ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS instrucoes   text default null;
 ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
 
-ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS insumo_id bigint references insumos(id) on delete set null;
-ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS user_id   uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS insumo_id      bigint references insumos(id)  on delete set null;
+ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS sub_receita_id bigint references receitas(id) on delete set null;
+ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS user_id        uuid default auth.uid() references auth.users(id) on delete cascade;
 
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS composicao      jsonb;
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS preco_direta    numeric;

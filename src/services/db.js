@@ -601,6 +601,7 @@ export async function getReceitas() {
       ingredientes: (r.receita_ingredientes || []).map(i => ({
         id: i.id,
         insumoId: i.insumo_id || null,
+        subReceitaId: i.sub_receita_id || null,
         nome: i.insumo_nome,
         quantidade: i.quantidade || 0,
         unidade: i.unidade || 'g',
@@ -626,9 +627,9 @@ export async function saveReceita(receita, ingredientes) {
     custo_unid: parseFloat(receita.custoUnid) || 0,
   }
 
-  const buildIngRow = (receitaId, i, withInsumoId) => ({
+  const buildIngRow = (receitaId, i, withIds) => ({
     receita_id: receitaId,
-    ...(withInsumoId ? { insumo_id: i.insumoId || null } : {}),
+    ...(withIds ? { insumo_id: i.insumoId || null, sub_receita_id: i.subReceitaId || null } : {}),
     insumo_nome: i.nome,
     quantidade: parseFloat(i.quantidade) || 0,
     unidade: i.unidade || 'g',
@@ -640,8 +641,7 @@ export async function saveReceita(receita, ingredientes) {
       ingredientes.map(i => buildIngRow(receitaId, i, true))
     )
     if (error) {
-      if (error.message?.includes('insumo_id')) {
-        // Migration not yet run — save without insumo_id
+      if (error.message?.includes('insumo_id') || error.message?.includes('sub_receita_id')) {
         const { error: e2 } = await supabase.from('receita_ingredientes').insert(
           ingredientes.map(i => buildIngRow(receitaId, i, false))
         )
