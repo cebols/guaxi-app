@@ -505,6 +505,193 @@ function LancamentoRapido({ produtos, onSave, onClose }) {
   )
 }
 
+// ── Comparador de produtos ───────────────────────────────────
+const CMP_COLORS = ['#14b8a6', '#f59e0b', '#6366f1']
+const N_WEEKS = 8
+
+function weekStarts(n) {
+  const hoje = new Date()
+  return Array.from({ length: n }, (_, i) => {
+    const seg = new Date(hoje)
+    seg.setDate(hoje.getDate() - ((hoje.getDay() || 7) - 1) - (n - 1 - i) * 7)
+    seg.setHours(0, 0, 0, 0)
+    const dom = new Date(seg); dom.setDate(seg.getDate() + 6)
+    return {
+      inicio: seg.toISOString().split('T')[0],
+      fim: dom.toISOString().split('T')[0],
+      label: seg.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }),
+    }
+  })
+}
+
+function ComparadorProdutos({ vendas, produtos }) {
+  const [selecionados, setSelecionados] = useState([])
+  const [busca, setBusca] = useState('')
+  const [metric, setMetric] = useState('receita') // 'receita' | 'unidades'
+
+  const nomesProdutos = useMemo(() => {
+    const nomes = new Set([
+      ...(produtos || []).map(p => p.nome),
+      ...vendas.map(v => v.produtoNome),
+    ])
+    return [...nomes].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [produtos, vendas])
+
+  const semanas = useMemo(() => weekStarts(N_WEEKS), [])
+
+  const dadosPorProd = useMemo(() => {
+    const map = {}
+    selecionados.forEach(nome => {
+      map[nome] = semanas.map(({ inicio, fim }) => {
+        const vs = vendas.filter(v => v.produtoNome === nome && v.data >= inicio && v.data <= fim)
+        return {
+          receita: vs.reduce((s, v) => s + v.quantidade * v.precoUnit, 0),
+          unidades: vs.reduce((s, v) => s + v.quantidade, 0),
+        }
+      })
+    })
+    return map
+  }, [selecionados, vendas, semanas])
+
+  const toggle = (nome) => {
+    if (selecionados.includes(nome)) {
+      setSelecionados(s => s.filter(n => n !== nome))
+    } else if (selecionados.length < 3) {
+      setSelecionados(s => [...s, nome])
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const q = (busca || '').toLowerCase()
+    return q ? nomesProdutos.filter(n => n.toLowerCase().includes(q)) : nomesProdutos
+  }, [nomesProdutos, busca])
+
+  // SVG line chart
+  const W = 320, H = 120, PL = 36, PR = 8, PT = 8, PB = 24
+  const chartW = W - PL - PR, chartH = H - PT - PB
+
+  const allVals = selecionados.flatMap(nome =>
+    (dadosPorProd[nome] || []).map(d => d[metric])
+  )
+  const maxVal = Math.max(...allVals, 0.01)
+
+  const xPos = (i) => PL + (i / (N_WEEKS - 1)) * chartW
+  const yPos = (v) => PT + chartH - (v / maxVal) * chartH
+
+  const path = (nome) =>
+    (dadosPorProd[nome] || [])
+      .map((d, i) => `${i === 0 ? 'M' : 'L'} ${xPos(i).toFixed(1)} ${yPos(d[metric]).toFixed(1)}`)
+      .join(' ')
+
+  return (
+    <div>
+      {/* Metric toggle */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        {[['receita', 'Receita (R$)'], ['unidades', 'Unidades']].map(([val, label]) => (
+          <button key={val} onClick={() => setMetric(val)} style={{
+            fontSize: 12, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
+            border: '1px solid var(--border)',
+            background: metric === val ? 'var(--teal)' : 'transparent',
+            color: metric === val ? '#fff' : 'var(--text-secondary)',
+          }}>{label}</button>
+        ))}
+      </div>
+
+      {/* Product picker */}
+      <div className="card" style={{ marginBottom: 12, padding: '10px 14px' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+          Selecione até 3 produtos {selecionados.length > 0 && `(${selecionados.length}/3)`}
+        </div>
+        <input
+          type="text"
+          placeholder="Buscar produto..."
+          value={busca}
+          onChange={e => setBusca(e.target.value)}
+          style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box', marginBottom: 8 }}
+        />
+        <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {filtered.map(nome => {
+            const idx = selecionados.indexOf(nome)
+            const sel = idx !== -1
+            const cor = sel ? CMP_COLORS[idx] : null
+            const disabled = !sel && selecionados.length >= 3
+            return (
+              <button key={nome} onClick={() => toggle(nome)} disabled={disabled} style={{
+                textAlign: 'left', padding: '6px 10px', borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer',
+                border: `1px solid ${sel ? cor : 'var(--border-color)'}`,
+                background: sel ? `${cor}22` : 'transparent',
+                color: disabled ? 'var(--text-tertiary)' : sel ? cor : 'var(--text-primary)',
+                fontSize: 13, fontWeight: sel ? 600 : 400, opacity: disabled ? 0.5 : 1,
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                {sel && <span style={{ width: 8, height: 8, borderRadius: '50%', background: cor, flexShrink: 0 }} />}
+                {nome}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Line chart */}
+      {selecionados.length > 0 && (
+        <div className="card" style={{ padding: '12px 16px', marginBottom: 12, overflowX: 'auto' }}>
+          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', maxWidth: W, display: 'block' }}>
+            {/* Grid lines */}
+            {[0.25, 0.5, 0.75, 1].map(pct => (
+              <line key={pct}
+                x1={PL} y1={PT + chartH * (1 - pct)}
+                x2={PL + chartW} y2={PT + chartH * (1 - pct)}
+                stroke="var(--border-color)" strokeWidth="0.5" strokeDasharray="3,3"
+              />
+            ))}
+            {/* Y axis labels */}
+            {[0, 0.5, 1].map(pct => {
+              const v = maxVal * pct
+              return (
+                <text key={pct} x={PL - 4} y={PT + chartH * (1 - pct) + 3}
+                  fontSize="8" fill="var(--text-tertiary)" textAnchor="end">
+                  {metric === 'receita' ? (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)) : v.toFixed(0)}
+                </text>
+              )
+            })}
+            {/* X axis labels */}
+            {semanas.map((s, i) => (
+              (i === 0 || i === N_WEEKS - 1 || i === Math.floor(N_WEEKS / 2)) && (
+                <text key={i} x={xPos(i)} y={H - 4}
+                  fontSize="8" fill="var(--text-tertiary)" textAnchor="middle">
+                  {s.label}
+                </text>
+              )
+            ))}
+            {/* Lines */}
+            {selecionados.map((nome, ci) => (
+              <g key={nome}>
+                <path d={path(nome)} fill="none" stroke={CMP_COLORS[ci]} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                {(dadosPorProd[nome] || []).map((d, i) => d[metric] > 0 && (
+                  <circle key={i} cx={xPos(i)} cy={yPos(d[metric])} r="3" fill={CMP_COLORS[ci]} />
+                ))}
+              </g>
+            ))}
+          </svg>
+          {/* Legend */}
+          <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
+            {selecionados.map((nome, ci) => (
+              <div key={nome} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                <span style={{ width: 16, height: 2, background: CMP_COLORS[ci], borderRadius: 1, display: 'inline-block' }} />
+                <span style={{ color: 'var(--text-secondary)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {selecionados.length === 0 && (
+        <div className="empty"><span>Selecione produtos acima para comparar</span></div>
+      )}
+    </div>
+  )
+}
+
 // ── Main ─────────────────────────────────────────────────────
 export default function Vendas() {
   const [periodo, setPeriodo]           = useState('mes')
@@ -718,6 +905,7 @@ export default function Vendas() {
         <div className="tab-bar">
           <button className={`tab-btn ${tab === 'performance' ? 'active' : ''}`} onClick={() => setTab('performance')}>Performance</button>
           <button className={`tab-btn ${tab === 'graficos'    ? 'active' : ''}`} onClick={() => setTab('graficos')}>Gráficos</button>
+          <button className={`tab-btn ${tab === 'comparar'    ? 'active' : ''}`} onClick={() => setTab('comparar')}>Comparar</button>
           <button className={`tab-btn ${tab === 'historico'   ? 'active' : ''}`} onClick={() => setTab('historico')}>Histórico</button>
         </div>
 
@@ -983,6 +1171,11 @@ export default function Vendas() {
               </>
             )}
           </>
+        )}
+
+        {/* ── COMPARAR ─────────────────────────────── */}
+        {tab === 'comparar' && (
+          <ComparadorProdutos vendas={todasVendasAll} produtos={produtos} />
         )}
 
         {/* ── HISTÓRICO ────────────────────────────── */}
