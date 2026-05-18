@@ -160,8 +160,8 @@ function ImportReceitas({ allSheets, onDone }) {
   const [selected, setSelected]   = useState(allSheets.map(s => s.name))
   const [previewSheet, setPreviewSheet] = useState(allSheets[0] || null)
   const [map, setMap] = useState({
-    nomeMode: 'cell', nomeRow: 1, nomeCol: 3,
-    rendMode: 'cell', rendRow: 3, rendCol: 3,  // célula do rendimento
+    nomeMode: 'tabname', nomeRow: 1, nomeCol: 3,
+    rendMode: 'cell', rendRow: 3, rendCol: 3,
     dataRow: 5, colIng: 0, colQtd: 5, colUnid: 6, colCusto: 8,
   })
   const [parsed, setParsed]       = useState([])
@@ -200,7 +200,34 @@ function ImportReceitas({ allSheets, onDone }) {
       const custo = map.colCusto >= 0 ? parseNum(row[map.colCusto]) : null
       ingredientes.push({ nome: ingNome, quantidade: qtd, unidade, custo })
     }
-    return { nome: nomeFinal, rendimento, unidadeGera: unidadeGeraParsed, ingredientes }
+
+    // Soma peso/volume dos ingredientes (ignora 'un')
+    const pesoSoma = ingredientes.reduce((s, ing) => {
+      const q = ing.quantidade || 0
+      if (ing.unidade === 'kg' || ing.unidade === 'L') return s + q * 1000
+      if (ing.unidade === 'g' || ing.unidade === 'ml') return s + q
+      return s
+    }, 0)
+
+    // Detecta se rendimento é peso, peso+perda ou unidades
+    let finalUnidadeGera = unidadeGeraParsed
+    let finalRendimento  = rendimento
+    let fatorPerda       = null
+
+    if (pesoSoma > 0 && rendimento > 0 && unidadeGeraParsed !== 'g' && unidadeGeraParsed !== 'ml') {
+      const ratio = rendimento / pesoSoma
+      if (ratio >= 0.5) {
+        // rendimento está em g/ml
+        finalUnidadeGera = 'g'
+        if (ratio < 0.97) fatorPerda = Math.round((1 - ratio) * 100)
+      }
+      // ratio < 0.5 → assume unidades (finalUnidadeGera já é 'un')
+    } else if (pesoSoma > 0 && rendimento > 0 && (unidadeGeraParsed === 'g' || unidadeGeraParsed === 'ml')) {
+      const ratio = rendimento / pesoSoma
+      if (ratio < 0.97) fatorPerda = Math.round((1 - ratio) * 100)
+    }
+
+    return { nome: nomeFinal, rendimento: finalRendimento, unidadeGera: finalUnidadeGera, fatorPerda, ingredientes }
   }
 
   function buildPreview() {
@@ -236,7 +263,7 @@ function ImportReceitas({ allSheets, onDone }) {
         }, 0)
         const rendimento = rec.rendimento || 1
         await saveReceita(
-          { nome: rec.nome, tipo: 'Outro', rendimento, unidadeGera: rec.unidadeGera || 'un', custoTotal, custoUnid: custoTotal / rendimento },
+          { nome: rec.nome, tipo: 'Outro', rendimento, unidadeGera: rec.unidadeGera || 'un', fatorPerda: rec.fatorPerda || null, custoTotal, custoUnid: custoTotal / rendimento },
           ings
         )
         receitasCriadas++
@@ -254,7 +281,10 @@ function ImportReceitas({ allSheets, onDone }) {
         {parsed.map((rec, ri) => (
           <div key={ri} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
             <div style={{ fontWeight: 700, marginBottom: 2 }}>{rec.nome}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>rendimento: {rec.rendimento} {rec.unidadeGera}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            rendimento: {rec.rendimento} {rec.unidadeGera}
+            {rec.fatorPerda ? <span style={{ color: 'var(--teal)', marginLeft: 6 }}>−{rec.fatorPerda}% perda</span> : ''}
+          </div>
             {rec.ingredientes.map((ing, ii) => (
               <div key={ii} style={{ fontSize: 12, padding: '2px 0' }}>
                 • {ing.quantidade} {ing.unidade} — {ing.nome}
