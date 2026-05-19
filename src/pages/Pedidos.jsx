@@ -3,46 +3,43 @@ import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, deletePedido, adjustEstoqueProduto } from '../services/db'
 
-// ── Constants ─────────────────────────────────────────────────
 const STATUS_OPTS = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
 const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
 const CANAL_OPTS  = ['WhatsApp', 'iFood', '99Food', 'Keeta', 'Presencial']
+const PIPE_STEPS  = ['Pendente', 'Pronto', 'Entregue']
 
-// Smart filters: each has a `match(p, ctx)` predicate
 const SMART_FILTROS = [
-  { key: 'todos',      label: 'Todos',     match: () => true },
+  { key: 'todos',      label: 'Todos',        match: () => true },
   { key: 'atrasados',  label: '🔴 Atrasados', match: p => {
-      if (['Entregue', 'Cancelado'].includes(p.status)) return false
+      if (['Entregue','Cancelado'].includes(p.status)) return false
       if (!p.dataEntrega) return false
       const t = new Date(); t.setHours(0,0,0,0)
       return new Date(p.dataEntrega + 'T00:00:00') < t
     }},
-  { key: 'hoje',       label: '🟠 Hoje',   match: p => {
+  { key: 'hoje',      label: '🟠 Hoje',       match: p => {
       if (!p.dataEntrega) return false
       const t = new Date(); t.setHours(0,0,0,0)
-      const d = new Date(p.dataEntrega + 'T00:00:00')
-      return d.getTime() === t.getTime() && p.status !== 'Cancelado'
+      return new Date(p.dataEntrega + 'T00:00:00').getTime() === t.getTime() && p.status !== 'Cancelado'
     }},
-  { key: 'amanha',     label: '🟡 Amanhã', match: p => {
+  { key: 'amanha',    label: '🟡 Amanhã',     match: p => {
       if (!p.dataEntrega) return false
-      const t = new Date(); t.setHours(0,0,0,0); t.setDate(t.getDate() + 1)
-      const d = new Date(p.dataEntrega + 'T00:00:00')
-      return d.getTime() === t.getTime() && p.status !== 'Cancelado'
+      const t = new Date(); t.setHours(0,0,0,0); t.setDate(t.getDate()+1)
+      return new Date(p.dataEntrega + 'T00:00:00').getTime() === t.getTime() && p.status !== 'Cancelado'
     }},
-  { key: 'areceber',   label: '💰 A receber', match: p => p.status !== 'Cancelado' && p.pgto !== 'Pago' },
-  { key: 'Pendente',   label: 'Pendente',   match: p => p.status === 'Pendente' },
-  { key: 'Pronto',     label: 'Pronto',     match: p => p.status === 'Pronto' },
-  { key: 'Entregue',   label: 'Entregue',   match: p => p.status === 'Entregue' },
+  { key: 'areceber',  label: '💰 A receber',  match: p => p.status !== 'Cancelado' && p.pgto !== 'Pago' },
+  { key: 'Pendente',  label: 'Pendente',       match: p => p.status === 'Pendente' },
+  { key: 'Pronto',    label: 'Pronto',         match: p => p.status === 'Pronto' },
+  { key: 'Entregue',  label: 'Entregue',       match: p => p.status === 'Entregue' },
 ]
 
-// WhatsApp message templates
 const WA_TEMPLATES = [
-  { label: '✅ Pedido pronto',     msg: 'Oi {nome}! Seu pedido {id} tá pronto pra retirada. ❤️' },
-  { label: '🛵 Saiu pra entrega',  msg: 'Oi {nome}! Saiu pra entrega o pedido {id}, chega em breve!' },
-  { label: '⏰ Lembrete entrega',  msg: 'Oi {nome}! Passando pra lembrar do seu pedido {id} pra {data}. Tudo certo?' },
-  { label: '⭐ Pedir feedback',    msg: 'Oi {nome}! Espero que tenha curtido o pedido {id}. Manda foto e me conta o que achou! 😍' },
-  { label: '💰 Cobrança gentil',   msg: 'Oi {nome}! Passando pra lembrar do pagamento do pedido {id} (R$ {valor}). Posso te enviar o pix?' },
+  { icon: '✅', label: 'Pedido pronto',    msg: 'Oi {nome}! Seu pedido {id} tá pronto pra retirada. ❤️' },
+  { icon: '🛵', label: 'Saiu pra entrega', msg: 'Oi {nome}! Saiu pra entrega o pedido {id}, chega em breve!' },
+  { icon: '⏰', label: 'Lembrete entrega', msg: 'Oi {nome}! Passando pra lembrar do seu pedido {id} pra {data}. Tudo certo?' },
+  { icon: '⭐', label: 'Pedir feedback',   msg: 'Oi {nome}! Espero que tenha curtido o pedido {id}. Manda foto! 😍' },
+  { icon: '💰', label: 'Cobrança gentil',  msg: 'Oi {nome}! Passando pra lembrar do pagamento do pedido {id} (R$ {valor}). Posso te enviar o pix?' },
 ]
+
 function fillTemplate(tpl, pedido) {
   const nome = (pedido.cliente || '').split(' ')[0]
   return tpl
@@ -52,16 +49,10 @@ function fillTemplate(tpl, pedido) {
     .replace('{valor}', fmtR(pedido.valor))
 }
 
-const STATUS_STYLE = {
-  Pendente:   { bg: '#334155', color: '#94a3b8' },
-  Pronto:     { bg: '#14532d', color: '#4ade80' },
-  Entregue:   { bg: '#1a1a2e', color: '#6b7280' },
-  Cancelado:  { bg: '#3b1f1f', color: '#ef4444' },
-}
 const PGTO_STYLE = {
-  Aguardando: { bg: '#3b2700', color: '#f59e0b' },
-  Pago:       { bg: '#14532d', color: '#4ade80' },
-  Atrasado:   { bg: '#3b1f1f', color: '#ef4444' },
+  Aguardando: { bg: 'var(--warn-bg)',   border: 'var(--warn-text)',  dot: 'var(--warn-text)',  color: 'var(--warn-text)',  label: 'Aguardando pagamento' },
+  Pago:       { bg: 'var(--ok-bg)',     border: 'var(--ok-text)',    dot: 'var(--ok-text)',    color: 'var(--ok-text)',    label: 'Pago' },
+  Atrasado:   { bg: 'var(--alert-bg)',  border: 'var(--alert-text)', dot: 'var(--alert-text)', color: 'var(--alert-text)', label: 'Pagamento atrasado' },
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -74,12 +65,12 @@ function fmtDate(d) {
 }
 function urgency(dataEntrega) {
   if (!dataEntrega) return null
-  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const today = new Date(); today.setHours(0,0,0,0)
   const dt = new Date(dataEntrega + 'T00:00:00')
   const diff = Math.round((dt - today) / 86400000)
-  if (diff < 0)   return { label: 'ATRASADO', bg: '#7f1d1d', color: '#fca5a5' }
-  if (diff === 0) return { label: 'HOJE',     bg: '#7c2d12', color: '#fb923c' }
-  if (diff === 1) return { label: 'AMANHÃ',   bg: '#713f12', color: '#fbbf24' }
+  if (diff < 0)   return { label: 'ATRASADO', bg: 'var(--alert-bg)', color: 'var(--alert-text)' }
+  if (diff === 0) return { label: 'HOJE',     bg: 'var(--warn-bg)',  color: 'var(--warn-text)' }
+  if (diff === 1) return { label: 'AMANHÃ',   bg: '#713f12',         color: '#fbbf24' }
   return null
 }
 function waLink(phone) {
@@ -107,150 +98,590 @@ function buildAlertMap(produtos, receitas, insumos) {
   return map
 }
 
-// ── EntregaDateChips — Hoje / Amanhã / 📅 Agendar ─────────────
-function EntregaDateChips({ value, onChange }) {
-  const today    = new Date().toISOString().split('T')[0]
-  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
-  const fmt = (iso) => { const [, m, d] = iso.split('-'); return `${d}/${m}` }
-  const init = value === tomorrow ? 'amanha' : (value && value !== today) ? 'data' : 'hoje'
-  const [chip, setChip] = useState(init)
-  const cs = (id) => {
-    const a = chip === id
-    const base = { padding: '6px 11px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none' }
-    if (!a) return { ...base, background: 'var(--bg-secondary)', outline: '1.5px solid transparent', color: 'var(--text-secondary)' }
-    if (id === 'hoje') return { ...base, background: 'var(--warn-bg)', outline: '1px solid var(--warn-text)', color: 'var(--warn-text)' }
-    return { ...base, background: 'var(--teal-light)', outline: '1px solid var(--teal)', color: 'var(--teal)' }
-  }
+function nextWeekday(day) {
+  const d = new Date()
+  d.setHours(0,0,0,0)
+  while (d.getDay() !== day) d.setDate(d.getDate()+1)
+  return d
+}
+
+// ── Pipeline visual ───────────────────────────────────────────
+function Pipeline({ status, onStepClick, height = 26, fontSize = 9 }) {
+  const idx = PIPE_STEPS.indexOf(status)
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <button style={cs('hoje')}   onClick={() => { setChip('hoje');   onChange(today)    }}>Hoje · {fmt(today)}</button>
-        <button style={cs('amanha')} onClick={() => { setChip('amanha'); onChange(tomorrow) }}>Amanhã · {fmt(tomorrow)}</button>
-        <button style={cs('data')}   onClick={() => setChip('data')}>📅 Agendar</button>
-      </div>
-      {chip === 'data' && <input type="date" className="field-input" defaultValue={value !== today && value !== tomorrow ? value : ''} onChange={e => onChange(e.target.value)} style={{ marginTop: 8 }} />}
+    <div style={{ display: 'flex', gap: 2, height }}>
+      {PIPE_STEPS.map((s, i) => {
+        const done    = i < idx
+        const current = i === idx
+        return (
+          <div
+            key={s}
+            onClick={onStepClick ? (e) => { e.stopPropagation(); onStepClick(s, i) } : undefined}
+            style={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize, fontWeight: current ? 800 : 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+              cursor: onStepClick ? 'pointer' : 'default',
+              borderRadius: i === 0 ? '7px 0 0 7px' : i === 2 ? '0 7px 7px 0' : 0,
+              background: done ? 'rgba(34,184,134,.15)' : current ? 'var(--teal)' : 'transparent',
+              border: done || current ? 'none' : '1.5px dashed #333',
+              color: done ? 'var(--teal)' : current ? '#000' : 'var(--text-tertiary)',
+            }}
+          >{s}</div>
+        )
+      })}
     </div>
   )
 }
 
-// ── DateInput — accepts dd/mm/aaaa, stores YYYY-MM-DD ─────────
-function DateInput({ value, onChange, className, style }) {
-  // Display stored ISO value (YYYY-MM-DD) as dd/mm/aaaa
-  function toDisplay(iso) {
-    if (!iso) return ''
-    const [y, m, d] = iso.split('-')
-    return y && m && d ? `${d}/${m}/${y}` : iso
-  }
-  // Parse dd/mm/aaaa → YYYY-MM-DD
-  function toISO(raw) {
-    const clean = raw.replace(/\D/g, '')
-    if (clean.length === 8) {
-      return `${clean.slice(4)}-${clean.slice(2, 4)}-${clean.slice(0, 2)}`
-    }
-    return ''
-  }
-  const [display, setDisplay] = useState(toDisplay(value))
-
-  const handleChange = (e) => {
-    let raw = e.target.value
-    // Auto-insert slashes
-    const digits = raw.replace(/\D/g, '').slice(0, 8)
-    let formatted = digits
-    if (digits.length > 2) formatted = digits.slice(0, 2) + '/' + digits.slice(2)
-    if (digits.length > 4) formatted = digits.slice(0, 2) + '/' + digits.slice(2, 4) + '/' + digits.slice(4)
-    setDisplay(formatted)
-    const iso = toISO(digits)
-    if (iso) onChange(iso)
-    else if (digits.length === 0) onChange('')
-  }
-
+// ── Pgto toggle ───────────────────────────────────────────────
+function PgtoToggle({ pgto, valor, onClick }) {
+  const s = PGTO_STYLE[pgto] || PGTO_STYLE.Aguardando
   return (
-    <input
-      className={className}
-      style={style}
-      type="text"
-      inputMode="numeric"
-      placeholder="dd/mm/aaaa"
-      value={display}
-      onChange={handleChange}
-      maxLength={10}
-    />
+    <button
+      onClick={onClick}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        width: '100%', padding: '9px 12px', borderRadius: 9,
+        background: s.bg, border: `1.5px solid ${s.border}`,
+        cursor: 'pointer', textAlign: 'left',
+      }}
+    >
+      <div style={{ width: 10, height: 10, borderRadius: '50%', background: s.dot, flexShrink: 0 }} />
+      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: s.color }}>{s.label}</span>
+      {valor > 0 && <span style={{ fontSize: 12, color: s.color, opacity: 0.8 }}>R$ {fmtR(valor)}</span>}
+    </button>
   )
 }
 
-// ── Badge ─────────────────────────────────────────────────────
-function Badge({ label, style }) {
+// ── Date chips para formulário ────────────────────────────────
+function DateChipsForm({ value, onChange }) {
+  const hoje = new Date(); hoje.setHours(0,0,0,0)
+  const amanha = new Date(hoje); amanha.setDate(hoje.getDate()+1)
+  const sab = nextWeekday(6)
+  const dom = nextWeekday(0)
+
+  const fmt = (d) => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+  const toISO = (d) => d.toISOString().split('T')[0]
+
+  const chips = [
+    { key: 'hoje',    label: 'Hoje',    sub: fmt(hoje),   iso: toISO(hoje),   cls: 'today' },
+    { key: 'amanha',  label: 'Amanhã',  sub: fmt(amanha), iso: toISO(amanha)  },
+    { key: 'sab',     label: 'Sáb',     sub: fmt(sab),    iso: toISO(sab)     },
+    { key: 'dom',     label: 'Dom',     sub: fmt(dom),    iso: toISO(dom)     },
+    { key: 'agendar', label: '📅',       sub: 'Agendar',   iso: null           },
+  ]
+
+  const initKey = () => {
+    if (!value) return null
+    const chip = chips.find(c => c.iso === value)
+    return chip ? chip.key : 'agendar'
+  }
+  const [chip, setChip] = useState(initKey)
+
+  const select = (c) => {
+    setChip(c.key)
+    if (c.iso) onChange(c.iso)
+  }
+
+  const isToday = (c) => c.key === 'hoje'
+  const isSelected = (c) => chip === c.key
+
   return (
-    <span style={{
-      fontSize: 10, fontWeight: 700, letterSpacing: '0.03em',
-      padding: '2px 7px', borderRadius: 10,
-      background: style.bg, color: style.color, whiteSpace: 'nowrap',
-    }}>{label}</span>
+    <div>
+      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
+        {chips.map(c => {
+          const sel = isSelected(c)
+          const today = isToday(c)
+          return (
+            <button
+              key={c.key}
+              onClick={() => select(c)}
+              style={{
+                flexShrink: 0, padding: '6px 8px', borderRadius: 8, fontSize: 12,
+                cursor: 'pointer', border: 'none', textAlign: 'center', minWidth: 50,
+                background: sel ? (today ? 'var(--warn-bg)' : 'var(--teal-light)') : 'var(--bg-secondary)',
+                outline: sel ? `1.5px solid ${today ? 'var(--warn-text)' : 'var(--teal)'}` : '1.5px solid transparent',
+                color: sel ? (today ? 'var(--warn-text)' : 'var(--teal)') : 'var(--text-secondary)',
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>{c.label}</div>
+              {c.sub && <div style={{ fontSize: 10, marginTop: 1, opacity: 0.8 }}>{c.sub}</div>}
+            </button>
+          )
+        })}
+      </div>
+      {chip === 'agendar' && (
+        <input
+          type="date"
+          className="field-input"
+          style={{ marginTop: 8, colorScheme: 'dark' }}
+          value={value !== chips.find(c => c.iso === value)?.iso ? value : ''}
+          onChange={e => onChange(e.target.value)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Product modal ─────────────────────────────────────────────
+function ProdModal({ produtos, itens, onAdd, onClose }) {
+  const [search, setSearch] = useState('')
+  const [showCustom, setShowCustom] = useState(false)
+  const [customNome, setCustomNome] = useState('')
+  const [customPreco, setCustomPreco] = useState('')
+
+  const filtered = (produtos || []).filter(p =>
+    !search || p.nome.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const addProd = (prod) => {
+    onAdd({ produto: prod.nome, quantidade: 1, precoUnit: String(prod.precoDireta ?? prod.precoPraticado ?? prod.precoSugerido ?? 0) })
+  }
+
+  const addCustom = () => {
+    if (!customNome.trim()) return
+    const preco = parseFloat(customPreco.replace(',', '.')) || 0
+    onAdd({ produto: customNome.trim(), quantidade: 1, precoUnit: String(preco), avulso: true })
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', flexDirection: 'column', background: 'var(--bg-primary)' }}>
+      {/* Header */}
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+          ← Voltar
+        </button>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>Escolher produto</span>
+      </div>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+        <input
+          className="field-input"
+          style={{ background: 'var(--bg-secondary)', margin: 0 }}
+          placeholder="Buscar produto..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          autoFocus
+        />
+      </div>
+
+      {/* List */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {filtered.map(p => {
+          const existing = itens.find(it => it.produto === p.nome)
+          return (
+            <div
+              key={p.nome}
+              onClick={() => addProd(p)}
+              style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '11px 14px', borderBottom: '1px solid var(--border)',
+                background: existing ? 'var(--teal-light)' : 'transparent', cursor: 'pointer',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 500 }}>{p.nome}</div>
+                {existing && <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 2 }}>{existing.quantidade} no pedido</div>}
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
+                R$ {fmtR(p.precoDireta ?? p.precoPraticado ?? p.precoSugerido ?? 0)}
+              </span>
+            </div>
+          )
+        })}
+
+        {/* Custom item */}
+        <div style={{ padding: '10px 14px' }}>
+          {!showCustom ? (
+            <button
+              onClick={() => setShowCustom(true)}
+              style={{
+                width: '100%', padding: 12, background: 'transparent',
+                border: '1.5px dashed #444', borderRadius: 10, fontSize: 13,
+                color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left',
+                display: 'flex', alignItems: 'center', gap: 10,
+              }}
+            >
+              <span style={{ fontSize: 18 }}>✏️</span>
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {search ? `"${search}" não está no cardápio` : 'Item personalizado'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                  Adicionar com nome e preço livres
+                </div>
+              </div>
+            </button>
+          ) : (
+            <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
+                Item avulso
+              </div>
+              <input
+                className="field-input"
+                style={{ marginBottom: 8 }}
+                placeholder="Nome do item"
+                value={customNome}
+                onChange={e => setCustomNome(e.target.value)}
+                autoFocus
+              />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  className="field-input"
+                  style={{ flex: 1, marginBottom: 0 }}
+                  placeholder="Preço (R$)"
+                  inputMode="decimal"
+                  value={customPreco}
+                  onChange={e => setCustomPreco(e.target.value)}
+                />
+                <button
+                  onClick={addCustom}
+                  disabled={!customNome.trim()}
+                  style={{
+                    padding: '11px 16px', background: 'var(--teal)', color: '#000',
+                    border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700,
+                    cursor: 'pointer', opacity: customNome.trim() ? 1 : 0.4,
+                  }}
+                >Adicionar</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Item row (form) ───────────────────────────────────────────
+function ItemRow({ item, onChange, onRemove, canRemove }) {
+  const total = (parseFloat(item.precoUnit) || 0) * (parseInt(item.quantidade) || 1)
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: 10, background: 'var(--bg-secondary)', borderRadius: 10, marginBottom: 6,
+      borderLeft: item.avulso ? '2px solid #555' : 'none',
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: item.avulso ? 2 : 0 }}>{item.produto}</div>
+        {item.avulso && <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>item avulso</div>}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <button
+          onClick={() => onChange('quantidade', Math.max(1, (parseInt(item.quantidade)||1) - 1))}
+          style={{ width: 28, height: 28, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >−</button>
+        <span style={{ fontSize: 14, fontWeight: 700, minWidth: 20, textAlign: 'center' }}>{item.quantidade}</span>
+        <button
+          onClick={() => onChange('quantidade', (parseInt(item.quantidade)||1) + 1)}
+          style={{ width: 28, height: 28, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >+</button>
+      </div>
+      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)', whiteSpace: 'nowrap' }}>R$ {fmtR(total)}</span>
+      {canRemove && (
+        <button onClick={onRemove} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 18, cursor: 'pointer', padding: '0 2px' }}>×</button>
+      )}
+    </div>
+  )
+}
+
+// ── Form fields (shared between NovoView + NovoPedidoSheet) ───
+function FormFields({ form, setField, itens, setItens, produtos, clientes, showModal, setShowModal, showMore, setShowMore }) {
+  const handleClienteChange = (nome) => {
+    setField('cliente', nome)
+    const existing = (clientes || []).find(c => c.nome.toLowerCase() === nome.toLowerCase())
+    if (existing?.telefone && !form.contato) setField('contato', existing.telefone)
+  }
+
+  const addItem = (item) => {
+    setItens(prev => {
+      const existing = prev.findIndex(it => it.produto === item.produto)
+      if (existing >= 0) {
+        return prev.map((it, i) => i === existing ? { ...it, quantidade: (parseInt(it.quantidade)||1) + 1 } : it)
+      }
+      return [...prev, item]
+    })
+    setShowModal(false)
+  }
+
+  const changeItem = (i, k, v) => setItens(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
+  const removeItem = (i) => setItens(prev => prev.filter((_, idx) => idx !== i))
+
+  return (
+    <>
+      {showModal && (
+        <ProdModal
+          produtos={produtos}
+          itens={itens}
+          onAdd={addItem}
+          onClose={() => setShowModal(false)}
+        />
+      )}
+
+      {/* Cliente */}
+      <div style={{ marginBottom: 14 }}>
+        <div className="field-label">Cliente</div>
+        <input
+          className="field-input"
+          list="clientes-list"
+          placeholder="Nome do cliente"
+          value={form.cliente}
+          onChange={e => handleClienteChange(e.target.value)}
+          autoComplete="off"
+        />
+        <datalist id="clientes-list">
+          {(clientes || []).map(c => <option key={c.id} value={c.nome} />)}
+        </datalist>
+      </div>
+
+      {/* Data */}
+      <div style={{ marginBottom: 14 }}>
+        <div className="field-label">Data de entrega</div>
+        <DateChipsForm value={form.dataEntrega} onChange={v => setField('dataEntrega', v)} />
+      </div>
+
+      {/* Itens */}
+      <div style={{ marginBottom: 14 }}>
+        <div className="field-label">Itens</div>
+        {itens.map((it, i) => (
+          <ItemRow
+            key={i}
+            item={it}
+            onChange={(k, v) => changeItem(i, k, v)}
+            onRemove={() => removeItem(i)}
+            canRemove={itens.length > 1}
+          />
+        ))}
+        <button
+          onClick={() => setShowModal(true)}
+          style={{
+            width: '100%', padding: 10, background: 'transparent',
+            border: '1.5px dashed #333', borderRadius: 9, fontSize: 13,
+            color: 'var(--teal)', fontWeight: 600, cursor: 'pointer',
+          }}
+        >+ Adicionar produto</button>
+      </div>
+
+      {/* Mais detalhes toggle */}
+      <button
+        onClick={() => setShowMore(s => !s)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '6px 0', marginBottom: 10, color: 'var(--text-tertiary)',
+        }}
+      >
+        <div style={{ flex: 1, height: 1, background: 'var(--bg-secondary)' }} />
+        <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap' }}>
+          {showMore ? '▲ Menos detalhes' : '▼ Mais detalhes'}
+        </span>
+        <div style={{ flex: 1, height: 1, background: 'var(--bg-secondary)' }} />
+      </button>
+
+      {showMore && (
+        <div style={{ marginBottom: 14 }}>
+          {/* Telefone */}
+          <div className="field-label">Telefone</div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+            <input
+              className="field-input"
+              style={{ marginBottom: 0, flex: 1 }}
+              placeholder="+55 11 9 ..."
+              value={form.contato}
+              onChange={e => setField('contato', e.target.value)}
+            />
+            {waLink(form.contato) && (
+              <a href={waLink(form.contato)} target="_blank" rel="noreferrer" style={{ background: '#14532d', color: '#4ade80', padding: '9px 12px', borderRadius: 8, fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                📲 WA
+              </a>
+            )}
+          </div>
+
+          {/* Canal + Tipo */}
+          <div className="field-row">
+            <div>
+              <div className="field-label">Canal</div>
+              <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
+                {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+            <div>
+              <div className="field-label">Tipo</div>
+              <select className="field-input" value={form.tipoEntrega} onChange={e => setField('tipoEntrega', e.target.value)}>
+                <option>Retirada</option>
+                <option>Entrega</option>
+              </select>
+            </div>
+          </div>
+          {form.tipoEntrega === 'Entrega' && (
+            <>
+              <div className="field-label">Frete (R$)</div>
+              <input className="field-input" type="text" inputMode="decimal" placeholder="0,00"
+                value={form.frete} onChange={e => setField('frete', e.target.value)} />
+            </>
+          )}
+
+          {/* Obs */}
+          <div className="field-label">Observações</div>
+          <textarea
+            className="field-input"
+            rows={3}
+            placeholder="Anotações, endereço, preferências..."
+            value={form.obs}
+            onChange={e => setField('obs', e.target.value)}
+            style={{ resize: 'none' }}
+          />
+        </div>
+      )}
+    </>
+  )
+}
+
+// ── New order view (full page) ────────────────────────────────
+function NovoView({ produtos, clientes, onBack, onSaved }) {
+  const { toast, show } = useToast()
+  const [form, setFormState] = useState({
+    cliente: '', contato: '', canal: 'WhatsApp',
+    dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
+    tipoEntrega: 'Retirada', frete: '',
+  })
+  const [itens, setItens]       = useState([])
+  const [saving, setSaving]     = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [showMore, setShowMore] = useState(false)
+
+  const setField = (k, v) => setFormState(f => ({ ...f, [k]: v }))
+
+  const frete = form.tipoEntrega === 'Entrega' ? (parseFloat(form.frete) || 0) : 0
+  const itensTotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit)||0) * (parseInt(it.quantidade)||1), 0)
+  const total = itensTotal + frete
+
+  const handleSave = async () => {
+    if (!form.cliente)     { show('Preencha o nome do cliente'); return }
+    if (!form.dataEntrega) { show('Preencha a data de entrega'); return }
+    if (itens.length === 0){ show('Adicione ao menos um item'); return }
+    setSaving(true)
+    try {
+      const isClienteNovo = form.cliente.trim().length > 1 &&
+        !(clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
+      if (isClienteNovo) await saveCliente({ nome: form.cliente, telefone: form.contato })
+      const id = await savePedido(form, itens)
+      show(`Pedido ${id} salvo!`)
+      setTimeout(() => { onSaved(); onBack() }, 700)
+    } catch (e) {
+      show('Erro: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-inner">
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+            ← voltar
+          </button>
+          <div className="topbar-title">Novo pedido</div>
+        </div>
+      </div>
+
+      <div className="page-inner" style={{ paddingTop: 16, paddingBottom: 0 }}>
+        <FormFields
+          form={form} setField={setField}
+          itens={itens} setItens={setItens}
+          produtos={produtos} clientes={clientes}
+          showModal={showModal} setShowModal={setShowModal}
+          showMore={showMore} setShowMore={setShowMore}
+        />
+      </div>
+
+      {/* Total bar */}
+      <div style={{
+        position: 'sticky', bottom: 60, background: 'var(--bg-card)',
+        borderTop: '1px solid var(--border)', padding: '8px 16px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>Total</span>
+        <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>R$ {fmtR(total)}</span>
+      </div>
+      <div style={{ padding: '8px 16px 16px', background: 'var(--bg-card)' }}>
+        <button
+          className="btn-primary"
+          onClick={handleSave}
+          disabled={saving || !form.cliente || !form.dataEntrega || itens.length === 0}
+          style={{ opacity: (!form.cliente || !form.dataEntrega || itens.length === 0) ? 0.4 : 1 }}
+        >
+          {saving ? 'Salvando...' : 'Salvar pedido'}
+        </button>
+      </div>
+      {toast && <div className="toast">{toast}</div>}
+    </>
   )
 }
 
 // ── Order card ────────────────────────────────────────────────
-function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatus, selected, selecaoMode }) {
+function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatus }) {
   const urg      = urgency(pedido.dataEntrega)
-  const stStyle  = STATUS_STYLE[pedido.status] || STATUS_STYLE.Pendente
-  const pgStyle  = PGTO_STYLE[pedido.pgto]     || PGTO_STYLE.Aguardando
   const hasAlert = (pedido.itens || []).some(it => alertMap[it.produto])
-
-  const [pressTimer, setPressTimer] = useState(null)
-  const startPress = () => {
-    if (selecaoMode) return
-    const t = setTimeout(() => {
-      if (navigator.vibrate) navigator.vibrate(40)
-    }, 500)
-    setPressTimer(t)
-  }
-  const cancelPress = () => { if (pressTimer) clearTimeout(pressTimer); setPressTimer(null) }
 
   const dateChipStyle = (() => {
     if (!pedido.dataEntrega) return null
     const today = new Date(); today.setHours(0,0,0,0)
-    const dt = new Date(pedido.dataEntrega + 'T00:00:00')
-    const diff = Math.round((dt - today) / 86400000)
+    const diff = Math.round((new Date(pedido.dataEntrega + 'T00:00:00') - today) / 86400000)
     if (diff < 0)   return { bg: 'var(--alert-bg)', color: 'var(--alert-text)' }
-    if (diff === 0) return { bg: 'var(--warn-bg)', color: 'var(--warn-text)' }
+    if (diff === 0) return { bg: 'var(--warn-bg)',  color: 'var(--warn-text)' }
     return { bg: 'var(--ok-bg)', color: 'var(--ok-text)' }
   })()
 
+  const pgtoS = PGTO_STYLE[pedido.pgto] || PGTO_STYLE.Aguardando
+  const itensStr = (pedido.itens || []).map(it => `${it.produto} ×${it.quantidade}`).join(' · ')
+
   return (
     <div style={{ marginBottom: expanded ? 0 : 8 }}>
-      <div className="card"
-        onClick={() => selecaoMode ? undefined : onToggle()}
-        onTouchStart={startPress} onTouchEnd={cancelPress} onTouchMove={cancelPress}
-        onMouseDown={startPress} onMouseUp={cancelPress} onMouseLeave={cancelPress}
+      <div
+        className="card"
+        onClick={onToggle}
         style={{
           padding: '12px 14px', cursor: 'pointer',
-          border: selected ? '2px solid var(--teal)' : undefined,
-          background: selected ? 'var(--teal-light)' : undefined,
           borderRadius: expanded ? '12px 12px 0 0' : 12,
           marginBottom: 0,
-        }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 3 }}>
-              {urg && <Badge label={urg.label} style={urg} />}
-              {hasAlert && <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', padding: '2px 6px', background: '#3b2700', borderRadius: 10 }}>⚠️ estoque</span>}
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{pedido.id}</span>
-            </div>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{pedido.cliente}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: pedido.obs ? 4 : 0 }}>
-              {pedido.contato ? pedido.contato : ''}
-            </div>
-            {pedido.obs && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>{pedido.obs}</div>}
+          borderLeft: (urg?.label === 'HOJE' || urg?.label === 'ATRASADO') ? '3px solid var(--alert-text)' : undefined,
+        }}
+      >
+        {/* Head */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {urg && (
+              <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: urg.bg, color: urg.color, letterSpacing: '.04em' }}>
+                {urg.label}
+              </span>
+            )}
+            {hasAlert && <span style={{ fontSize: 10, color: '#f59e0b' }}>⚠️</span>}
+            <span style={{ fontSize: 15, fontWeight: 700 }}>{pedido.cliente}</span>
           </div>
-          <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>R$ {fmtR(pedido.valor)}</div>
-          </div>
+          <span style={{ fontSize: 15, fontWeight: 700, flexShrink: 0, marginLeft: 10 }}>R$ {fmtR(pedido.valor)}</span>
         </div>
-        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Badge label={pedido.status} style={stStyle} />
-          <Badge label={pedido.pgto}   style={pgStyle} />
+
+        {/* Items summary */}
+        {itensStr && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {itensStr}
+          </div>
+        )}
+
+        {/* Footer: pipeline + pgto */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ flex: 1 }}>
+            {pedido.status === 'Cancelado' ? (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#3b1f1f', color: '#ef4444' }}>Cancelado</span>
+            ) : (
+              <Pipeline status={pedido.status} />
+            )}
+          </div>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: pgtoS.bg, color: pgtoS.color, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {pgtoS.label}
+          </span>
           {dateChipStyle && pedido.dataEntrega && (
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: dateChipStyle.bg, color: dateChipStyle.color }}>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: dateChipStyle.bg, color: dateChipStyle.color, whiteSpace: 'nowrap', flexShrink: 0 }}>
               {fmtDate(pedido.dataEntrega)}
             </span>
           )}
@@ -262,20 +693,24 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
           {(pedido.itens || []).map((it, i, arr) => (
             <div key={it.id || i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: i < arr.length - 1 ? '1px solid #1e1e1e' : 'none', fontSize: 13 }}>
               <span>{it.produto} <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>×{it.quantidade}</span></span>
-              <span style={{ fontWeight: 600 }}>R$ {fmtR((it.precoUnit || 0) * (it.quantidade || 1))}</span>
+              <span style={{ fontWeight: 600 }}>R$ {fmtR((it.precoUnit||0) * (it.quantidade||1))}</span>
             </div>
           ))}
-          {pedido.canal && (
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>Canal: {pedido.canal}</div>
-          )}
+          {pedido.canal && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>Canal: {pedido.canal}</div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
             {pedido.status === 'Pendente' && (
-              <button onClick={() => onQuickStatus('Pronto')} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#14532d', color: '#4ade80', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>✓ Marcar pronto</button>
+              <button onClick={() => onQuickStatus('Pronto')} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#14532d', color: '#4ade80', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                ✓ Marcar pronto
+              </button>
             )}
             {pedido.status === 'Pronto' && (
-              <button onClick={() => onQuickStatus('Entregue')} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#000', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>🚀 Registrar entrega</button>
+              <button onClick={() => onQuickStatus('Entregue')} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#000', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
+                🚀 Registrar entrega
+              </button>
             )}
-            <button onClick={onEdit} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>Editar detalhes</button>
+            <button onClick={onEdit} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>
+              Editar detalhes
+            </button>
           </div>
         </div>
       )}
@@ -293,11 +728,18 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const [saving, setSaving]           = useState(false)
   const [confirm, setConfirm]         = useState(false)
 
-  const urg = urgency(pedido.dataEntrega)
-  const wa  = waLink(pedido.contato)
-  const itensSubtotal = (pedido.itens || []).reduce((s, it) => s + (it.precoUnit || 0) * (it.quantidade || 1), 0)
+  const wa = waLink(pedido.contato)
+  const itensSubtotal = (pedido.itens || []).reduce((s, it) => s + (it.precoUnit||0) * (it.quantidade||1), 0)
   const freteNum = tipoEntrega === 'Entrega' ? (parseFloat(frete) || 0) : 0
   const totalAtual = itensSubtotal + freteNum
+
+  const cycleStatus = (s) => {
+    setStatus(s)
+    if (s === 'Entregue' && pgto !== 'Pago') setPgto('Atrasado')
+  }
+  const cyclePgto = () => {
+    setPgto(p => p === 'Aguardando' ? 'Pago' : p === 'Pago' ? 'Atrasado' : 'Aguardando')
+  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -316,146 +758,121 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <button
-            onClick={onBack}
-            style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0 }}
-          >← voltar</button>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
+            ← voltar
+          </button>
           <div style={{ textAlign: 'right' }}>
-            <div className="topbar-title">{pedido.id}</div>
+            <div className="topbar-title">{pedido.cliente}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{pedido.id} · {fmtDate(pedido.dataEntrega)}</div>
           </div>
         </div>
       </div>
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
-        {/* Header */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 4 }}>{pedido.cliente}</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            {urg && <Badge label={urg.label} style={urg} />}
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              Entrega: {fmtDate(pedido.dataEntrega)}
-            </span>
-            {pedido.canal && <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{pedido.canal}</span>}
+
+        {/* Status pipeline */}
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 10 }}>
+            Status da produção — toque para avançar
+          </div>
+          <Pipeline status={status} height={36} fontSize={11} onStepClick={(s) => cycleStatus(s)} />
+          {status !== 'Entregue' && status !== 'Cancelado' && (
+            <button
+              onClick={() => cycleStatus(PIPE_STEPS[PIPE_STEPS.indexOf(status) + 1])}
+              style={{
+                marginTop: 10, width: '100%', padding: 9,
+                background: 'rgba(34,184,134,.12)', border: '1.5px solid var(--teal)',
+                borderRadius: 8, color: 'var(--teal)', fontWeight: 700, fontSize: 13,
+                cursor: 'pointer',
+              }}
+            >
+              Marcar como {PIPE_STEPS[PIPE_STEPS.indexOf(status) + 1]} →
+            </button>
+          )}
+        </div>
+
+        {/* Pgto toggle */}
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 10 }}>
+            Pagamento — toque para alterar
+          </div>
+          <PgtoToggle pgto={pgto} valor={totalAtual} onClick={cyclePgto} />
+        </div>
+
+        {/* Itens */}
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 10 }}>
+            Itens
+          </div>
+          {(pedido.itens || []).map((it, i, arr) => (
+            <div key={it.id || i} style={{
+              display: 'flex', justifyContent: 'space-between', padding: '6px 0',
+              borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 13,
+            }}>
+              <span>
+                {it.produto}
+                {alertMap[it.produto] && <span style={{ marginLeft: 6, fontSize: 11, color: '#f59e0b' }}>⚠️</span>}
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 6 }}>×{it.quantidade}</span>
+              </span>
+              <span style={{ fontWeight: 600, color: 'var(--teal)' }}>R$ {fmtR((it.precoUnit||0) * (it.quantidade||1))}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', fontWeight: 700, fontSize: 14 }}>
+            <span>Total</span>
+            <span>R$ {fmtR(totalAtual)}</span>
           </div>
         </div>
 
         {/* WhatsApp */}
         {wa && (
-          <>
-            <a href={wa} target="_blank" rel="noreferrer" style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              background: 'var(--card-bg)', border: '1px solid #14532d', color: '#4ade80',
-              borderRadius: 10, padding: '10px 14px', marginBottom: 8,
-              textDecoration: 'none', fontSize: 13, fontWeight: 500,
-            }}>
-              <span>📲</span>
-              <span>{pedido.contato}</span>
-              <span style={{ marginLeft: 'auto', fontSize: 11, opacity: 0.7 }}>Abrir WhatsApp →</span>
-            </a>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 6, letterSpacing: 1, textTransform: 'uppercase' }}>Mensagens rápidas</div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
-              {WA_TEMPLATES.map(t => {
-                const msg = fillTemplate(t.msg, pedido)
-                const href = `${wa}?text=${encodeURIComponent(msg)}`
-                return (
-                  <a key={t.label} href={href} target="_blank" rel="noreferrer"
-                    style={{
-                      fontSize: 11, padding: '5px 10px',
-                      background: 'var(--card-bg)', border: '1px solid var(--border)',
-                      borderRadius: 16, color: 'var(--text-secondary)',
-                      textDecoration: 'none', whiteSpace: 'nowrap',
-                    }}>
-                    {t.label}
-                  </a>
-                )
-              })}
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 10 }}>
+              WhatsApp — {pedido.cliente?.split(' ')[0]}
             </div>
-          </>
+            {WA_TEMPLATES.map(t => {
+              const msg = fillTemplate(t.msg, { ...pedido, valor: totalAtual })
+              return (
+                <a
+                  key={t.label}
+                  href={`${wa}?text=${encodeURIComponent(msg)}`}
+                  target="_blank" rel="noreferrer"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 8px', borderRadius: 8,
+                    background: 'rgba(37,211,102,.06)', border: '1.5px solid rgba(37,211,102,.15)',
+                    marginBottom: 6, textDecoration: 'none',
+                  }}
+                >
+                  <span style={{ fontSize: 18, flexShrink: 0 }}>{t.icon}</span>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', lineHeight: 1.35 }}>{t.label}</span>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>›</span>
+                </a>
+              )
+            })}
+          </div>
         )}
 
-        {/* Itens */}
-        <div className="section-label">Itens</div>
-        <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
-          {(pedido.itens || []).map((it, i, arr) => (
-            <div key={it.id || i} style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '9px 0',
-              borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
-            }}>
-              <div>
-                <span style={{ fontSize: 13 }}>{it.produto}</span>
-                {alertMap[it.produto] && (
-                  <span style={{ marginLeft: 6, fontSize: 11, color: '#f59e0b' }}>⚠️</span>
-                )}
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 6 }}>× {it.quantidade}</span>
-              </div>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>R$ {fmtR((it.precoUnit || 0) * (it.quantidade || 1))}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Financeiro */}
-        <div className="card" style={{ padding: '12px 14px', marginBottom: 14 }}>
-          <div className="field-row" style={{ marginBottom: 10 }}>
-            <div>
-              <div className="field-label">Tipo</div>
-              <select className="field-input" value={tipoEntrega} onChange={e => setTipoEntrega(e.target.value)}>
-                <option>Retirada</option>
-                <option>Entrega</option>
-              </select>
-            </div>
-            {tipoEntrega === 'Entrega' && (
-              <div>
-                <div className="field-label">Frete (R$)</div>
-                <input
-                  className="field-input"
-                  type="text" inputMode="decimal" placeholder="0,00"
-                  value={frete}
-                  onChange={e => setFrete(e.target.value)}
-                />
-              </div>
-            )}
+        {/* Frete */}
+        {tipoEntrega === 'Entrega' && (
+          <div style={{ marginBottom: 10 }}>
+            <div className="field-label">Frete (R$)</div>
+            <input className="field-input" type="text" inputMode="decimal" placeholder="0,00"
+              value={frete} onChange={e => setFrete(e.target.value)} />
           </div>
-          {tipoEntrega === 'Entrega' && freteNum > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-              Itens R$ {fmtR(itensSubtotal)} + frete R$ {fmtR(freteNum)}
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>Total a receber</span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: pgto === 'Pago' ? 'var(--teal)' : '#f59e0b' }}>
-              R$ {fmtR(totalAtual)}
-            </span>
-          </div>
-        </div>
-
-        {/* Status + Pgto */}
-        <div className="field-row" style={{ marginBottom: 12 }}>
-          <div>
-            <div className="field-label">Status de produção</div>
-            <select className="field-input" value={status} onChange={e => {
-              const v = e.target.value
-              setStatus(v)
-              if (v === 'Entregue' && pgto !== 'Pago') setPgto('Atrasado')
-            }}>
-              {STATUS_OPTS.map(s => <option key={s}>{s}</option>)}
+        )}
+        {pedido.tipoEntrega === 'Retirada' && (
+          <div style={{ marginBottom: 10 }}>
+            <div className="field-label">Tipo de entrega</div>
+            <select className="field-input" value={tipoEntrega} onChange={e => setTipoEntrega(e.target.value)}>
+              <option>Retirada</option>
+              <option>Entrega</option>
             </select>
           </div>
-          <div>
-            <div className="field-label">Pagamento</div>
-            <select className="field-input" value={pgto} onChange={e => setPgto(e.target.value)}>
-              {PGTO_OPTS.map(p => <option key={p}>{p}</option>)}
-            </select>
-          </div>
-        </div>
+        )}
 
         {/* Obs */}
         {pedido.obs && (
-          <div style={{
-            fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14,
-            background: 'var(--card-bg)', border: '1px solid var(--border)',
-            borderRadius: 10, padding: '10px 14px',
-          }}>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14, background: 'var(--bg-secondary)', borderRadius: 10, padding: '10px 14px' }}>
             {pedido.obs}
           </div>
         )}
@@ -465,36 +882,17 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
         </button>
 
         {!confirm ? (
-          <button
-            onClick={() => setConfirm(true)}
-            style={{
-              width: '100%', marginTop: 10, padding: '11px',
-              background: 'transparent', border: '1px solid #7f1d1d',
-              color: '#ef4444', borderRadius: 10, fontSize: 14,
-              fontWeight: 600, cursor: 'pointer',
-            }}
-          >Apagar pedido</button>
+          <button onClick={() => setConfirm(true)} style={{ width: '100%', marginTop: 10, padding: 11, background: 'transparent', border: '1px solid #7f1d1d', color: '#ef4444', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            Apagar pedido
+          </button>
         ) : (
           <div style={{ marginTop: 10, padding: '12px 14px', background: '#1a0a0a', borderRadius: 10, border: '1px solid #7f1d1d' }}>
             <div style={{ fontSize: 13, color: '#fca5a5', marginBottom: 10 }}>
               Tem certeza? Isso apaga {pedido.id} ({pedido.cliente}) permanentemente.
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                onClick={async () => {
-                  setSaving(true)
-                  try {
-                    await deletePedido(pedido.id)
-                    onSaved(); onBack()
-                  } catch (e) { show('Erro: ' + e.message); setSaving(false) }
-                }}
-                style={{ flex: 1, padding: '9px', background: '#7f1d1d', color: '#fca5a5', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }}
-                disabled={saving}
-              >Apagar</button>
-              <button
-                onClick={() => setConfirm(false)}
-                style={{ flex: 1, padding: '9px', background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}
-              >Cancelar</button>
+              <button onClick={async () => { setSaving(true); try { await deletePedido(pedido.id); onSaved(); onBack() } catch(e) { show('Erro: '+e.message); setSaving(false) } }} style={{ flex: 1, padding: 9, background: '#7f1d1d', color: '#fca5a5', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }} disabled={saving}>Apagar</button>
+              <button onClick={() => setConfirm(false)} style={{ flex: 1, padding: 9, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
             </div>
           </div>
         )}
@@ -504,301 +902,37 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   )
 }
 
-// ── New order form ────────────────────────────────────────────
-function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
-  const { toast, show } = useToast()
-  const [form, setForm] = useState({
-    cliente: '', contato: '', canal: 'WhatsApp',
-    dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
-    tipoEntrega: 'Retirada', frete: '',
-  })
-  const [itens, setItens]           = useState([{ produto: '', quantidade: 1, precoUnit: '' }])
-  const [saving, setSaving]         = useState(false)
-  const [salvarCliente, setSalvarCliente] = useState(false)
-
-  const setField   = (k, v) => setForm(f => ({ ...f, [k]: v }))
-  const setItem    = (i, k, v) => setItens(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
-  const addItem    = () => setItens(prev => [...prev, { produto: '', quantidade: 1, precoUnit: '' }])
-  const removeItem = (i) => setItens(prev => prev.filter((_, idx) => idx !== i))
-
-  const itensTotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit) || 0) * (parseFloat(it.quantidade) || 1), 0)
-  const frete = form.tipoEntrega === 'Entrega' ? (parseFloat(form.frete) || 0) : 0
-  const total = itensTotal + frete
-
-  const handleClienteChange = (nome) => {
-    setField('cliente', nome)
-    const existing = (clientes || []).find(c => c.nome.toLowerCase() === nome.toLowerCase())
-    if (existing) {
-      if (existing.telefone && !form.contato) setField('contato', existing.telefone)
-      setSalvarCliente(false)
-    } else {
-      setSalvarCliente(nome.trim().length > 1)
-    }
-  }
-
-  const handleProdutoChange = (i, nome) => {
-    setItem(i, 'produto', nome)
-    const prod = (produtos || []).find(p => p.nome === nome)
-    if (prod) {
-      const preco = prod.precoDireta ?? prod.precoPraticado ?? prod.precoSugerido ?? ''
-      if (preco) setItem(i, 'precoUnit', String(preco))
-    }
-  }
-
-  const handleSave = async () => {
-    if (!form.cliente)     { show('Preencha o nome do cliente'); return }
-    if (!form.dataEntrega) { show('Preencha a data de entrega'); return }
-    if (itens.some(it => !it.produto)) { show('Preencha todos os itens'); return }
-    setSaving(true)
-    try {
-      if (salvarCliente) {
-        const exists = (clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
-        if (!exists) await saveCliente({ nome: form.cliente, telefone: form.contato })
-      }
-      const id = await savePedido(form, itens)
-      show(`Pedido ${id} salvo!`)
-      setTimeout(() => { onSaved(); onBack() }, 700)
-    } catch (e) {
-      show('Erro: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const isClienteNovo = form.cliente.trim().length > 1 &&
-    !(clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
-
-  const wa = waLink(form.contato)
-
-  return (
-    <>
-      <div className="topbar">
-        <div className="topbar-inner">
-          <button
-            onClick={onBack}
-            style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0 }}
-          >← voltar</button>
-          <div className="topbar-title">Novo pedido</div>
-        </div>
-      </div>
-
-      <div className="page-inner" style={{ paddingTop: 16 }}>
-        {/* Cliente com autocomplete */}
-        <div className="field-label">Cliente *</div>
-        <input
-          className="field-input"
-          list="clientes-list"
-          placeholder="Nome do cliente"
-          value={form.cliente}
-          onChange={e => handleClienteChange(e.target.value)}
-          autoComplete="off"
-        />
-        <datalist id="clientes-list">
-          {(clientes || []).map(c => <option key={c.id} value={c.nome} />)}
-        </datalist>
-
-        {/* Salvar como cliente novo */}
-        {isClienteNovo && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--teal)', marginTop: -4, marginBottom: 8, cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={salvarCliente}
-              onChange={e => setSalvarCliente(e.target.checked)}
-              style={{ accentColor: 'var(--teal)', width: 14, height: 14 }}
-            />
-            Salvar {form.cliente} como cliente
-          </label>
-        )}
-
-        {/* Telefone */}
-        <div className="field-label">Telefone</div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-          <input
-            className="field-input"
-            style={{ marginBottom: 0, flex: 1 }}
-            placeholder="+55 11 9 ..."
-            value={form.contato}
-            onChange={e => setField('contato', e.target.value)}
-          />
-          {wa && (
-            <a href={wa} target="_blank" rel="noreferrer" style={{
-              background: '#14532d', color: '#4ade80',
-              padding: '9px 12px', borderRadius: 8, fontSize: 12,
-              textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0,
-            }}>📲 WA</a>
-          )}
-        </div>
-
-        {/* Canal */}
-        <div className="field-label">Canal</div>
-        <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
-          {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
-        </select>
-
-        {/* Entrega date chips */}
-        <div className="field-label">Entrega *</div>
-        <EntregaDateChips value={form.dataEntrega} onChange={v => setField('dataEntrega', v)} />
-
-        {/* Pgto + Status */}
-        <div className="field-row">
-          <div>
-            <div className="field-label">Pagamento</div>
-            <select className="field-input" value={form.pgto} onChange={e => setField('pgto', e.target.value)}>
-              {PGTO_OPTS.map(p => <option key={p}>{p}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="field-label">Status</div>
-            <select className="field-input" value={form.status} onChange={e => setField('status', e.target.value)}>
-              {STATUS_OPTS.map(s => <option key={s}>{s}</option>)}
-            </select>
-          </div>
-        </div>
-
-        {/* Tipo de entrega */}
-        <div className="field-row">
-          <div>
-            <div className="field-label">Tipo</div>
-            <select className="field-input" value={form.tipoEntrega} onChange={e => setField('tipoEntrega', e.target.value)}>
-              <option>Retirada</option>
-              <option>Entrega</option>
-            </select>
-          </div>
-          {form.tipoEntrega === 'Entrega' && (
-            <div>
-              <div className="field-label">Frete (R$)</div>
-              <input
-                className="field-input"
-                type="text" inputMode="decimal" placeholder="0,00"
-                value={form.frete}
-                onChange={e => setField('frete', e.target.value)}
-              />
-            </div>
-          )}
-        </div>
-
-        {/* Itens — texto livre com sugestões */}
-        <div className="section-label">Itens do pedido</div>
-        <datalist id="produtos-list">
-          {(produtos || []).map(p => <option key={p.id} value={p.nome} />)}
-        </datalist>
-        <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 6 }}>
-          {itens.map((it, i) => (
-            <div key={i} className="item-row">
-              <input
-                className="item-select"
-                list="produtos-list"
-                placeholder="Produto ou item personalizado"
-                value={it.produto}
-                onChange={e => handleProdutoChange(i, e.target.value)}
-                autoComplete="off"
-                style={{ fontFamily: 'inherit' }}
-              />
-              <input
-                className="item-qty"
-                type="text" inputMode="decimal" min="1"
-                value={it.quantidade}
-                onChange={e => setItem(i, 'quantidade', e.target.value)}
-              />
-              <input
-                className="item-price"
-                type="text" inputMode="decimal" placeholder="R$"
-                value={it.precoUnit}
-                onChange={e => setItem(i, 'precoUnit', e.target.value)}
-              />
-              {itens.length > 1 && (
-                <button className="item-rm" onClick={() => removeItem(i)}>&#215;</button>
-              )}
-            </div>
-          ))}
-        </div>
-        <button className="btn-add-item" onClick={addItem}>+ adicionar item</button>
-
-        {/* Total */}
-        <div style={{ textAlign: 'right', marginTop: 12 }}>
-          {frete > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>
-              Itens R$ {fmtR(itensTotal)} + frete R$ {fmtR(frete)}
-            </div>
-          )}
-          <div className="field-label">Total</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>R$ {fmtR(total)}</div>
-        </div>
-
-        {/* Obs */}
-        <div className="field-label" style={{ marginTop: 12 }}>Observações</div>
-        <textarea
-          className="field-input"
-          rows={3}
-          placeholder="Anotações, endereço, preferências..."
-          value={form.obs}
-          onChange={e => setField('obs', e.target.value)}
-          style={{ resize: 'none' }}
-        />
-
-        <button className="btn-primary" onClick={handleSave} disabled={saving}>
-          {saving ? 'Salvando...' : 'Salvar pedido'}
-        </button>
-      </div>
-      {toast && <div className="toast">{toast}</div>}
-    </>
-  )
-}
-
-// ── NovoPedidoSheet — self-contained sheet for use outside Pedidos ──
+// ── NovoPedidoSheet — sheet para uso externo ──────────────────
 export function NovoPedidoSheet({ onClose, onSaved }) {
   const { toast, show }   = useToast()
   const { data: produtos } = useData(getProdutos)
   const { data: clientes } = useData(getClientes)
 
-  const [form, setForm] = useState({
+  const [form, setFormState] = useState({
     cliente: '', contato: '', canal: 'WhatsApp',
     dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
     tipoEntrega: 'Retirada', frete: '',
   })
-  const [itens, setItens]               = useState([{ produto: '', quantidade: 1, precoUnit: '' }])
-  const [saving, setSaving]             = useState(false)
-  const [salvarCliente, setSalvarCliente] = useState(false)
+  const [itens, setItens]       = useState([])
+  const [saving, setSaving]     = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [showMore, setShowMore] = useState(false)
 
-  const setField   = (k, v) => setForm(f => ({ ...f, [k]: v }))
-  const setItem    = (i, k, v) => setItens(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
-  const addItem    = () => setItens(prev => [...prev, { produto: '', quantidade: 1, precoUnit: '' }])
-  const removeItem = (i) => setItens(prev => prev.filter((_, idx) => idx !== i))
+  const setField = (k, v) => setFormState(f => ({ ...f, [k]: v }))
 
-  const sheetItensTotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit) || 0) * (parseFloat(it.quantidade) || 1), 0)
-  const sheetFrete = form.tipoEntrega === 'Entrega' ? (parseFloat(form.frete) || 0) : 0
-  const total = sheetItensTotal + sheetFrete
-
-  const handleClienteChange = (nome) => {
-    setField('cliente', nome)
-    const existing = (clientes || []).find(c => c.nome.toLowerCase() === nome.toLowerCase())
-    if (existing) {
-      if (existing.telefone && !form.contato) setField('contato', existing.telefone)
-      setSalvarCliente(false)
-    } else {
-      setSalvarCliente(nome.trim().length > 1)
-    }
-  }
-
-  const handleProdutoChange = (i, nome) => {
-    setItem(i, 'produto', nome)
-    const prod = (produtos || []).find(p => p.nome === nome)
-    if (prod) {
-      const preco = prod.precoDireta ?? prod.precoPraticado ?? prod.precoSugerido ?? ''
-      if (preco) setItem(i, 'precoUnit', String(preco))
-    }
-  }
+  const frete = form.tipoEntrega === 'Entrega' ? (parseFloat(form.frete) || 0) : 0
+  const itensTotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit)||0) * (parseInt(it.quantidade)||1), 0)
+  const total = itensTotal + frete
 
   const handleSave = async () => {
     if (!form.cliente)     { show('Preencha o nome do cliente'); return }
     if (!form.dataEntrega) { show('Preencha a data de entrega'); return }
-    if (itens.some(it => !it.produto)) { show('Preencha todos os itens'); return }
+    if (itens.length === 0){ show('Adicione ao menos um item'); return }
     setSaving(true)
     try {
-      if (salvarCliente) {
-        const exists = (clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
-        if (!exists) await saveCliente({ nome: form.cliente, telefone: form.contato })
-      }
+      const isClienteNovo = form.cliente.trim().length > 1 &&
+        !(clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
+      if (isClienteNovo) await saveCliente({ nome: form.cliente, telefone: form.contato })
       const id = await savePedido(form, itens)
       show(`Pedido ${id} salvo!`)
       setTimeout(() => { onSaved?.(); onClose() }, 700)
@@ -809,10 +943,6 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
     }
   }
 
-  const isClienteNovo = form.cliente.trim().length > 1 &&
-    !(clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
-  const wa = waLink(form.contato)
-
   return (
     <>
       <div className="sheet-overlay" onClick={onClose} />
@@ -822,109 +952,23 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
           <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
         </div>
 
-        <div className="field-label">Cliente *</div>
-        <input className="field-input" list="sheet-clientes-list" placeholder="Nome do cliente"
-          value={form.cliente} onChange={e => handleClienteChange(e.target.value)} autoComplete="off" />
-        <datalist id="sheet-clientes-list">
-          {(clientes || []).map(c => <option key={c.id} value={c.nome} />)}
-        </datalist>
+        <FormFields
+          form={form} setField={setField}
+          itens={itens} setItens={setItens}
+          produtos={produtos} clientes={clientes}
+          showModal={showModal} setShowModal={setShowModal}
+          showMore={showMore} setShowMore={setShowMore}
+        />
 
-        {isClienteNovo && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--teal)', marginTop: -4, marginBottom: 8, cursor: 'pointer' }}>
-            <input type="checkbox" checked={salvarCliente} onChange={e => setSalvarCliente(e.target.checked)} style={{ accentColor: 'var(--teal)', width: 14, height: 14 }} />
-            Salvar {form.cliente} como cliente
-          </label>
-        )}
-
-        <div className="field-label">Telefone</div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-          <input className="field-input" style={{ marginBottom: 0, flex: 1 }} placeholder="+55 11 9 ..."
-            value={form.contato} onChange={e => setField('contato', e.target.value)} />
-          {wa && (
-            <a href={wa} target="_blank" rel="noreferrer" style={{ background: '#14532d', color: '#4ade80', padding: '9px 12px', borderRadius: 8, fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>📲 WA</a>
-          )}
-        </div>
-
-        <div className="field-label">Canal</div>
-        <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
-          {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
-        </select>
-
-        <div className="field-label">Entrega *</div>
-        <EntregaDateChips value={form.dataEntrega} onChange={v => setField('dataEntrega', v)} />
-
-        <div className="field-row">
-          <div>
-            <div className="field-label">Pagamento</div>
-            <select className="field-input" value={form.pgto} onChange={e => setField('pgto', e.target.value)}>
-              {PGTO_OPTS.map(p => <option key={p}>{p}</option>)}
-            </select>
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase' }}>Total</span>
+            <span style={{ fontSize: 20, fontWeight: 700 }}>R$ {fmtR(total)}</span>
           </div>
-          <div>
-            <div className="field-label">Status</div>
-            <select className="field-input" value={form.status} onChange={e => setField('status', e.target.value)}>
-              {STATUS_OPTS.map(s => <option key={s}>{s}</option>)}
-            </select>
-          </div>
+          <button className="btn-primary" onClick={handleSave} disabled={saving} style={{ opacity: (!form.cliente || !form.dataEntrega || itens.length === 0) ? 0.4 : 1 }}>
+            {saving ? 'Salvando...' : 'Salvar pedido'}
+          </button>
         </div>
-
-        <div className="field-row">
-          <div>
-            <div className="field-label">Tipo</div>
-            <select className="field-input" value={form.tipoEntrega} onChange={e => setField('tipoEntrega', e.target.value)}>
-              <option>Retirada</option>
-              <option>Entrega</option>
-            </select>
-          </div>
-          {form.tipoEntrega === 'Entrega' && (
-            <div>
-              <div className="field-label">Frete (R$)</div>
-              <input
-                className="field-input"
-                type="text" inputMode="decimal" placeholder="0,00"
-                value={form.frete}
-                onChange={e => setField('frete', e.target.value)}
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="section-label">Itens do pedido</div>
-        <datalist id="sheet-produtos-list">
-          {(produtos || []).map(p => <option key={p.id} value={p.nome} />)}
-        </datalist>
-        <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 6 }}>
-          {itens.map((it, i) => (
-            <div key={i} className="item-row">
-              <input className="item-select" list="sheet-produtos-list" placeholder="Produto ou item personalizado"
-                value={it.produto} onChange={e => handleProdutoChange(i, e.target.value)} autoComplete="off" style={{ fontFamily: 'inherit' }} />
-              <input className="item-qty" type="text" inputMode="decimal" min="1"
-                value={it.quantidade} onChange={e => setItem(i, 'quantidade', e.target.value)} />
-              <input className="item-price" type="text" inputMode="decimal" placeholder="R$"
-                value={it.precoUnit} onChange={e => setItem(i, 'precoUnit', e.target.value)} />
-              {itens.length > 1 && <button className="item-rm" onClick={() => removeItem(i)}>&#215;</button>}
-            </div>
-          ))}
-        </div>
-        <button className="btn-add-item" onClick={addItem}>+ adicionar item</button>
-
-        <div style={{ textAlign: 'right', marginTop: 12 }}>
-          {sheetFrete > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>
-              Itens R$ {fmtR(sheetItensTotal)} + frete R$ {fmtR(sheetFrete)}
-            </div>
-          )}
-          <div className="field-label">Total</div>
-          <div style={{ fontSize: 22, fontWeight: 700 }}>R$ {fmtR(total)}</div>
-        </div>
-
-        <div className="field-label" style={{ marginTop: 12 }}>Observações</div>
-        <textarea className="field-input" rows={3} placeholder="Anotações, endereço, preferências..."
-          value={form.obs} onChange={e => setField('obs', e.target.value)} style={{ resize: 'none' }} />
-
-        <button className="btn-primary" onClick={handleSave} disabled={saving}>
-          {saving ? 'Salvando...' : 'Salvar pedido'}
-        </button>
       </div>
       {toast && <div className="toast">{toast}</div>}
     </>
@@ -934,123 +978,60 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
 // ── Production view ───────────────────────────────────────────
 function fmtQty(q, unidade) {
   const n = Number(q)
-  const str = n % 1 === 0 ? String(n) : n.toFixed(1)
-  return `${str} ${unidade || 'un'}`
+  return `${n % 1 === 0 ? String(n) : n.toFixed(1)} ${unidade || 'un'}`
 }
 
 function ProducaoView({ pedidos, produtos, receitas, onEstoqueUpdated }) {
-  const ativos = (pedidos || []).filter(p => !['Entregue', 'Cancelado'].includes(p.status))
-
+  const ativos = (pedidos || []).filter(p => !['Entregue','Cancelado'].includes(p.status))
   const receitaMap = Object.fromEntries((receitas || []).map(r => [r.id, r]))
   const prodMap    = Object.fromEntries((produtos  || []).map(p => [p.nome, p]))
 
-  // Expand a product (expanding combos into components) and accumulate into targets
   function addProd(nomeProd, qty, itemAcc, receitaAcc, depth = 0) {
     if (depth > 5) return
     const prod = prodMap[nomeProd]
-
     if (prod?.tipo === 'combo' && prod.componentes?.length > 0) {
-      // Expand each combo component recursively
       for (const comp of prod.componentes) {
-        const compNome = comp.nome || comp.produtoNome || ''
-        const compQty  = (Number(comp.quantidade) || 1) * qty
-        addProd(compNome, compQty, itemAcc, receitaAcc, depth + 1)
+        addProd(comp.nome || comp.produtoNome || '', (Number(comp.quantidade)||1) * qty, itemAcc, receitaAcc, depth+1)
       }
     } else {
-      // Leaf item: count in itens
       itemAcc[nomeProd] = (itemAcc[nomeProd] || 0) + qty
-
-      // Expand into receitas
       if (!prod?.receitas?.length) return
       for (const pr of prod.receitas) {
-        const totalRec = (Number(pr.quantidade) || 1) * qty
-        const unidade  = pr.unidadeGera || pr.unidade || 'un'
         const key = pr.nome
-        if (!receitaAcc[key]) receitaAcc[key] = { quantidade: 0, unidade }
-        receitaAcc[key].quantidade += totalRec
+        if (!receitaAcc[key]) receitaAcc[key] = { quantidade: 0, unidade: pr.unidadeGera || pr.unidade || 'un' }
+        receitaAcc[key].quantidade += (Number(pr.quantidade)||1) * qty
       }
     }
   }
 
-  const itemQtd    = {}
-  const receitaQtd = {}
+  const itemQtd = {}; const receitaQtd = {}
+  for (const ped of ativos) for (const it of (ped.itens || [])) addProd(it.produto, Number(it.quantidade)||1, itemQtd, receitaQtd)
 
-  for (const ped of ativos) {
-    for (const it of (ped.itens || [])) {
-      addProd(it.produto, Number(it.quantidade) || 1, itemQtd, receitaQtd)
-    }
-  }
+  const itensOrdenados    = Object.entries(itemQtd).sort((a,b) => b[1]-a[1])
+  const receitasOrdenadas = Object.entries(receitaQtd).sort((a,b) => a[0].localeCompare(b[0],'pt-BR'))
 
-  const itensOrdenados    = Object.entries(itemQtd).sort((a, b) => b[1] - a[1])
-  const receitasOrdenadas = Object.entries(receitaQtd).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
-
-  // "Marcar como produzido" state
   const [produzido, setProduzido] = useState({})
   const [savingProd, setSavingProd] = useState(false)
   const { toast, show } = useToast()
 
   const handleConfirmarProducao = async () => {
-    const entries = Object.entries(produzido).filter(([, q]) => parseFloat(q) > 0)
+    const entries = Object.entries(produzido).filter(([,q]) => parseFloat(q) > 0)
     if (entries.length === 0) return
     setSavingProd(true)
     try {
-      await Promise.all(entries.map(([nome, q]) => {
-        const prod = prodMap[nome]
-        if (prod?.id) return adjustEstoqueProduto(prod.id, parseFloat(q))
-      }))
-      setProduzido({})
-      show('Estoque atualizado!')
-      onEstoqueUpdated()
-    } catch (e) {
-      show('Erro: ' + e.message)
-    } finally {
-      setSavingProd(false)
-    }
+      await Promise.all(entries.map(([nome, q]) => { const prod = prodMap[nome]; if (prod?.id) return adjustEstoqueProduto(prod.id, parseFloat(q)) }))
+      setProduzido({}); show('Estoque atualizado!'); onEstoqueUpdated()
+    } catch(e) { show('Erro: '+e.message) } finally { setSavingProd(false) }
   }
 
-  if (ativos.length === 0) {
-    return (
-      <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>
-        Nenhum pedido ativo
-      </div>
-    )
-  }
-
-  const SectionTable = ({ title, rows, emptyMsg }) => (
-    <>
-      <div className="section-label" style={{ marginTop: 16 }}>{title}</div>
-      {rows.length === 0 ? (
-        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '8px 0' }}>{emptyMsg}</div>
-      ) : (
-        <div className="card card-flush" style={{ padding: '0 14px' }}>
-          {rows.map(([nome, info], i, arr) => (
-            <div key={nome} style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: '9px 0',
-              borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
-            }}>
-              <span style={{ fontSize: 13 }}>{nome}</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
-                {fmtQty(info.quantidade ?? info, info.unidade)}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </>
-  )
+  if (ativos.length === 0) return <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>Nenhum pedido ativo</div>
 
   return (
     <>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '4px 10px', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
-          {ativos.length} pedido{ativos.length !== 1 ? 's' : ''} ativo{ativos.length !== 1 ? 's' : ''}
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '4px 10px', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
-          {itensOrdenados.length} item{itensOrdenados.length !== 1 ? 'ns' : ''} distintos
-        </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '4px 10px', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>{ativos.length} pedido{ativos.length!==1?'s':''} ativo{ativos.length!==1?'s':''}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '4px 10px', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>{itensOrdenados.length} item{itensOrdenados.length!==1?'ns':''} distintos</div>
       </div>
-
       <div className="section-label" style={{ marginTop: 16 }}>Itens a produzir</div>
       <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 6 }}>
         {itensOrdenados.map(([nome, needed], i, arr) => {
@@ -1058,34 +1039,19 @@ function ProducaoView({ pedidos, produtos, receitas, onEstoqueUpdated }) {
           const emEstoque = prod?.estoqueAtual ?? null
           const falta = emEstoque !== null ? Math.max(0, needed - emEstoque) : null
           return (
-            <div key={nome} style={{
-              padding: '10px 0',
-              borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
-            }}>
+            <div key={nome} style={{ padding: '10px 0', borderBottom: i < arr.length-1 ? '1px solid var(--border)' : 'none' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <span style={{ fontSize: 13, fontWeight: 500 }}>{nome}</span>
                 <div style={{ textAlign: 'right' }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{needed} un</span>
-                  {emEstoque !== null && (
-                    <div style={{ fontSize: 11, color: falta === 0 ? 'var(--teal)' : 'var(--text-secondary)', marginTop: 1 }}>
-                      {falta === 0
-                        ? `✓ em estoque (${emEstoque})`
-                        : `estoque: ${emEstoque} · produzir: ${falta}`}
-                    </div>
-                  )}
+                  {emEstoque !== null && <div style={{ fontSize: 11, color: falta===0 ? 'var(--teal)' : 'var(--text-secondary)', marginTop: 1 }}>{falta===0 ? `✓ em estoque (${emEstoque})` : `estoque: ${emEstoque} · produzir: ${falta}`}</div>}
                 </div>
               </div>
               {prod?.id && falta !== 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
                   <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Produziu hoje:</span>
-                  <input
-                    type="text" inputMode="decimal" min="0"
-                    className="item-qty"
-                    style={{ width: 64 }}
-                    placeholder="0"
-                    value={produzido[nome] || ''}
-                    onChange={e => setProduzido(p => ({ ...p, [nome]: e.target.value }))}
-                  />
+                  <input type="text" inputMode="decimal" className="item-qty" style={{ width: 64 }} placeholder="0"
+                    value={produzido[nome] || ''} onChange={e => setProduzido(p => ({...p, [nome]: e.target.value}))} />
                   <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>un</span>
                 </div>
               )}
@@ -1094,21 +1060,23 @@ function ProducaoView({ pedidos, produtos, receitas, onEstoqueUpdated }) {
         })}
       </div>
       {Object.values(produzido).some(q => parseFloat(q) > 0) && (
-        <button
-          className="btn-primary"
-          onClick={handleConfirmarProducao}
-          disabled={savingProd}
-          style={{ marginBottom: 8 }}
-        >
+        <button className="btn-primary" onClick={handleConfirmarProducao} disabled={savingProd} style={{ marginBottom: 8 }}>
           {savingProd ? 'Salvando...' : 'Confirmar produção → estoque'}
         </button>
       )}
-
-      <SectionTable
-        title="Receitas necessárias"
-        rows={receitasOrdenadas}
-        emptyMsg="Sem receitas vinculadas — itens podem ser avulsos ou personalizados"
-      />
+      <div className="section-label" style={{ marginTop: 16 }}>Receitas necessárias</div>
+      {receitasOrdenadas.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '8px 0' }}>Sem receitas vinculadas</div>
+      ) : (
+        <div className="card card-flush" style={{ padding: '0 14px' }}>
+          {receitasOrdenadas.map(([nome, info], i, arr) => (
+            <div key={nome} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: i < arr.length-1 ? '1px solid var(--border)' : 'none' }}>
+              <span style={{ fontSize: 13 }}>{nome}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{fmtQty(info.quantidade, info.unidade)}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {toast && <div className="toast">{toast}</div>}
     </>
   )
@@ -1122,18 +1090,14 @@ export default function Pedidos() {
   const { data: receitas } = useData(getReceitas)
   const { data: clientes, reload: reloadClientes } = useData(getClientes)
 
-  // mode: 'list' | 'novo' | pedido-object
-  const [mode, setMode]   = useState('list')
-  const [filtro, setFiltro] = useState(() => localStorage.getItem('pedidos_filtro') || 'todos')
-  const [aba, setAba]     = useState('pedidos') // 'pedidos' | 'producao'
-  const [selecao, setSelecao] = useState({}) // { [pedidoId]: true }
+  const [mode, setMode]         = useState('list')
+  const [filtro, setFiltro]     = useState(() => localStorage.getItem('pedidos_filtro') || 'todos')
+  const [aba, setAba]           = useState('pedidos')
+  const [selecao, setSelecao]   = useState({})
   const [expandedPedidoId, setExpandedPedidoId] = useState(null)
   const selecaoMode = Object.keys(selecao).some(k => selecao[k])
 
-  const setFiltroAndSave = (f) => {
-    setFiltro(f)
-    localStorage.setItem('pedidos_filtro', f)
-  }
+  const setFiltroAndSave = (f) => { setFiltro(f); localStorage.setItem('pedidos_filtro', f) }
 
   const alertMap = useMemo(
     () => buildAlertMap(produtos || [], receitas || [], insumos || []),
@@ -1146,7 +1110,6 @@ export default function Pedidos() {
     return list.filter(p => f.match(p))
   }, [pedidos, filtro])
 
-  // Counts for filter chip badges
   const filterCounts = useMemo(() => {
     const out = {}
     for (const f of SMART_FILTROS) {
@@ -1162,7 +1125,7 @@ export default function Pedidos() {
       await updateStatusEncomenda(pedido.id, novoStatus, novoPgto, pedido.tipoEntrega, pedido.frete, pedido.valor)
       reloadPedidos()
       setExpandedPedidoId(null)
-    } catch (e) { alert('Erro: ' + e.message) }
+    } catch(e) { alert('Erro: '+e.message) }
   }
 
   const handleBulkStatus = async (novoStatus) => {
@@ -1174,36 +1137,17 @@ export default function Pedidos() {
         const novoPgto = novoStatus === 'Entregue' && p.pgto !== 'Pago' ? 'Atrasado' : p.pgto
         return updateStatusEncomenda(id, novoStatus, novoPgto, p.tipoEntrega, p.frete, p.valor)
       }))
-      setSelecao({})
-      reloadPedidos()
-    } catch (e) {
-      alert('Erro: ' + e.message)
-    }
+      setSelecao({}); reloadPedidos()
+    } catch(e) { alert('Erro: '+e.message) }
   }
 
   if (loadingPed || loadingProd) return <div className="loading">Carregando...</div>
 
   if (mode === 'novo') {
-    return (
-      <NovoView
-        produtos={produtos || []}
-        clientes={clientes || []}
-        alertMap={alertMap}
-        onBack={() => setMode('list')}
-        onSaved={() => { reloadPedidos(); reloadClientes() }}
-      />
-    )
+    return <NovoView produtos={produtos||[]} clientes={clientes||[]} onBack={() => setMode('list')} onSaved={() => { reloadPedidos(); reloadClientes() }} />
   }
-
   if (mode !== 'list') {
-    return (
-      <DetalheView
-        pedido={mode}
-        alertMap={alertMap}
-        onBack={() => setMode('list')}
-        onSaved={reloadPedidos}
-      />
-    )
+    return <DetalheView pedido={mode} alertMap={alertMap} onBack={() => setMode('list')} onSaved={reloadPedidos} />
   }
 
   return (
@@ -1211,33 +1155,23 @@ export default function Pedidos() {
       <div className="topbar">
         <div className="topbar-inner">
           <div className="topbar-title">Pedidos</div>
-          <button
-            onClick={() => setMode('novo')}
-            style={{
-              background: 'var(--teal)', color: '#fff',
-              border: 'none', borderRadius: 8,
-              padding: '7px 14px', fontSize: 13, fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >+ Novo</button>
+          <button onClick={() => setMode('novo')} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            + Novo
+          </button>
         </div>
       </div>
 
       <div className="page-inner" style={{ paddingTop: 12 }}>
-        {/* Abas Pedidos / Produção */}
+        {/* Abas */}
         <div style={{ display: 'flex', gap: 0, marginBottom: 14, borderBottom: '1px solid var(--border)' }}>
-          {[['pedidos', 'Pedidos'], ['producao', 'Produção']].map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setAba(key)}
-              style={{
-                padding: '7px 18px', fontSize: 13, fontWeight: 600,
-                border: 'none', background: 'transparent', cursor: 'pointer',
-                color: aba === key ? 'var(--teal)' : 'var(--text-secondary)',
-                borderBottom: aba === key ? '2px solid var(--teal)' : '2px solid transparent',
-                marginBottom: -1,
-              }}
-            >{label}</button>
+          {[['pedidos','Pedidos'],['producao','Produção']].map(([key, label]) => (
+            <button key={key} onClick={() => setAba(key)} style={{
+              padding: '7px 18px', fontSize: 13, fontWeight: 600,
+              border: 'none', background: 'transparent', cursor: 'pointer',
+              color: aba === key ? 'var(--teal)' : 'var(--text-secondary)',
+              borderBottom: aba === key ? '2px solid var(--teal)' : '2px solid transparent',
+              marginBottom: -1,
+            }}>{label}</button>
           ))}
         </div>
 
@@ -1245,32 +1179,25 @@ export default function Pedidos() {
           <ProducaoView pedidos={pedidos} produtos={produtos} receitas={receitas} onEstoqueUpdated={reloadProdutos} />
         ) : (
           <>
-            {/* Smart filter chips com contadores */}
+            {/* Filter chips */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto', paddingBottom: 2 }}>
               {SMART_FILTROS.map(f => {
-                const count = filterCounts[f.key]
+                const count  = filterCounts[f.key]
                 const active = filtro === f.key
                 return (
-                  <button
-                    key={f.key}
-                    onClick={() => setFiltroAndSave(f.key)}
-                    style={{
-                      padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                      border: '1px solid',
-                      borderColor: active ? 'var(--teal)' : 'var(--border)',
-                      background:  active ? 'var(--teal-light)' : 'transparent',
-                      color:       active ? 'var(--teal)' : 'var(--text-secondary)',
-                      cursor: 'pointer', whiteSpace: 'nowrap',
-                      display: 'flex', alignItems: 'center', gap: 5,
-                    }}
-                  >
+                  <button key={f.key} onClick={() => setFiltroAndSave(f.key)} style={{
+                    padding: '5px 11px', borderRadius: 16, fontSize: 11.5, fontWeight: 600,
+                    border: '1.5px solid', whiteSpace: 'nowrap', cursor: 'pointer',
+                    borderColor: active ? 'var(--teal)' : '#333',
+                    background:  active ? 'var(--teal-light)' : 'transparent',
+                    color:       active ? 'var(--teal)' : 'var(--text-secondary)',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                  }}>
                     {f.label}
                     {count > 0 && (
-                      <span style={{
-                        background: active ? 'var(--teal)' : 'var(--border)',
-                        color: active ? '#fff' : 'var(--text-secondary)',
-                        fontSize: 10, padding: '1px 5px', borderRadius: 10,
-                      }}>{count}</span>
+                      <span style={{ width: 14, height: 14, borderRadius: '50%', background: active ? 'var(--teal)' : 'var(--border)', color: active ? '#000' : 'var(--text-secondary)', fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {count}
+                      </span>
                     )}
                   </button>
                 )
@@ -1279,26 +1206,13 @@ export default function Pedidos() {
 
             {/* Bulk action bar */}
             {selecaoMode && (
-              <div style={{
-                display: 'flex', gap: 8, alignItems: 'center',
-                background: 'var(--teal-light)', border: '1px solid var(--teal)',
-                borderRadius: 10, padding: '8px 12px', marginBottom: 10,
-                flexWrap: 'wrap',
-              }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
-                  {Object.values(selecao).filter(Boolean).length} selecionado(s)
-                </span>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--teal-light)', border: '1px solid var(--teal)', borderRadius: 10, padding: '8px 12px', marginBottom: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{Object.values(selecao).filter(Boolean).length} selecionado(s)</span>
                 <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
-                  {['Pronto', 'Entregue'].map(s => (
-                    <button key={s} onClick={() => handleBulkStatus(s)}
-                      style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                      → {s}
-                    </button>
+                  {['Pronto','Entregue'].map(s => (
+                    <button key={s} onClick={() => handleBulkStatus(s)} style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>→ {s}</button>
                   ))}
-                  <button onClick={() => setSelecao({})}
-                    style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}>
-                    Cancelar
-                  </button>
+                  <button onClick={() => setSelecao({})} style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
                 </div>
               </div>
             )}
@@ -1313,8 +1227,6 @@ export default function Pedidos() {
                   key={p.id}
                   pedido={p}
                   alertMap={alertMap}
-                  selected={!!selecao[p.id]}
-                  selecaoMode={selecaoMode}
                   expanded={expandedPedidoId === p.id}
                   onToggle={() => setExpandedPedidoId(id => id === p.id ? null : p.id)}
                   onEdit={() => setMode(p)}
