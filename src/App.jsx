@@ -18,17 +18,17 @@ import MiseEnPlace from './pages/MiseEnPlace'
 const NAV = [
   { path: '/',               label: 'Home',          icon: HomeIcon },
   { path: '/pedidos',        label: 'Pedidos',        icon: PedidosIcon },
-  { path: '/contagem',       label: 'Contagem',       icon: ContagemIcon },
-  { path: '/fichas',         label: 'Receitas',       icon: FichasIcon },
-  { path: '/produtos',       label: 'Produtos',       icon: ProdutosIcon },
   { path: '/vendas',         label: 'Vendas',         icon: VendasIcon },
+  { path: '/fichas',         label: 'Receitas',       icon: FichasIcon },
+  { path: '/contagem',       label: 'Contagem',       icon: ContagemIcon },
+  { path: '/produtos',       label: 'Produtos',       icon: ProdutosIcon },
   { path: '/mise-en-place',  label: 'Mise en place',  icon: MiseIcon },
   { path: '/cadastros',      label: 'Insumos',        icon: CadastrosIcon },
   { path: '/configuracoes',  label: 'Preços',         icon: ConfigIcon },
 ]
 
-const NAV_BOTTOM_FIXED = NAV.slice(0, 5)   // Home Pedidos Contagem Receitas Produtos
-const NAV_MAIS         = NAV.slice(5)       // Vendas Insumos Preços
+const NAV_BOTTOM_FIXED = NAV.slice(0, 4)   // Home Pedidos Vendas Receitas
+const NAV_MAIS         = NAV.slice(4)       // Contagem Produtos Mise Insumos Preços
 
 function Sidebar() {
   const { user, signOut } = useAuth()

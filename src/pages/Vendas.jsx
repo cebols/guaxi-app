@@ -331,6 +331,31 @@ function TendenciaSemanal({ vendas }) {
 }
 
 // ── Sheets ───────────────────────────────────────────────────
+function DateChips({ value, onChange }) {
+  const today     = new Date().toISOString().split('T')[0]
+  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+  const fmt = (iso) => { const [, m, d] = iso.split('-'); return `${d}/${m}` }
+  const init = value === yesterday ? 'ontem' : (value && value !== today) ? 'data' : 'hoje'
+  const [chip, setChip] = useState(init)
+  const cs = (id) => {
+    const a = chip === id
+    const base = { padding: '6px 11px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none' }
+    if (!a) return { ...base, background: 'var(--bg-secondary)', outline: '1.5px solid transparent', color: 'var(--text-secondary)' }
+    if (id === 'hoje') return { ...base, background: 'var(--warn-bg)', outline: '1px solid var(--warn-text)', color: 'var(--warn-text)' }
+    return { ...base, background: 'var(--teal-light)', outline: '1px solid var(--teal)', color: 'var(--teal)' }
+  }
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button style={cs('hoje')}  onClick={() => { setChip('hoje');  onChange(today)    }}>Hoje · {fmt(today)}</button>
+        <button style={cs('ontem')} onClick={() => { setChip('ontem'); onChange(yesterday) }}>Ontem · {fmt(yesterday)}</button>
+        <button style={cs('data')}  onClick={() => setChip('data')}>📅 Agendar</button>
+      </div>
+      {chip === 'data' && <input type="date" className="field-input" defaultValue={value !== today && value !== yesterday ? value : ''} onChange={e => onChange(e.target.value)} style={{ marginTop: 8 }} />}
+    </div>
+  )
+}
+
 function Sheet({ title, children, onClose }) {
   return (
     <>
@@ -392,7 +417,7 @@ function VendaForm({ produtos, prefill, onSave, onClose }) {
   return (
     <Sheet title="Lançar venda" onClose={onClose}>
       <div className="field-label">Data</div>
-      <DateInput className="field-input" value={form.data} onChange={v => set('data', v)} />
+      <DateChips value={form.data} onChange={v => set('data', v)} />
       <div className="field-label">Produto *</div>
       <input className="field-input" list="prod-venda-list" placeholder="Selecione um produto" value={form.produtoNome} onChange={e => handleProdSelect(e.target.value)} />
       <datalist id="prod-venda-list">{(produtos || []).map(p => <option key={p.id} value={p.nome} />)}</datalist>
@@ -461,18 +486,12 @@ function LancamentoRapido({ produtos, onSave, onClose }) {
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
         Preencha as quantidades vendidas e salve tudo de uma vez.
       </div>
-      <div className="field-row">
-        <div>
-          <div className="field-label">Data</div>
-          <input className="field-input" type="date" value={data} onChange={e => setData(e.target.value)} />
-        </div>
-        <div>
-          <div className="field-label">Plataforma</div>
-          <select className="field-input" value={plataforma} onChange={e => setPlataforma(e.target.value)}>
-            {PLATAFORMAS.map(p => <option key={p}>{p}</option>)}
-          </select>
-        </div>
-      </div>
+      <div className="field-label">Data</div>
+      <DateChips value={data} onChange={setData} />
+      <div className="field-label">Plataforma</div>
+      <select className="field-input" value={plataforma} onChange={e => setPlataforma(e.target.value)} style={{ marginBottom: 10 }}>
+        {PLATAFORMAS.map(p => <option key={p}>{p}</option>)}
+      </select>
       <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
         {(produtos || []).map((prod, i) => {
           const preco = precoForPlat(prod, plataforma)
@@ -502,6 +521,57 @@ function LancamentoRapido({ produtos, onSave, onClose }) {
         {saving ? 'Salvando...' : `Salvar ${comVenda.length > 0 ? comVenda.length : ''} venda(s)`}
       </button>
     </Sheet>
+  )
+}
+
+// ── Daily revenue bar chart ──────────────────────────────────
+function GraficoDiario({ vendas, periodo }) {
+  const dias = useMemo(() => {
+    const today = new Date()
+    if (periodo === 'semana') {
+      const dow = today.getDay() || 7
+      const seg = new Date(today); seg.setDate(today.getDate() - dow + 1); seg.setHours(0,0,0,0)
+      return Array.from({ length: 7 }, (_, i) => { const d = new Date(seg); d.setDate(seg.getDate() + i); return d.toISOString().split('T')[0] })
+    }
+    const y = today.getFullYear(), m = today.getMonth()
+    const n = new Date(y, m + 1, 0).getDate()
+    return Array.from({ length: n }, (_, i) => `${y}-${String(m+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`)
+  }, [periodo])
+
+  const dadosDia = useMemo(() => {
+    const map = {}
+    vendas.forEach(v => { map[v.data] = (map[v.data] || 0) + v.quantidade * v.precoUnit })
+    return dias.map(d => ({ data: d, valor: map[d] || 0 }))
+  }, [vendas, dias])
+
+  const maxVal = Math.max(...dadosDia.map(d => d.valor), 0.01)
+  const pico   = Math.max(...dadosDia.map(d => d.valor))
+  const total  = dadosDia.reduce((s, d) => s + d.valor, 0)
+  const fmt1   = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+
+  return (
+    <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6 }}>Receita diária</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal)' }}>{fmtR(total)}</div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 60 }}>
+        {dadosDia.map((d, i) => {
+          const isPeak = pico > 0 && d.valor === pico
+          const barH   = d.valor > 0 ? Math.max(4, (d.valor / maxVal) * 54) : 3
+          return (
+            <div key={i} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+              <div style={{ width: '100%', height: barH, borderRadius: '2px 2px 0 0', background: isPeak ? 'var(--teal)' : d.valor > 0 ? 'rgba(34,184,134,0.4)' : '#252525' }} />
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'var(--text-tertiary)' }}>
+        <span>{fmt1(dias[0])}</span>
+        {pico > 0 && <span>pico {fmtR(pico)}</span>}
+        <span>{fmt1(dias[dias.length - 1])}</span>
+      </div>
+    </div>
   )
 }
 
@@ -806,7 +876,7 @@ function DrePainel({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNe
   return (
     <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.6 }}>
-        DRE · {mesLabel}
+        Resultado · {mesLabel}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
 
@@ -869,9 +939,10 @@ function DrePainel({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNe
 
 export default function Vendas() {
   const [periodo, setPeriodo]           = useState('mes')
-  const [tab, setTab]                   = useState('performance')
+  const [tab, setTab]                   = useState('inicio')
   const [sheet, setSheet]               = useState(null)
-  const [filtroHist, setFiltroHist]     = useState(new Set(['Pedidos', '99Food', 'iFood', 'Direta']))
+  const [expandedDate, setExpandedDate] = useState(null)
+  const [filtroHistPeriodo, setFiltroHistPeriodo] = useState('all')
   const { toast, show }       = useToast()
 
   const { data: produtos,   loading: lProd }               = useData(getProdutos)
@@ -1026,11 +1097,11 @@ export default function Vendas() {
 
   const historicoGrupos = useMemo(() => {
     const map = {}
-    ;(vendas || []).slice(0, 80).forEach(v => {
+    ;(vendas || []).forEach(v => {
       if (!map[v.data]) map[v.data] = []
       map[v.data].push({ ...v, _tipo: 'venda' })
     })
-    ;(encomendas || []).filter(e => e.status !== 'Cancelado').slice(0, 40).forEach(e => {
+    ;(encomendas || []).filter(e => e.status !== 'Cancelado').forEach(e => {
       const d = e.dataEntrega
       if (!map[d]) map[d] = []
       map[d].push({ ...e, _tipo: 'pedido' })
@@ -1078,28 +1149,21 @@ export default function Vendas() {
         <div className="topbar-inner">
           <div className="topbar-title">Vendas</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="btn-ghost desktop-only" onClick={() => setSheet({ type: 'rapido' })} style={{ fontSize: 13, padding: '6px 12px', color: 'var(--text-secondary)' }}>
-              ⚡ Rápido
-            </button>
-            <button className="btn-outline-teal desktop-only" onClick={() => setSheet({ type: 'venda' })} style={{ fontSize: 13, padding: '6px 14px' }}>
-              + Lançar venda
-            </button>
-            <button className="mobile-only" onClick={() => setSheet({ type: 'rapido' })} style={{ background: 'none', border: 'none', fontSize: 18, padding: '4px 8px', color: 'var(--text-secondary)', cursor: 'pointer' }}>⚡</button>
-            <button className="mobile-only" onClick={() => setSheet({ type: 'venda' })} style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Nova</button>
+            <button onClick={() => setSheet({ type: 'venda' })} style={{ fontSize: 13, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer' }}>+ Avulso</button>
+            <button onClick={() => setSheet({ type: 'rapido' })} style={{ fontSize: 13, padding: '6px 14px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#000', fontWeight: 700, cursor: 'pointer' }}>⚡ Lançar</button>
           </div>
         </div>
       </div>
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="tab-bar">
-          <button className={`tab-btn ${tab === 'performance' ? 'active' : ''}`} onClick={() => setTab('performance')}>Performance</button>
-          <button className={`tab-btn ${tab === 'graficos'    ? 'active' : ''}`} onClick={() => setTab('graficos')}>Gráficos</button>
-          <button className={`tab-btn ${tab === 'comparar'    ? 'active' : ''}`} onClick={() => setTab('comparar')}>Comparar</button>
-          <button className={`tab-btn ${tab === 'historico'   ? 'active' : ''}`} onClick={() => setTab('historico')}>Histórico</button>
+          <button className={`tab-btn ${tab === 'inicio'   ? 'active' : ''}`} onClick={() => setTab('inicio')}>Início</button>
+          <button className={`tab-btn ${tab === 'analise'  ? 'active' : ''}`} onClick={() => setTab('analise')}>Análise</button>
+          <button className={`tab-btn ${tab === 'historico'? 'active' : ''}`} onClick={() => setTab('historico')}>Histórico</button>
         </div>
 
-        {/* ── PERFORMANCE ─────────────────────────── */}
-        {tab === 'performance' && (
+        {/* ── INÍCIO ──────────────────────────────── */}
+        {tab === 'inicio' && (
           <>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               {['semana', 'mes'].map(p => (
@@ -1176,7 +1240,7 @@ export default function Vendas() {
             <div className="section-label">Venda direta</div>
             {loading ? <div className="loading">Carregando...</div> : (
               <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
-                {(produtos || []).map(prod => {
+                {(produtos || []).filter(prod => (statsPerProdAvulsa[prod.nome]?.units || 0) > 0).map(prod => {
                   const s = statsPerProdAvulsa[prod.nome]
                   const profit = s ? s.revNet - s.cost : null
                   const margin = s && s.revNet > 0 ? (profit / s.revNet) * 100 : null
@@ -1251,182 +1315,154 @@ export default function Vendas() {
           </>
         )}
 
-        {/* ── GRÁFICOS ─────────────────────────────── */}
-        {tab === 'graficos' && (
-          <>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              {['semana', 'mes'].map(p => (
-                <button key={p} onClick={() => setPeriodo(p)} style={{
-                  fontSize: 13, padding: '5px 14px', borderRadius: 20, border: '1px solid var(--border)',
-                  background: periodo === p ? 'var(--teal)' : 'transparent',
-                  color: periodo === p ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
-                }}>
-                  {p === 'semana' ? 'Esta semana' : 'Este mês'}
-                </button>
-              ))}
-            </div>
+        {/* ── ANÁLISE ──────────────────────────────── */}
+        {tab === 'analise' && (() => {
+          const canalData = [
+            { label: 'Direta', valor: statsPerPlat['Direta']?.revenue || 0, cor: 'var(--teal)' },
+            { label: 'iFood',  valor: statsPerPlat['iFood']?.revenue  || 0, cor: 'var(--warn-text)' },
+            { label: '99Food', valor: statsPerPlat['99Food']?.revenue || 0, cor: 'var(--text-tertiary)' },
+          ]
+          const maxCanal = Math.max(...canalData.map(c => c.valor), 0.01)
+          return (
+            <>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                {['semana', 'mes'].map(p => (
+                  <button key={p} onClick={() => setPeriodo(p)} style={{
+                    fontSize: 13, padding: '5px 14px', borderRadius: 20, border: '1px solid var(--border)',
+                    background: periodo === p ? 'var(--teal)' : 'transparent',
+                    color: periodo === p ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
+                  }}>
+                    {p === 'semana' ? 'Esta semana' : 'Este mês'}
+                  </button>
+                ))}
+              </div>
 
-            {lVend ? <div className="loading">Carregando...</div> : (
-              <>
-                <div className="section-label">Tendência semanal — últimas 6 semanas</div>
-                <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
-                  {todasVendasAll.length === 0
-                    ? <div style={{ fontSize: 13, color: 'var(--text-tertiary)', textAlign: 'center' }}>Sem dados de vendas</div>
-                    : <TendenciaSemanal vendas={todasVendasAll} />
-                  }
-                </div>
+              {!lVend && <GraficoDiario vendas={todasVendasPeriodo} periodo={periodo} />}
 
-                {barrasProduto.length > 0 && (
-                  <>
-                    <div className="section-label">Receita por produto ({periodo === 'semana' ? 'esta semana' : 'este mês'})</div>
-                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
-                      <Barras itens={barrasProduto} />
-                    </div>
-                  </>
-                )}
-
-                {barrasUnidades.length > 0 && (
-                  <>
-                    <div className="section-label">Unidades vendidas por produto ({periodo === 'semana' ? 'esta semana' : 'este mês'})</div>
-                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
-                      <BarrasQtd itens={barrasUnidades} />
-                    </div>
-                  </>
-                )}
-
-                {barrasPlat.length > 0 && (
-                  <>
-                    <div className="section-label">Receita por canal</div>
-                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
-                      <Barras itens={barrasPlat} />
-                    </div>
-                  </>
-                )}
-
-                {barrasCanalPed.length > 0 && (
-                  <>
-                    <div className="section-label">Pedidos por canal ({periodo === 'semana' ? 'esta semana' : 'este mês'})</div>
-                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
-                      <Barras itens={barrasCanalPed} />
-                    </div>
-                  </>
-                )}
-
-                {/* Heatmap dia da semana */}
-                {todasVendasAll.length > 0 && (
-                  <>
-                    <div className="section-label">Heatmap por dia da semana (6 semanas)</div>
-                    <div className="card" style={{ padding: '12px 16px', marginBottom: 12, maxWidth: 520 }}>
-                      <HeatmapDOW vendas={todasVendasAll} />
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center', marginTop: 8 }}>
-                        Identifica dias fortes/fracos pra decidir promoção e horário de funcionamento
+              {!lVend && canalData.some(c => c.valor > 0) && (
+                <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Canal de venda</div>
+                  {canalData.filter(c => c.valor > 0).map(c => (
+                    <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', width: 50, flexShrink: 0 }}>{c.label}</div>
+                      <div style={{ flex: 1, height: 4, background: 'var(--bg-secondary)', borderRadius: 2 }}>
+                        <div style={{ width: `${(c.valor / maxCanal) * 100}%`, height: '100%', background: c.cor, borderRadius: 2 }} />
                       </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', width: 72, textAlign: 'right', flexShrink: 0 }}>{fmtR(c.valor)}</div>
                     </div>
-                  </>
-                )}
+                  ))}
+                </div>
+              )}
 
-                {barrasProduto.length === 0 && (
-                  <div className="empty"><span>Registre vendas para ver os gráficos</span></div>
-                )}
-              </>
-            )}
-          </>
-        )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <div style={{ flex: 1, height: 1, background: '#252525' }} />
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600 }}>Comparar produtos</div>
+                <div style={{ flex: 1, height: 1, background: '#252525' }} />
+              </div>
 
-        {/* ── COMPARAR ─────────────────────────────── */}
-        {tab === 'comparar' && (
-          <ComparadorProdutos vendas={todasVendasAll} produtos={produtos} />
-        )}
+              <ComparadorProdutos vendas={todasVendasAll} produtos={produtos} />
+            </>
+          )
+        })()}
 
         {/* ── HISTÓRICO ────────────────────────────── */}
-        {tab === 'historico' && (
-          loading ? <div className="loading">Carregando...</div> : <>
-          {/* Filter chips */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-            {['Pedidos', 'iFood', '99Food', 'Direta'].map(f => {
-              const active = filtroHist.has(f)
-              const cor = f === 'iFood' ? '#ef4444' : f === '99Food' ? '#f59e0b' : 'var(--teal)'
-              return (
-                <button key={f} onClick={() => setFiltroHist(prev => {
-                  const next = new Set(prev)
-                  next.has(f) ? next.delete(f) : next.add(f)
-                  return next
-                })} style={{
-                  fontSize: 12, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
-                  border: `1px solid ${active ? cor : 'var(--border)'}`,
-                  background: active ? cor : 'transparent',
-                  color: active ? '#fff' : 'var(--text-secondary)',
-                  fontWeight: active ? 600 : 400,
-                }}>
-                  {f}
-                </button>
-              )
-            })}
-          </div>
-          {historicoGrupos.length === 0
-            ? <div className="empty"><span>Nenhuma venda registrada</span></div>
-            : historicoGrupos.map(([data, items]) => {
-            const filtered = items.filter(item => {
-              if (item._tipo === 'pedido') return filtroHist.has('Pedidos')
-              return filtroHist.has(item.plataforma)
-            })
-            if (filtered.length === 0) return null
-            return (
-            <div key={data}>
-              <div className="cat-header">{fmtDate(data)}</div>
-              <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
-                {filtered.map(item => {
-                  if (item._tipo === 'pedido') {
-                    const canalColor = PLAT_COLOR[CANAL_TO_PLAT[item.canal] || 'Direta'] || 'var(--teal)'
-                    const resumo = item.itens.map(i => `${i.produto}${i.quantidade > 1 ? ` ×${i.quantidade}` : ''}`).join(', ')
-                    return (
-                      <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', padding: '8px 0', borderBottom: '1px solid var(--border)', gap: 8 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontWeight: 600, fontSize: 13 }}>{item.id}</span>
-                            <span style={{ fontSize: 11, color: '#fff', background: canalColor, borderRadius: 4, padding: '1px 5px' }}>{item.canal}</span>
-                          </div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{item.cliente}</div>
-                          {resumo && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{resumo}</div>}
-                        </div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)', flexShrink: 0 }}>
-                          {fmtR(item.valor)}
-                        </div>
-                      </div>
-                    )
-                  }
-                  const v = item
-                  const fee = feeFor(v.plataforma)
-                  const profitUnit = v.precoUnit * (1 - fee) - v.custoUnit
+        {tab === 'historico' && (() => {
+          const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+          const fmtShort = (iso) => { const [, m, d] = iso.split('-'); return `${d}/${m}` }
+          const cutoff7d = new Date(); cutoff7d.setDate(cutoff7d.getDate() - 7)
+          const cutoff7dIso = cutoff7d.toISOString().split('T')[0]
+          const grupos = filtroHistPeriodo === '7d'
+            ? historicoGrupos.filter(([data]) => data >= cutoff7dIso)
+            : historicoGrupos
+
+          return loading ? <div className="loading">Carregando...</div> : (
+            <>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                {[['all', 'Todo período'], ['7d', 'Últimos 7 dias']].map(([val, label]) => {
+                  const a = filtroHistPeriodo === val
                   return (
-                    <div key={v.id} style={{ display: 'flex', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)', gap: 8 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>
-                          {v.produtoNome}
-                          {v.quantidade > 1 && <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}> ×{v.quantidade}</span>}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>
-                          <span style={{ color: PLAT_COLOR[v.plataforma] || 'var(--teal)' }}>{v.plataforma}</span>
-                          {' · '}{fmtR(v.precoUnit)}/un
-                          {v.custoUnit > 0 && <span> · lucro {fmtR(profitUnit)}/un</span>}
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)', flexShrink: 0 }}>
-                        {fmtR(v.precoUnit * v.quantidade)}
-                      </div>
-                      <button onClick={() => handleDelete(v.id)}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: '0 4px', flexShrink: 0 }}>×</button>
-                    </div>
+                    <button key={val} onClick={() => setFiltroHistPeriodo(val)} style={{
+                      fontSize: 12, padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
+                      border: `1px solid ${a ? 'var(--teal)' : 'var(--border)'}`,
+                      background: a ? 'var(--teal)' : 'transparent',
+                      color: a ? '#000' : 'var(--text-secondary)', fontWeight: a ? 700 : 400,
+                    }}>{label}</button>
                   )
                 })}
               </div>
-            </div>
-          )})}
-          </>
-        )}
-      </div>
 
-      <button className="fab mobile-only" onClick={() => setSheet({ type: 'rapido' })}>⚡</button>
+              {grupos.length === 0
+                ? <div className="empty"><span>Nenhuma venda registrada</span></div>
+                : grupos.map(([data, items]) => {
+                  const totalDia = items.reduce((s, item) => {
+                    if (item._tipo === 'pedido') return s + (item.valor || (item.itens || []).reduce((ss, i) => ss + i.quantidade * (i.precoUnit || 0), 0))
+                    return s + item.quantidade * item.precoUnit
+                  }, 0)
+                  const linhas = items.flatMap(item => {
+                    if (item._tipo === 'pedido') {
+                      return (item.itens || []).map(it => ({
+                        key: `${item.id}-${it.produto}`,
+                        nome: it.produto,
+                        quantidade: it.quantidade,
+                        precoUnit: it.precoUnit || 0,
+                        platColor: PLAT_COLOR[CANAL_TO_PLAT[item.canal] || 'Direta'] || 'var(--teal)',
+                        canal: item.canal,
+                      }))
+                    }
+                    return [{
+                      key: item.id,
+                      nome: item.produtoNome,
+                      quantidade: item.quantidade,
+                      precoUnit: item.precoUnit,
+                      platColor: PLAT_COLOR[item.plataforma] || 'var(--teal)',
+                      canal: item.plataforma,
+                      canDelete: true,
+                      id: item.id,
+                    }]
+                  })
+                  const dow = DOW[new Date(data + 'T12:00:00').getDay()]
+                  const isOpen = expandedDate === data
+                  return (
+                    <div key={data} style={{ marginBottom: 8 }}>
+                      <button onClick={() => setExpandedDate(isOpen ? null : data)} style={{
+                        width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                        background: 'var(--bg-secondary)', border: 'none', cursor: 'pointer',
+                        borderRadius: isOpen ? '9px 9px 0 0' : 9,
+                        transition: 'border-radius 0.15s',
+                      }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', flexShrink: 0 }}>{fmtShort(data)}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flex: 1, textAlign: 'left' }}>{dow} · {items.length} {items.length === 1 ? 'venda' : 'vendas'}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal)' }}>{fmtR(totalDia)}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'inline-block' }}>▾</span>
+                      </button>
+                      {isOpen && (
+                        <div style={{ background: 'var(--bg-tertiary)', border: '1px solid #2a2a2a', borderTop: 'none', borderRadius: '0 0 9px 9px', padding: '0 14px' }}>
+                          {linhas.map((linha, li) => (
+                            <div key={linha.key} style={{ display: 'flex', alignItems: 'center', padding: '8px 0', borderBottom: li < linhas.length - 1 ? '1px solid #1e1e1e' : 'none', gap: 8 }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{linha.nome}</span>
+                              </div>
+                              <span style={{ fontSize: 10, color: linha.platColor, flexShrink: 0 }}>{linha.quantidade} un · {linha.canal}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', flexShrink: 0 }}>{fmtR(linha.quantidade * linha.precoUnit)}</span>
+                              {linha.canDelete && (
+                                <button onClick={() => handleDelete(linha.id)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: '0 2px', flexShrink: 0 }}>×</button>
+                              )}
+                            </div>
+                          ))}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid #2a2a2a' }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Total do dia</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)' }}>{fmtR(totalDia)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              }
+            </>
+          )
+        })()}
+      </div>
 
       {sheet?.type === 'venda'  && <VendaForm    produtos={produtos} prefill={sheet.produto} onSave={handleSave} onClose={() => setSheet(null)} />}
       {sheet?.type === 'rapido' && <LancamentoRapido produtos={produtos} onSave={handleSave} onClose={() => setSheet(null)} />}
