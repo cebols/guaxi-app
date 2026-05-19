@@ -232,7 +232,7 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
         }
         const indexados = ings.map((ing, idx) => {
           const match = insumosList.find(ins => norm(ins.nome) === norm(ing.nome) || norm(ins.nome).includes(norm(ing.nome)) || norm(ing.nome).includes(norm(ins.nome)))
-          return { ...ing, _id: idx, insumoId: match?.id || null, insumoNome: match?.nome || null, unidade: match?.unidade || ing.unidade }
+          return { ...ing, _id: idx, insumoId: match?.id || null, insumoNome: match?.nome || null, unidade: ing.unidade }
         })
         setEditados(indexados)
         setSelecionados(indexados.map(i => i._id))
