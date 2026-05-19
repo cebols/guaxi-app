@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getConfig, saveConfig, calcPrecos, getCustoSacolaDelivery, CONFIG_DEFAULTS } from '../hooks/useConfig'
@@ -11,6 +11,66 @@ function fmtR(v) {
 }
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 5) }
 
+function fmtR2(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+
+function MultiSelectDropdown({ embalagens, selectedIds, onChange, placeholder = 'Selecionar embalagens…' }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+  const selected = (embalagens || []).filter(e => selectedIds.includes(e.id))
+  const media = selected.length ? selected.reduce((s, e) => s + (e.custoUnit || 0), 0) / selected.length : null
+  return (
+    <div ref={ref} style={{ position: 'relative', marginBottom: 8 }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minHeight: 40, padding: '6px 10px', paddingRight: 28,
+          background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', alignItems: 'center', position: 'relative' }}
+      >
+        {selected.length === 0
+          ? <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{placeholder}</span>
+          : selected.map(e => (
+            <span key={e.id} style={{ fontSize: 11, background: 'rgba(13,148,136,0.15)', color: 'var(--teal)', borderRadius: 12, padding: '2px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
+              {e.nome}
+              <span onClick={ev => { ev.stopPropagation(); onChange(e.id) }} style={{ cursor: 'pointer', fontWeight: 700, lineHeight: 1 }}>×</span>
+            </span>
+          ))
+        }
+        <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-tertiary)' }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div style={{ position: 'absolute', zIndex: 100, top: '100%', left: 0, right: 0, marginTop: 4,
+          background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', maxHeight: 220, overflowY: 'auto' }}>
+          {(embalagens || []).length === 0
+            ? <div style={{ padding: '10px 14px', fontSize: 13, color: 'var(--text-tertiary)' }}>Nenhuma embalagem cadastrada.</div>
+            : (embalagens || []).map(e => {
+              const sel = selectedIds.includes(e.id)
+              return (
+                <div key={e.id} onClick={() => onChange(e.id)}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '9px 14px', cursor: 'pointer', fontSize: 13,
+                    background: sel ? 'rgba(13,148,136,0.08)' : 'transparent',
+                    color: sel ? 'var(--teal)' : 'var(--text-primary)' }}>
+                  <span>{sel ? '✓ ' : ''}{e.nome}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>R$ {fmtR2(e.custoUnit)}</span>
+                </div>
+              )
+            })
+          }
+        </div>
+      )}
+      {media !== null && (
+        <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4 }}>
+          Média por saída: R$ {fmtR2(media)} ({selected.length} embalagem{selected.length > 1 ? 's' : ''})
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Configuracoes() {
   const { toast, show } = useToast()
   const [cfg, setCfg] = useState(getConfig)
@@ -22,9 +82,9 @@ export default function Configuracoes() {
   const { data: encomendas }  = useData(getEncomendas)
   const { data: embalagens }  = useData(getEmbalagens)
 
-  const toggleEmbDelivery = (id) => setCfg(c => {
-    const ids = c.embalagemDeliveryIds || []
-    return { ...c, embalagemDeliveryIds: ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id] }
+  const toggleEmb = (key, id) => setCfg(c => {
+    const ids = c[key] || []
+    return { ...c, [key]: ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id] }
   })
 
   const set = (k, v) => setCfg(c => ({ ...c, [k]: parseFloat(v) || 0 }))
@@ -230,46 +290,27 @@ export default function Configuracoes() {
 
         {/* ── Embalagem de delivery ───────────────────────── */}
         <div className="section-label" style={{ marginTop: 8 }}>Embalagem de delivery</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
-          Selecione as embalagens usadas como sacola de saída. O custo médio é somado automaticamente em cada pedido delivery.
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+          Sacola de saída por pedido. Custo médio somado automaticamente no DRE e nos preços delivery.
         </div>
-        {(embalagens || []).length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Nenhuma embalagem cadastrada.</div>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {(embalagens || []).map(emb => {
-              const sel = (cfg.embalagemDeliveryIds || []).includes(emb.id)
-              return (
-                <button
-                  key={emb.id}
-                  type="button"
-                  onClick={() => toggleEmbDelivery(emb.id)}
-                  style={{
-                    fontSize: 12, padding: '5px 12px', borderRadius: 20, cursor: 'pointer', border: '1px solid',
-                    borderColor: sel ? 'var(--teal)' : 'var(--border)',
-                    background: sel ? 'rgba(13,148,136,0.12)' : 'var(--bg-card)',
-                    color: sel ? 'var(--teal)' : 'var(--text-secondary)',
-                    fontWeight: sel ? 600 : 400,
-                  }}
-                >
-                  {emb.nome} <span style={{ color: 'var(--text-tertiary)' }}>R$ {Number(emb.custoUnit || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-        {(() => {
-          const ids = cfg.embalagemDeliveryIds || []
-          const selecionadas = (embalagens || []).filter(e => ids.includes(e.id))
-          if (!selecionadas.length) return null
-          const media = selecionadas.reduce((s, e) => s + (e.custoUnit || 0), 0) / selecionadas.length
-          return (
-            <div style={{ fontSize: 12, color: 'var(--teal)', marginTop: 8 }}>
-              Média por saída: R$ {media.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              {' '}({selecionadas.length} embalagem{selecionadas.length > 1 ? 's' : ''})
-            </div>
-          )
-        })()}
+        <MultiSelectDropdown
+          embalagens={embalagens || []}
+          selectedIds={cfg.embalagemDeliveryIds || []}
+          onChange={id => toggleEmb('embalagemDeliveryIds', id)}
+          placeholder="Selecionar sacolas de delivery…"
+        />
+
+        {/* ── Embalagem de encomenda ───────────────────────── */}
+        <div className="section-label" style={{ marginTop: 8 }}>Embalagem de encomenda</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
+          Embalagem padrão por encomenda. Custo médio incluído no cálculo de encomendas.
+        </div>
+        <MultiSelectDropdown
+          embalagens={embalagens || []}
+          selectedIds={cfg.embalagemEncomendaIds || []}
+          onChange={id => toggleEmb('embalagemEncomendaIds', id)}
+          placeholder="Selecionar embalagens de encomenda…"
+        />
 
         {/* ── Prévia ──────────────────────────────────────── */}
         <div className="section-label" style={{ marginTop: 8 }}>Prévia de precificação</div>

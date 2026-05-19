@@ -17,7 +17,8 @@ export const CONFIG_DEFAULTS = {
   margem: 30,
   taxa99: 20,
   taxaIfood: 27,
-  embalagemDeliveryIds: [],  // embalagem IDs usadas como sacola de saída
+  embalagemDeliveryIds: [],   // embalagem IDs usadas como sacola de saída
+  embalagemEncomendaIds: [],  // embalagem IDs padrão por encomenda
 }
 
 function somaItens(itens) {
@@ -82,14 +83,20 @@ export function saveConfig(updates) {
   return next
 }
 
-// Average cost of delivery bags configured globally
-export function getCustoSacolaDelivery(cfg, embalagens) {
-  const ids = (cfg || getConfig()).embalagemDeliveryIds || []
+function avgEmbCusto(cfg, embalagens, key) {
+  const ids = (cfg || getConfig())[key] || []
   if (!ids.length || !embalagens?.length) return 0
-  const selecionadas = embalagens.filter(e => ids.includes(e.id))
-  if (!selecionadas.length) return 0
-  const total = selecionadas.reduce((s, e) => s + (e.custoUnit || 0), 0)
-  return total / selecionadas.length
+  const sel = embalagens.filter(e => ids.includes(e.id))
+  if (!sel.length) return 0
+  return sel.reduce((s, e) => s + (e.custoUnit || 0), 0) / sel.length
+}
+
+export function getCustoSacolaDelivery(cfg, embalagens) {
+  return avgEmbCusto(cfg, embalagens, 'embalagemDeliveryIds')
+}
+
+export function getCustoEmbalagemEncomenda(cfg, embalagens) {
+  return avgEmbCusto(cfg, embalagens, 'embalagemEncomendaIds')
 }
 
 export function calcPrecos(custoTotal, cfg, custoSacola = 0) {
