@@ -620,13 +620,13 @@ function ComparadorProdutos({ vendas, produtos }) {
             const disabled = !sel && selecionados.length >= 3
             const cor = sel ? CMP_COLORS[idx] : null
             return (
-              <label key={nome} style={{
+              <label key={nome} onClick={() => !disabled && toggle(nome)} style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '7px 4px', cursor: disabled ? 'not-allowed' : 'pointer',
                 borderBottom: '1px solid var(--border-color)',
                 opacity: disabled ? 0.4 : 1,
               }}>
-                <div onClick={() => !disabled && toggle(nome)} style={{
+                <div style={{
                   width: 18, height: 18, borderRadius: 4, flexShrink: 0,
                   border: `2px solid ${sel ? cor : 'var(--border-color)'}`,
                   background: sel ? cor : 'transparent',
@@ -637,7 +637,7 @@ function ComparadorProdutos({ vendas, produtos }) {
                     <polyline points="1.5,5 4,7.5 8.5,2" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>}
                 </div>
-                <span onClick={() => !disabled && toggle(nome)} style={{ fontSize: 13, color: sel ? cor : 'var(--text-primary)', fontWeight: sel ? 600 : 400, flex: 1 }}>
+                <span style={{ fontSize: 13, color: sel ? cor : 'var(--text-primary)', fontWeight: sel ? 600 : 400, flex: 1 }}>
                   {nome}
                 </span>
               </label>

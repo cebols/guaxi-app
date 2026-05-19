@@ -1,8 +1,12 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getReceitas, saveReceita, deleteReceita, getInsumos } from '../services/db'
+
+function norm(s) {
+  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
 
 const TIPO_OPTS = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
 const WEIGHT_UNITS = ['g', 'ml', 'kg', 'L']
@@ -170,6 +174,8 @@ export default function ReceitaForm() {
   ])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [ingDrop, setIngDrop] = useState(null) // { idx, matches[] }
+  const ingDropRef = useRef(null)
 
   useEffect(() => {
     if (!isEdit || !receitas) return
@@ -208,12 +214,28 @@ export default function ReceitaForm() {
       setIngredientes(prev => prev.map((it, idx) =>
         idx === i ? { ...it, nome, subReceitaId: recMatch.id, insumoId: null, unidade: recMatch.unidadeGera || 'un' } : it
       ))
+      setIngDrop(null)
       return
     }
     const found = insumos?.find(ins => ins.nome === nome)
     setIngredientes(prev => prev.map((it, idx) =>
       idx === i ? { ...it, nome, insumoId: found?.id ?? null, subReceitaId: null, unidade: found ? found.unidade : it.unidade } : it
     ))
+    // compute suggestions
+    if (nome.length >= 1) {
+      const q = norm(nome)
+      const recOpts = (receitas || []).filter(r => String(r.id) !== String(id) && norm(r.nome).includes(q)).map(r => ({ label: r.nome, tag: 'R' }))
+      const insOpts = (insumos || []).filter(ins => norm(ins.nome).includes(q)).map(ins => ({ label: ins.nome, tag: null }))
+      const matches = [...recOpts, ...insOpts].slice(0, 8)
+      setIngDrop(matches.length ? { idx: i, matches } : null)
+    } else {
+      setIngDrop(null)
+    }
+  }
+
+  const selectIngSuggestion = (i, nome) => {
+    handleIngNome(i, nome)
+    setIngDrop(null)
   }
 
   const setIng = (i, k, v) => setIngredientes(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
@@ -439,14 +461,35 @@ export default function ReceitaForm() {
                   {ing.subReceitaId && (
                     <span style={{ fontSize: 10, background: 'var(--teal)', color: '#fff', borderRadius: 4, padding: '2px 5px', flexShrink: 0, fontWeight: 700 }}>R</span>
                   )}
-                  <input
-                    className="field-input"
-                    style={{ flex: 2, marginBottom: 0, fontSize: 13 }}
-                    list="ingredientes-list"
-                    placeholder="Ingrediente"
-                    value={ing.nome}
-                    onChange={e => handleIngNome(i, e.target.value)}
-                  />
+                  <div style={{ flex: 2, position: 'relative' }}>
+                    <input
+                      className="field-input"
+                      style={{ width: '100%', marginBottom: 0, fontSize: 13 }}
+                      placeholder="Ingrediente"
+                      value={ing.nome}
+                      onChange={e => handleIngNome(i, e.target.value)}
+                      onBlur={() => setTimeout(() => setIngDrop(null), 150)}
+                      autoComplete="off"
+                    />
+                    {ingDrop?.idx === i && (
+                      <div ref={ingDropRef} style={{
+                        position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                        background: 'var(--card-bg)', border: '1px solid var(--border)',
+                        borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', overflow: 'hidden',
+                      }}>
+                        {ingDrop.matches.map((m, mi) => (
+                          <div key={mi}
+                            onMouseDown={() => selectIngSuggestion(i, m.label)}
+                            style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, borderBottom: '1px solid var(--border)' }}
+                            onMouseEnter={e => e.currentTarget.style.background = 'var(--teal-light)'}
+                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                            {m.tag && <span style={{ fontSize: 9, background: 'var(--teal)', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>{m.tag}</span>}
+                            {m.label}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <input
                     className="item-qty"
                     type="text" inputMode="decimal"
@@ -469,12 +512,6 @@ export default function ReceitaForm() {
             )
           })}
         </div>
-        <datalist id="ingredientes-list">
-          {(receitas || []).filter(r => String(r.id) !== String(id)).map(r => (
-            <option key={`r-${r.id}`} value={r.nome} />
-          ))}
-          {(insumos || []).map(ins => <option key={`i-${ins.id}`} value={ins.nome} />)}
-        </datalist>
         <button className="btn-add-item" onClick={addIng}>+ adicionar ingrediente</button>
 
         {custoTotal > 0 && (
