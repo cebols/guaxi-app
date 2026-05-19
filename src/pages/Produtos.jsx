@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getConfig, calcPrecos } from '../hooks/useConfig'
+import { getConfig, calcPrecos, getCustoSacolaDelivery } from '../hooks/useConfig'
 import {
   getProdutos, saveProduto, deleteProduto,
   getReceitas, getEmbalagens, getInsumos,
@@ -114,8 +114,9 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
     return rec + emb
   }, [form.custoDireto, recRows, embRows, comboRows, isAvulso, isCombo])
 
-  const cfg    = getConfig()
-  const precos = calcPrecos(custoTotal, cfg)
+  const cfg         = getConfig()
+  const sacolaDelivery = getCustoSacolaDelivery(cfg, embalagens || [])
+  const precos      = calcPrecos(custoTotal, cfg, sacolaDelivery)
 
   const platFields = [
     { key: 'precoDireta', label: 'Direta',  sugerido: precos.base,   color: PLAT_COLOR.Direta    },
@@ -329,7 +330,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
 
 
 function PlatPrecos({ prod, cfg }) {
-  const precos = calcPrecos(prod.custoTotal, cfg)
+  const precos = calcPrecos(prod.custoTotal, cfg, custoSacola)
   return (
     <div style={{ fontSize: 11, marginTop: 2 }}>
       <span style={{ color: PLAT_COLOR.Direta }}>D {fmtR(prod.precoDireta ?? precos.base)}</span>
@@ -361,6 +362,7 @@ export default function Produtos() {
   const { data: embalagens, loading: lEmb  } = useData(getEmbalagens)
   const { data: insumos } = useData(getInsumos)
   const loading = lProd || lRec || lEmb
+  const custoSacola = getCustoSacolaDelivery(cfg, embalagens || [])
 
   const fornecedoresList = useMemo(() => {
     const map = {}
@@ -463,7 +465,7 @@ export default function Produtos() {
                       </tr></thead>
                       <tbody>
                         {produtosFiltrados.map(prod => {
-                          const p = calcPrecos(prod.custoTotal, cfg)
+                          const p = calcPrecos(prod.custoTotal, cfg, custoSacola)
                           return (
                             <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })}>
                               <td style={{ fontWeight: 600 }}>

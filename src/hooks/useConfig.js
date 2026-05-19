@@ -92,14 +92,15 @@ export function getCustoSacolaDelivery(cfg, embalagens) {
   return total / selecionadas.length
 }
 
-export function calcPrecos(custoTotal, cfg) {
+export function calcPrecos(custoTotal, cfg, custoSacola = 0) {
   const c = cfg || getConfig()
   if (!custoTotal || custoTotal <= 0) return { base: 0, p99: 0, pIfood: 0 }
   const rateio = (c.unidadesProjetadas || 0) > 0
     ? (c.custoFixoMensal || 0) / c.unidadesProjetadas
     : 0
-  const base   = (custoTotal + rateio) / (1 - (c.margem    || 0) / 100)
-  const p99    = base / (1 - (c.taxa99    || 0) / 100)
-  const pIfood = base / (1 - (c.taxaIfood || 0) / 100)
+  const base        = (custoTotal + rateio) / (1 - (c.margem || 0) / 100)
+  const baseDelivery = (custoTotal + rateio + custoSacola) / (1 - (c.margem || 0) / 100)
+  const p99    = baseDelivery / (1 - (c.taxa99    || 0) / 100)
+  const pIfood = baseDelivery / (1 - (c.taxaIfood || 0) / 100)
   return { base, p99, pIfood }
 }

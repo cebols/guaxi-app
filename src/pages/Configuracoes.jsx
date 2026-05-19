@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getConfig, saveConfig, calcPrecos, CONFIG_DEFAULTS } from '../hooks/useConfig'
+import { getConfig, saveConfig, calcPrecos, getCustoSacolaDelivery, CONFIG_DEFAULTS } from '../hooks/useConfig'
 import { getVendas, getEncomendas, getEmbalagens } from '../services/db'
 
 function fmtPct(v) { return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) }
@@ -55,7 +55,8 @@ export default function Configuracoes() {
   const custoFixoMensal = (cfg.custoItens || []).reduce((s, i) => s + (parseFloat(i.valor) || 0), 0)
   const rateio = cfg.unidadesProjetadas > 0 ? custoFixoMensal / cfg.unidadesProjetadas : 0
   const cfgComTotal = { ...cfg, custoFixoMensal }
-  const { base, p99, pIfood } = calcPrecos(exemplo, cfgComTotal)
+  const mediaDelivery = getCustoSacolaDelivery(cfgComTotal, embalagens || [])
+  const { base, p99, pIfood } = calcPrecos(exemplo, cfgComTotal, mediaDelivery)
 
   // Vendas reais mês atual
   const realStats = useMemo(() => {
