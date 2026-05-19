@@ -29,6 +29,37 @@ export default function Fichas() {
   const [bulkSel, setBulkSel]         = useState([])
   const [bulkConfirm, setBulkConfirm] = useState(false)
   const [duplicando, setDuplicando]   = useState(null)
+  const [exportMode, setExportMode]   = useState(false)
+  const [exportSel, setExportSel]     = useState([])
+  const [exportSize, setExportSize]   = useState('a4')
+  const [gerando, setGerando]         = useState(false)
+
+  async function handleGerarPDF() {
+    const selecionadas = (receitas || []).filter(r => exportSel.includes(r.id))
+    if (!selecionadas.length) return
+    setGerando(true)
+    try {
+      const [{ pdf }, { FichaTecnicaDocument }] = await Promise.all([
+        import('@react-pdf/renderer'),
+        import('../components/FichaTecnicaPDF'),
+      ])
+      const blob = await pdf(<FichaTecnicaDocument receitas={selecionadas} size={exportSize} />).toBlob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `fichas-${new Date().toISOString().slice(0, 10)}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      setExportMode(false)
+      setExportSel([])
+    } catch (e) {
+      alert('Erro ao gerar PDF: ' + e.message)
+    } finally {
+      setGerando(false)
+    }
+  }
 
   const tiposDisponiveis = useMemo(() =>
     [...new Set((receitas || []).map(r => r.tipo).filter(Boolean))].sort(),
@@ -74,6 +105,8 @@ export default function Fichas() {
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setImportando(true)}
               style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>↑ Excel</button>
+            <button onClick={() => { setExportSel([]); setExportMode(true) }}
+              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>PDF</button>
             <button onClick={() => { setBulkSel([]); setBulkDelete(true) }}
               style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Excluir</button>
             <button onClick={() => navigate('/fichas/nova')}
@@ -208,6 +241,74 @@ export default function Fichas() {
           </>
         )}
       </div>
+
+      {exportMode && (
+        <>
+          <div className="sheet-overlay" onClick={() => setExportMode(false)} />
+          <div className="sheet">
+            <div className="sheet-title">
+              <span>Exportar fichas técnicas</span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setExportMode(false)}>×</button>
+            </div>
+
+            {/* Tamanho */}
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Tamanho</div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              {[
+                { id: 'card', label: 'Card', desc: '10×15cm · ingredientes' },
+                { id: 'a5',   label: 'A5',   desc: 'Meia folha · + instruções' },
+                { id: 'a4',   label: 'A4',   desc: 'Folha inteira · completo' },
+              ].map(s => (
+                <button key={s.id} onClick={() => setExportSize(s.id)} style={{
+                  flex: 1, padding: '10px 8px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
+                  border: exportSize === s.id ? '2px solid var(--teal)' : '1px solid var(--border)',
+                  background: exportSize === s.id ? 'rgba(20,184,166,0.08)' : 'var(--card-bg)',
+                }}>
+                  <div style={{ fontWeight: 700, fontSize: 14, color: exportSize === s.id ? 'var(--teal)' : 'var(--text-primary)' }}>{s.label}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{s.desc}</div>
+                </button>
+              ))}
+            </div>
+
+            {/* Seleção */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', color: 'var(--text-secondary)' }}>
+                <input type="checkbox"
+                  checked={exportSel.length === filtradas.length && filtradas.length > 0}
+                  onChange={e => setExportSel(e.target.checked ? filtradas.map(r => r.id) : [])}
+                /> Todas visíveis
+              </label>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{exportSel.length} selecionada(s)</span>
+            </div>
+
+            <div style={{ maxHeight: '45vh', overflowY: 'auto', marginBottom: 16 }}>
+              {filtradas.map(rec => (
+                <label key={rec.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+                  <input type="checkbox"
+                    checked={exportSel.includes(rec.id)}
+                    onChange={e => setExportSel(s => e.target.checked ? [...s, rec.id] : s.filter(id => id !== rec.id))}
+                  />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{rec.nome}</div>
+                    {rec.tipo && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{rec.tipo}</div>}
+                  </div>
+                </label>
+              ))}
+            </div>
+
+            <button
+              disabled={!exportSel.length || gerando}
+              onClick={handleGerarPDF}
+              style={{
+                width: '100%', padding: '13px', borderRadius: 10, border: 'none', fontSize: 14,
+                fontWeight: 700, cursor: exportSel.length && !gerando ? 'pointer' : 'not-allowed',
+                background: exportSel.length ? 'var(--teal)' : 'var(--border)', color: '#fff',
+              }}>
+              {gerando ? 'Gerando PDF...' : exportSel.length ? `Baixar PDF · ${exportSel.length} ficha(s)` : 'Selecione receitas'}
+            </button>
+          </div>
+        </>
+      )}
 
       {bulkDelete && (
         <>
