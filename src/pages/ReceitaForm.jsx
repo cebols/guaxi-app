@@ -207,7 +207,7 @@ export default function ReceitaForm() {
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const handleIngNome = (i, nome) => {
+  const handleIngNome = (i, nome, rect) => {
     // Check sub-receita first (priority), then insumo
     const recMatch = receitas?.find(r => r.nome === nome && String(r.id) !== String(id))
     if (recMatch) {
@@ -221,20 +221,19 @@ export default function ReceitaForm() {
     setIngredientes(prev => prev.map((it, idx) =>
       idx === i ? { ...it, nome, insumoId: found?.id ?? null, subReceitaId: null, unidade: found ? found.unidade : it.unidade } : it
     ))
-    // compute suggestions
     if (nome.length >= 1) {
       const q = norm(nome)
       const recOpts = (receitas || []).filter(r => String(r.id) !== String(id) && norm(r.nome).includes(q)).map(r => ({ label: r.nome, tag: 'R' }))
       const insOpts = (insumos || []).filter(ins => norm(ins.nome).includes(q)).map(ins => ({ label: ins.nome, tag: null }))
       const matches = [...recOpts, ...insOpts].slice(0, 8)
-      setIngDrop(matches.length ? { idx: i, matches } : null)
+      setIngDrop(matches.length ? { idx: i, matches, rect, selectedIdx: -1 } : null)
     } else {
       setIngDrop(null)
     }
   }
 
   const selectIngSuggestion = (i, nome) => {
-    handleIngNome(i, nome)
+    handleIngNome(i, nome, null)
     setIngDrop(null)
   }
 
@@ -467,28 +466,17 @@ export default function ReceitaForm() {
                       style={{ width: '100%', marginBottom: 0, fontSize: 13 }}
                       placeholder="Ingrediente"
                       value={ing.nome}
-                      onChange={e => handleIngNome(i, e.target.value)}
-                      onBlur={() => setTimeout(() => setIngDrop(null), 150)}
+                      onChange={e => handleIngNome(i, e.target.value, e.target.getBoundingClientRect())}
+                      onBlur={() => setTimeout(() => setIngDrop(null), 120)}
+                      onKeyDown={e => {
+                        if (!ingDrop || ingDrop.idx !== i) return
+                        if (e.key === 'ArrowDown') { e.preventDefault(); setIngDrop(d => ({ ...d, selectedIdx: Math.min((d.selectedIdx ?? -1) + 1, d.matches.length - 1) })) }
+                        else if (e.key === 'ArrowUp') { e.preventDefault(); setIngDrop(d => ({ ...d, selectedIdx: Math.max((d.selectedIdx ?? 0) - 1, 0) })) }
+                        else if (e.key === 'Enter' && ingDrop.selectedIdx >= 0) { e.preventDefault(); selectIngSuggestion(i, ingDrop.matches[ingDrop.selectedIdx].label) }
+                        else if (e.key === 'Escape') setIngDrop(null)
+                      }}
                       autoComplete="off"
                     />
-                    {ingDrop?.idx === i && (
-                      <div ref={ingDropRef} style={{
-                        position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
-                        background: 'var(--card-bg)', border: '1px solid var(--border)',
-                        borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', overflow: 'hidden',
-                      }}>
-                        {ingDrop.matches.map((m, mi) => (
-                          <div key={mi}
-                            onMouseDown={() => selectIngSuggestion(i, m.label)}
-                            style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, borderBottom: '1px solid var(--border)' }}
-                            onMouseEnter={e => e.currentTarget.style.background = 'var(--teal-light)'}
-                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                            {m.tag && <span style={{ fontSize: 9, background: 'var(--teal)', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>{m.tag}</span>}
-                            {m.label}
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
                   <input
                     className="item-qty"
@@ -513,6 +501,37 @@ export default function ReceitaForm() {
           })}
         </div>
         <button className="btn-add-item" onClick={addIng}>+ adicionar ingrediente</button>
+
+        {/* Ingredient dropdown — rendered outside card to avoid overflow:hidden clip */}
+        {ingDrop?.rect && (
+          <div style={{
+            position: 'fixed',
+            top: ingDrop.rect.bottom + 2,
+            left: ingDrop.rect.left,
+            width: ingDrop.rect.width,
+            zIndex: 200,
+            background: 'var(--card-bg)',
+            border: '1px solid var(--border)',
+            borderRadius: 8,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            overflow: 'hidden',
+          }}>
+            {ingDrop.matches.map((m, mi) => (
+              <div key={mi}
+                onPointerDown={e => { e.preventDefault(); selectIngSuggestion(ingDrop.idx, m.label) }}
+                style={{
+                  padding: '9px 12px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
+                  borderBottom: '1px solid var(--border)',
+                  background: mi === ingDrop.selectedIdx ? 'var(--teal-light)' : 'transparent',
+                  color: mi === ingDrop.selectedIdx ? 'var(--teal)' : 'var(--text-primary)',
+                }}>
+                {m.tag && <span style={{ fontSize: 9, background: 'var(--teal)', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>{m.tag}</span>}
+                {m.label}
+              </div>
+            ))}
+          </div>
+        )}
 
         {custoTotal > 0 && (
           <div style={{ margin: '12px 0 4px', padding: '10px 14px', background: 'var(--teal-light)', borderRadius: 8 }}>

@@ -835,6 +835,60 @@ export async function deleteVenda(id) {
   if (error) throw error
 }
 
+// ── Produções ─────────────────────────────────────────────────
+
+export async function saveProducao(lote, receitas) {
+  try {
+    // Debit insumos estoque
+    const debitos = {}
+    lote.forEach(({ receitaId, qtd }) => {
+      const rec = receitas.find(r => r.id === receitaId)
+      if (!rec) return
+      ;(rec.ingredientes || []).forEach(ing => {
+        if (ing.insumoId) debitos[ing.insumoId] = (debitos[ing.insumoId] || 0) + ing.quantidade * qtd
+      })
+    })
+    const ids = Object.keys(debitos).map(Number)
+    if (ids.length) {
+      const { data } = await supabase.from('insumos').select('id, estoque_atual').in('id', ids)
+      await Promise.all((data || []).map(ins =>
+        supabase.from('insumos').update({ estoque_atual: Math.max(0, (ins.estoque_atual || 0) - (debitos[ins.id] || 0)) }).eq('id', ins.id)
+      ))
+    }
+    // Save record
+    const { data: prod, error } = await supabase.from('producoes').insert({ created_at: new Date().toISOString() }).select().single()
+    if (error) throw error
+    await supabase.from('producao_itens').insert(
+      lote.map(item => {
+        const rec = receitas.find(r => r.id === item.receitaId)
+        return { producao_id: prod.id, receita_id: item.receitaId, receita_nome: item.nome, quantidade: item.qtd, rendimento_total: rec ? rec.rendimento * item.qtd : null, unidade_gera: rec?.unidadeGera || 'un' }
+      })
+    )
+    return prod.id
+  } catch (e) {
+    if (e?.code === '42P01' || e?.message?.includes('producoes')) return null
+    throw e
+  }
+}
+
+export async function getProducoes(limit = 15) {
+  try {
+    const { data, error } = await supabase.from('producoes').select('*, producao_itens(*)').order('created_at', { ascending: false }).limit(limit)
+    if (error) throw error
+    return (data || []).map(p => ({
+      id: p.id,
+      createdAt: p.created_at,
+      itens: (p.producao_itens || []).map(i => ({
+        receitaId: i.receita_id, nome: i.receita_nome, quantidade: i.quantidade,
+        rendimentoTotal: i.rendimento_total, unidadeGera: i.unidade_gera,
+      })),
+    }))
+  } catch (e) {
+    if (e?.message?.includes('producoes')) return []
+    return []
+  }
+}
+
 export async function deleteReceita(id) {
   const { error } = await supabase.from('receitas').delete().eq('id', id)
   if (error) throw error
