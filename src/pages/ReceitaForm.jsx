@@ -421,35 +421,6 @@ export default function ReceitaForm() {
             </datalist>
           </div>
           <div>
-            <div className="field-label">Unidade gerada</div>
-            <input
-              className="field-input"
-              list="unidades-gera-list"
-              placeholder="ex: discos, fatias"
-              value={form.unidadeGera}
-              onChange={e => setField('unidadeGera', e.target.value)}
-            />
-            <datalist id="unidades-gera-list">
-              {unidadesGera.map(u => <option key={u} value={u} />)}
-            </datalist>
-          </div>
-        </div>
-
-        <div className="field-row">
-          {/* Rendimento manual só para unidades não-peso */}
-          {!isWeightUnit && (
-            <div>
-              <div className="field-label">Rendimento — qtd de {form.unidadeGera || 'unidades'}</div>
-              <input
-                className="field-input"
-                type="text" inputMode="decimal" min="0"
-                placeholder="ex: 12"
-                value={form.rendimento}
-                onChange={e => setField('rendimento', e.target.value)}
-              />
-            </div>
-          )}
-          <div>
             <div className="field-label">
               Fator de perda (%)
               <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 6 }}>1–99</span>
@@ -467,15 +438,45 @@ export default function ReceitaForm() {
             />
           </div>
           <div>
-            <div className="field-label">Porções <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 6 }}>opcional</span></div>
-            <input
-              className="field-input"
-              type="text" inputMode="numeric"
-              placeholder="ex: 12 fatias"
-              value={form.porcoes}
-              onChange={e => { const v = e.target.value; if (v === '' || parseInt(v) > 0) setField('porcoes', v) }}
-            />
-            {form.porcoes && parseInt(form.porcoes) > 1 && rendimentoBruto > 0 && (
+            <div className="field-label">Rendimento</div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {!isWeightUnit && (
+                <input
+                  className="field-input"
+                  type="text" inputMode="decimal"
+                  placeholder="ex: 12"
+                  style={{ flex: '0 0 72px' }}
+                  value={form.rendimento}
+                  onChange={e => {
+                    const v = e.target.value
+                    setField('rendimento', v)
+                    setField('porcoes', v)
+                  }}
+                />
+              )}
+              {isWeightUnit && (
+                <input
+                  className="field-input"
+                  type="text" inputMode="numeric"
+                  placeholder="porções"
+                  style={{ flex: '0 0 72px' }}
+                  value={form.porcoes}
+                  onChange={e => { const v = e.target.value; if (v === '' || parseInt(v) > 0) setField('porcoes', v) }}
+                />
+              )}
+              <input
+                className="field-input"
+                list="unidades-gera-list"
+                placeholder="unidade"
+                style={{ flex: 1 }}
+                value={form.unidadeGera}
+                onChange={e => setField('unidadeGera', e.target.value)}
+              />
+              <datalist id="unidades-gera-list">
+                {unidadesGera.map(u => <option key={u} value={u} />)}
+              </datalist>
+            </div>
+            {isWeightUnit && form.porcoes && parseInt(form.porcoes) > 1 && rendimentoBruto > 0 && (
               <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4 }}>
                 {Math.round(rendimentoBruto / parseInt(form.porcoes))}g por porção
               </div>
