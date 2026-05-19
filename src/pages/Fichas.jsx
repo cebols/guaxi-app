@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { getReceitas, deleteReceitas, saveReceita } from '../services/db'
 import ImportarExcel from './ImportarExcel'
+import ImportarImagem from './ImportarImagem'
 
 const TIPO_COLOR = {
   'Bolo':          'badge-warn',
@@ -33,6 +34,7 @@ export default function Fichas() {
   const [exportSel, setExportSel]     = useState([])
   const [exportSize, setExportSize]   = useState('a4')
   const [gerando, setGerando]         = useState(false)
+  const [importandoImg, setImportandoImg] = useState(false)
 
   async function handleGerarPDF() {
     const selecionadas = (receitas || []).filter(r => exportSel.includes(r.id))
@@ -109,6 +111,8 @@ function norm(s) {
         <div className="topbar-inner">
           <div className="topbar-title">Receitas</div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setImportandoImg(true)}
+              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>📷 Foto</button>
             <button onClick={() => setImportando(true)}
               style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬇️ Importar</button>
             <button onClick={() => { setExportSel([]); setExportMode(true) }}
@@ -484,6 +488,15 @@ function norm(s) {
         <ImportarExcel mode="receitas"
           onClose={() => setImportando(false)}
           onImported={() => { reload(); setImportando(false) }}
+        />
+      )}
+
+      {importandoImg && (
+        <ImportarImagem
+          categorias={[]}
+          fornecedoresList={[]}
+          onClose={() => setImportandoImg(false)}
+          onImported={() => setImportandoImg(false)}
         />
       )}
     </>

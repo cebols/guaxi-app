@@ -642,10 +642,16 @@ export default function ReceitaForm() {
 
       {importandoImg && (
         <ImportarImagem
-          categorias={catsInsumo}
-          fornecedoresList={[]}
+          mode="receita"
+          insumosList={insumos || []}
           onClose={() => setImportandoImg(false)}
-          onImported={() => { rIns(); setImportandoImg(false) }}
+          onIngredientesImportados={ings => {
+            setIngredientes(prev => {
+              const base = prev.filter(i => i.nome?.trim())
+              return [...base, ...ings, { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' }]
+            })
+            setImportandoImg(false)
+          }}
         />
       )}
 
