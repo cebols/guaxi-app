@@ -113,13 +113,16 @@ function makeStyles(size) {
     tableRowAlt: {
       backgroundColor: '#f9fafb',
     },
-    cellNome:  { flex: 3 },
-    cellQtd:   { flex: 1.2, textAlign: 'right' },
-    cellUnid:  { flex: 0.9, textAlign: 'right', marginLeft: 4 },
-    cellCusto: { flex: 1.2, textAlign: 'right' },
+    cellNome: { flex: 3 },
+    cellQtd:  { flex: 1.5, textAlign: 'right' },
+    cellMult: { flex: 1.2, textAlign: 'right' },
     cellText: {
-      fontSize: 9.5,
+      fontSize: isA5 ? 8.5 : 9.5,
       color: '#111827',
+    },
+    cellTextMult: {
+      fontSize: isA5 ? 8 : 9,
+      color: GRAY,
     },
     costBox: {
       flexDirection: 'row',
@@ -250,16 +253,26 @@ function ReceitaPage({ receita, size, styles }) {
       <Text style={styles.sectionLabel}>Ingredientes</Text>
       <View style={styles.tableHeader}>
         <Text style={[styles.tableHeaderText, styles.cellNome]}>Ingrediente</Text>
-        <Text style={[styles.tableHeaderText, styles.cellQtd]}>Qtd</Text>
-        <Text style={[styles.tableHeaderText, styles.cellUnid]}>Un</Text>
+        <Text style={[styles.tableHeaderText, styles.cellQtd]}>x1</Text>
+        <Text style={[styles.tableHeaderText, styles.cellMult]}>x2</Text>
+        <Text style={[styles.tableHeaderText, styles.cellMult]}>x3</Text>
+        <Text style={[styles.tableHeaderText, styles.cellMult]}>x4</Text>
       </View>
-      {(receita.ingredientes || []).map((ing, i) => (
-        <View key={i} style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}>
-          <Text style={[styles.cellText, styles.cellNome]}>{ing.nome}</Text>
-          <Text style={[styles.cellText, styles.cellQtd]}>{fmtQtd(ing.quantidade)}</Text>
-          <Text style={[styles.cellText, styles.cellUnid]}>{ing.unidade}</Text>
-        </View>
-      ))}
+      {(receita.ingredientes || []).map((ing, i) => {
+        const q = Number(ing.quantidade || 0)
+        const u = ing.unidade || ''
+        const fmt1 = `${fmtQtd(q)}${u}`
+        const fmtN = (n) => `${fmtQtd(q * n)}${u}`
+        return (
+          <View key={i} style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}>
+            <Text style={[styles.cellText, styles.cellNome]}>{ing.nome}</Text>
+            <Text style={[styles.cellText, styles.cellQtd]}>{fmt1}</Text>
+            <Text style={[styles.cellTextMult, styles.cellMult]}>{fmtN(2)}</Text>
+            <Text style={[styles.cellTextMult, styles.cellMult]}>{fmtN(3)}</Text>
+            <Text style={[styles.cellTextMult, styles.cellMult]}>{fmtN(4)}</Text>
+          </View>
+        )
+      })}
 
       {/* Forno / Resfriamento info */}
       {(hasForno || hasResfriamento) && (
