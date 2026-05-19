@@ -60,7 +60,7 @@ function makeStyles(size) {
       marginRight: 8,
     },
     nome: {
-      fontSize: isCard ? 13 : isA5 ? 16 : 20,
+      fontSize: isA5 ? 16 : 20,
       fontFamily: 'Helvetica-Bold',
       color: '#111827',
     },
@@ -252,7 +252,7 @@ function ReceitaPage({ receita, size, styles }) {
         <Text style={[styles.tableHeaderText, styles.cellNome]}>Ingrediente</Text>
         <Text style={[styles.tableHeaderText, styles.cellQtd]}>Qtd</Text>
         <Text style={[styles.tableHeaderText, styles.cellUnid]}>Un</Text>
-        {!isCard && <Text style={[styles.tableHeaderText, styles.cellCusto]}>Custo</Text>}
+        <Text style={[styles.tableHeaderText, styles.cellCusto]}>Custo</Text>
       </View>
       {(receita.ingredientes || []).map((ing, i) => (
         <View key={i} style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}>

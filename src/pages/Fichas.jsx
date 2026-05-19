@@ -66,7 +66,13 @@ export default function Fichas() {
     [receitas]
   )
 
-  function norm(s) {
+  function parseSteps(raw) {
+  if (!raw) return []
+  try { const p = JSON.parse(raw); if (Array.isArray(p)) return p } catch {}
+  return []
+}
+
+function norm(s) {
     return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   }
 
@@ -273,18 +279,23 @@ export default function Fichas() {
             {exportSel.length > 0 && (() => {
               const prev = (receitas || []).find(r => r.id === exportSel[0])
               if (!prev) return null
+              const steps = parseSteps(prev.instrucoes)
+              const ACAO = { misturar:'Misturar',bater:'Bater',assar:'Assar',cozinhar:'Cozinhar',resfriar:'Resfriar',congelar:'Congelar',decorar:'Decorar',derreter:'Derreter',temperar:'Temperar',montar:'Montar',mixar:'Mixar',liquidificar:'Liquidificar',processar:'Processar',incorporar:'Incorporar',ferver:'Ferver',aquecer:'Aquecer',descansar:'Descansar',cortar:'Cortar',esticar:'Esticar' }
               return (
                 <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 16, fontSize: 12 }}>
+                  <div style={{ fontSize: 9, color: 'var(--teal)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                    Preview · {exportSize === 'a4' ? 'A4 (ingredientes + modo de preparo + rodapé)' : 'A5 (ingredientes + modo de preparo)'}
+                  </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid var(--teal)', paddingBottom: 8, marginBottom: 8 }}>
                     <div>
-                      <div style={{ fontWeight: 700, fontSize: 15, color: '#111' }}>{prev.nome}</div>
+                      <div style={{ fontWeight: 700, fontSize: exportSize === 'a4' ? 15 : 13, color: '#111' }}>{prev.nome}</div>
                       <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginTop: 2 }}>
                         Rendimento: {prev.rendimento} {prev.unidadeGera}
                         {prev.pesoLiquido ? ` · ${prev.pesoLiquido}g líquido` : ''}
                       </div>
                     </div>
                     {prev.tipo && prev.tipo !== 'Outro' && (
-                      <span style={{ fontSize: 10, color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 4, padding: '2px 6px' }}>{prev.tipo}</span>
+                      <span style={{ fontSize: 10, color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 4, padding: '2px 6px', flexShrink: 0, marginLeft: 8 }}>{prev.tipo}</span>
                     )}
                   </div>
                   <div style={{ fontWeight: 700, fontSize: 9, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>Ingredientes</div>
@@ -298,7 +309,7 @@ export default function Fichas() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(prev.ingredientes || []).slice(0, 6).map((ing, i) => (
+                      {(prev.ingredientes || []).slice(0, 5).map((ing, i) => (
                         <tr key={i} style={{ background: i % 2 === 1 ? '#f9fafb' : '#fff', borderBottom: '0.5px solid var(--border)' }}>
                           <td style={{ padding: '3px 0' }}>{ing.nome}</td>
                           <td style={{ textAlign: 'right', padding: '3px 0' }}>{ing.quantidade}</td>
@@ -308,12 +319,12 @@ export default function Fichas() {
                           </td>
                         </tr>
                       ))}
-                      {(prev.ingredientes || []).length > 6 && (
-                        <tr><td colSpan={4} style={{ color: 'var(--text-secondary)', fontSize: 10, paddingTop: 4 }}>+ {prev.ingredientes.length - 6} ingredientes</td></tr>
+                      {(prev.ingredientes || []).length > 5 && (
+                        <tr><td colSpan={4} style={{ color: 'var(--text-secondary)', fontSize: 10, paddingTop: 3 }}>+ {prev.ingredientes.length - 5} ingredientes</td></tr>
                       )}
                     </tbody>
                   </table>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 6 }}>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: 9, color: 'var(--text-secondary)' }}>Custo total</div>
                       <div style={{ fontWeight: 700, color: 'var(--teal)', fontSize: 13 }}>R$ {fmt(prev.custoTotal || 0)}</div>
@@ -325,6 +336,26 @@ export default function Fichas() {
                       </div>
                     )}
                   </div>
+                  {steps.length > 0 && (
+                    <>
+                      <div style={{ fontWeight: 700, fontSize: 9, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 10, marginBottom: 6 }}>Modo de preparo</div>
+                      {steps.slice(0, 3).map((s, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 5 }}>
+                          <div style={{ minWidth: 18, height: 18, background: 'var(--teal)', borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 8, marginTop: 1 }}>
+                            <span style={{ color: '#fff', fontSize: 9, fontWeight: 700 }}>{i + 1}</span>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--teal)' }}>{ACAO[s.tipo] || s.tipo}</div>
+                            {s.descricao && <div style={{ fontSize: 11, color: '#374151', lineHeight: 1.4 }}>{s.descricao}</div>}
+                          </div>
+                        </div>
+                      ))}
+                      {steps.length > 3 && <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>+ {steps.length - 3} etapas</div>}
+                    </>
+                  )}
+                  {exportSize === 'a4' && (
+                    <div style={{ borderTop: '0.5px solid var(--border)', marginTop: 8, paddingTop: 4, textAlign: 'center', fontSize: 9, color: 'var(--text-secondary)' }}>Guaxi · Ficha Técnica</div>
+                  )}
                   {exportSel.length > 1 && (
                     <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--text-secondary)', marginTop: 6 }}>+ {exportSel.length - 1} ficha(s) adicional</div>
                   )}
