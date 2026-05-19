@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getConfig, saveConfig, calcPrecos, CONFIG_DEFAULTS } from '../hooks/useConfig'
-import { getVendas, getEncomendas } from '../services/db'
+import { getVendas, getEncomendas, getEmbalagens } from '../services/db'
 
 function fmtPct(v) { return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) }
 function fmtR(v) {
@@ -18,8 +18,14 @@ export default function Configuracoes() {
   const [novoNome, setNovoNome] = useState('')
   const [adicionando, setAdicionando] = useState(false)
   const [descontoPromo, setDescontoPromo] = useState(20)
-  const { data: vendas }     = useData(getVendas)
-  const { data: encomendas } = useData(getEncomendas)
+  const { data: vendas }      = useData(getVendas)
+  const { data: encomendas }  = useData(getEncomendas)
+  const { data: embalagens }  = useData(getEmbalagens)
+
+  const toggleEmbDelivery = (id) => setCfg(c => {
+    const ids = c.embalagemDeliveryIds || []
+    return { ...c, embalagemDeliveryIds: ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id] }
+  })
 
   const set = (k, v) => setCfg(c => ({ ...c, [k]: parseFloat(v) || 0 }))
 
@@ -220,6 +226,49 @@ export default function Configuracoes() {
             <input className="field-input" type="text" inputMode="decimal" min="0" max="99" step="0.5" value={cfg.taxaIfood} onChange={e => set('taxaIfood', e.target.value)} />
           </div>
         </div>
+
+        {/* ── Embalagem de delivery ───────────────────────── */}
+        <div className="section-label" style={{ marginTop: 8 }}>Embalagem de delivery</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+          Selecione as embalagens usadas como sacola de saída. O custo médio é somado automaticamente em cada pedido delivery.
+        </div>
+        {(embalagens || []).length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Nenhuma embalagem cadastrada.</div>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {(embalagens || []).map(emb => {
+              const sel = (cfg.embalagemDeliveryIds || []).includes(emb.id)
+              return (
+                <button
+                  key={emb.id}
+                  type="button"
+                  onClick={() => toggleEmbDelivery(emb.id)}
+                  style={{
+                    fontSize: 12, padding: '5px 12px', borderRadius: 20, cursor: 'pointer', border: '1px solid',
+                    borderColor: sel ? 'var(--teal)' : 'var(--border)',
+                    background: sel ? 'rgba(13,148,136,0.12)' : 'var(--bg-card)',
+                    color: sel ? 'var(--teal)' : 'var(--text-secondary)',
+                    fontWeight: sel ? 600 : 400,
+                  }}
+                >
+                  {emb.nome} <span style={{ color: 'var(--text-tertiary)' }}>R$ {Number(emb.custoUnit || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {(() => {
+          const ids = cfg.embalagemDeliveryIds || []
+          const selecionadas = (embalagens || []).filter(e => ids.includes(e.id))
+          if (!selecionadas.length) return null
+          const media = selecionadas.reduce((s, e) => s + (e.custoUnit || 0), 0) / selecionadas.length
+          return (
+            <div style={{ fontSize: 12, color: 'var(--teal)', marginTop: 8 }}>
+              Média por saída: R$ {media.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {' '}({selecionadas.length} embalagem{selecionadas.length > 1 ? 's' : ''})
+            </div>
+          )
+        })()}
 
         {/* ── Prévia ──────────────────────────────────────── */}
         <div className="section-label" style={{ marginTop: 8 }}>Prévia de precificação</div>

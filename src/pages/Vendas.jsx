@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getConfig } from '../hooks/useConfig'
-import { getProdutos, getVendas, saveVenda, deleteVenda, getCompras, getEncomendas } from '../services/db'
+import { getConfig, getCustoSacolaDelivery } from '../hooks/useConfig'
+import { getProdutos, getVendas, saveVenda, deleteVenda, getCompras, getEncomendas, getEmbalagens } from '../services/db'
 
 function DateInput({ value, onChange, className, style }) {
   function toDisplay(iso) {
@@ -782,6 +782,8 @@ export default function Vendas() {
   const { data: vendas,     loading: lVend, reload: rVend } = useData(getVendas)
   const { data: compras }                                   = useData(getCompras)
   const { data: encomendas, loading: lEnc }                 = useData(getEncomendas)
+  const { data: embalagens }                                = useData(getEmbalagens)
+  const custoSacola = getCustoSacolaDelivery(cfg, embalagens || [])
   const cfg = getConfig()
 
   const inicio = useMemo(() => {
@@ -892,8 +894,14 @@ export default function Vendas() {
     return map
   }, [pedidoEventos])
 
+  const numPedidosPeriodo = useMemo(() =>
+    new Set((encomendas || []).filter(e => e.status !== 'Cancelado' && e.dataEntrega >= inicio).map(e => e.id)).size,
+    [encomendas, inicio]
+  )
+  const totalCustoSacolas = numPedidosPeriodo * custoSacola
+
   const totalRevNet      = Object.values(statsPerProd).reduce((s, p) => s + p.revNet, 0)
-  const totalCost        = Object.values(statsPerProd).reduce((s, p) => s + p.cost, 0)
+  const totalCost        = Object.values(statsPerProd).reduce((s, p) => s + p.cost, 0) + totalCustoSacolas
   const totalProfit      = totalRevNet - totalCost
   const totalMargin      = totalRevNet > 0 ? (totalProfit / totalRevNet) * 100 : 0
   const totalUnits       = Object.values(statsPerProd).reduce((s, p) => s + p.units, 0)
@@ -1072,8 +1080,14 @@ export default function Vendas() {
                   {/* − CMV */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
                     <span style={{ color: 'var(--text-secondary)' }}>− CMV (custo receitas)</span>
-                    <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalCost)}</span>
+                    <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalCost - totalCustoSacolas)}</span>
                   </div>
+                  {totalCustoSacolas > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                      <span style={{ color: 'var(--text-tertiary)' }}>↳ Sacolas delivery ({numPedidosPeriodo} pedidos × R$ {fmtR(custoSacola)})</span>
+                      <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalCustoSacolas)}</span>
+                    </div>
+                  )}
 
                   {/* = Lucro bruto */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderTop: '1px solid var(--border)', paddingTop: 5, marginTop: 2 }}>
