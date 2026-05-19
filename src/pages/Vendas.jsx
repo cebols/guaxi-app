@@ -1033,15 +1033,23 @@ export default function Vendas() {
               </div>
             </div>
 
-            {/* Breakdown financeiro */}
+            {/* DRE */}
             {!loading && totalRevNet > 0 && (
               <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Composição do resultado</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>DRE · {periodo === 'mes' ? new Date().toLocaleDateString('pt-BR', { month: 'long' }) : 'Esta semana'}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+
+                  {/* Receita bruta */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Faturamento líq.</span>
-                    <span style={{ fontWeight: 600 }}>{fmtR(totalRevNet)}</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>Receita bruta</span>
+                    <span style={{ fontWeight: 600 }}>{fmtR(totalRevBruto)}</span>
                   </div>
+                  {totalTaxas > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, paddingLeft: 10 }}>
+                      <span style={{ color: 'var(--text-tertiary)' }}>↳ Taxas plataforma</span>
+                      <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalTaxas)}</span>
+                    </div>
+                  )}
                   {totalRevNetPed > 0 && (
                     <>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, paddingLeft: 10 }}>
@@ -1054,23 +1062,70 @@ export default function Vendas() {
                       </div>
                     </>
                   )}
+
+                  {/* = Receita líquida */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderTop: '1px solid var(--border)', paddingTop: 5, marginTop: 2 }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>= Receita líquida</span>
+                    <span style={{ fontWeight: 600 }}>{fmtR(totalRevNet)}</span>
+                  </div>
+
+                  {/* − CMV */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>− Custo das receitas</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>− CMV (custo receitas)</span>
                     <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalCost)}</span>
                   </div>
+
+                  {/* = Lucro bruto */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderTop: '1px solid var(--border)', paddingTop: 5, marginTop: 2 }}>
+                    <span style={{ fontWeight: 600 }}>= Lucro bruto</span>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ fontWeight: 700, color: lucroBruto >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>{fmtR(lucroBruto)}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 6 }}>{fmtN(margemBruta)}%</span>
+                    </div>
+                  </div>
+
+                  {/* − Custos fixos */}
+                  {custoFixoPeriodo > 0 && (
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>− Custos fixos</span>
+                        <span style={{ color: 'var(--alert-text)' }}>−{fmtR(custoFixoPeriodo)}</span>
+                      </div>
+                      {(cfg.custoItens || []).filter(i => i.nome && parseFloat(i.valor) > 0).map((item, idx) => (
+                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, paddingLeft: 10 }}>
+                          <span style={{ color: 'var(--text-tertiary)' }}>↳ {item.nome}</span>
+                          <span style={{ color: 'var(--text-tertiary)' }}>{fmtR(periodo === 'mes' ? parseFloat(item.valor) : parseFloat(item.valor) / 4.33)}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {/* = Lucro líquido */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700, borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 2 }}>
+                    <span>= Lucro líquido</span>
+                    <div style={{ textAlign: 'right' }}>
+                      <span style={{ color: lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>{fmtR(lucroLiquido)}</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 6 }}>{fmtN(margemLiquida)}%</span>
+                    </div>
+                  </div>
+
+                  {/* Reality check */}
                   {totalComprasPeriodo > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>− Compras do período</span>
-                      <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalComprasPeriodo)}</span>
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 4 }}>Compras registradas no período (CMV real)</div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                        <span style={{ color: 'var(--text-tertiary)' }}>Compras</span>
+                        <span style={{ color: 'var(--text-tertiary)' }}>{fmtR(totalComprasPeriodo)}</span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                        <span style={{ color: 'var(--text-tertiary)' }}>Lucro c/ CMV real</span>
+                        <span style={{ color: 'var(--text-tertiary)' }}>{fmtR(totalRevNet - totalComprasPeriodo - custoFixoPeriodo)}</span>
+                      </div>
                     </div>
                   )}
-                  <div style={{ borderTop: '1px solid #333', paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700 }}>
-                    <span>Lucro real</span>
-                    <span style={{ color: lucroReal >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>{fmtR(lucroReal)}</span>
-                  </div>
-                  {totalComprasPeriodo === 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                      Sem compras registradas neste período — faça contagens para incluir gastos reais
+                  {custoFixoPeriodo === 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
+                      Configure custos fixos em Preços para ver lucro líquido real
                     </div>
                   )}
                 </div>
