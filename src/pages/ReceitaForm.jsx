@@ -12,6 +12,25 @@ function norm(s) {
 const TIPO_OPTS = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
 const WEIGHT_UNITS = ['g', 'ml', 'kg', 'L']
 
+// Sugestão de forma redonda baseada no volume (ml ≈ g para massas)
+const DIAMS = [15, 18, 20, 21, 22, 24, 26, 28, 30]
+const HEIGHTS = [4, 5, 6, 7, 8, 10]
+function sugerirForma(volumeMl) {
+  if (!volumeMl || volumeMl <= 0) return []
+  const candidatos = []
+  for (const d of DIAMS) {
+    for (const h of HEIGHTS) {
+      const vol = Math.PI * (d / 2) ** 2 * h
+      const fill = volumeMl / vol
+      if (fill >= 0.45 && fill <= 0.82) candidatos.push({ d, h, fill })
+    }
+  }
+  candidatos.sort((a, b) => Math.abs(a.fill - 0.65) - Math.abs(b.fill - 0.65))
+  // deduplica por diâmetro: melhor altura por diâmetro
+  const seen = new Set()
+  return candidatos.filter(c => { if (seen.has(c.d)) return false; seen.add(c.d); return true }).slice(0, 4)
+}
+
 const ACOES = [
   { tipo: 'misturar',     icon: '🥣', label: 'Misturar' },
   { tipo: 'bater',        icon: '⚡', label: 'Bater' },
@@ -486,7 +505,7 @@ export default function ReceitaForm() {
 
         {/* Resumo peso/rendimento */}
         {rendimentoBruto > 0 && (
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 12, padding: '6px 10px', background: 'var(--bg-card)', borderRadius: 6, border: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8, padding: '6px 10px', background: 'var(--bg-card)', borderRadius: 6, border: '1px solid var(--border)' }}>
             Bruto: <strong style={{ color: 'var(--text-secondary)' }}>{fmtPeso(rendimentoBruto)}</strong>
             {fatorPerdaNum > 0 && (
               <>
@@ -502,6 +521,21 @@ export default function ReceitaForm() {
             )}
           </div>
         )}
+        {/* Sugestão de forma redonda */}
+        {rendimentoBruto > 0 && (() => {
+          const formas = sugerirForma(rendimentoBruto)
+          if (!formas.length) return null
+          return (
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>Forma redonda:</span>
+              {formas.map(({ d, h, fill }) => (
+                <span key={`${d}-${h}`} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 20, padding: '2px 10px', whiteSpace: 'nowrap' }}>
+                  ø{d}cm × {h}cm <span style={{ color: 'var(--teal)' }}>{Math.round(fill * 100)}%</span>
+                </span>
+              ))}
+            </div>
+          )
+        })()}
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, marginBottom: 4 }}>
           <div className="section-label" style={{ margin: 0 }}>Ingredientes</div>
