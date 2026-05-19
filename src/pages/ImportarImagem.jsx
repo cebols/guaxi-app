@@ -313,8 +313,8 @@ function CropTool({ src, onConfirm, onSkip }) {
 
   function getPos(e) {
     const rect = containerRef.current.getBoundingClientRect()
-    const src = e.touches ? e.touches[0] : e
-    return { x: (src.clientX - rect.left) / rect.width, y: (src.clientY - rect.top) / rect.height }
+    const pt = e.touches ? e.touches[0] : e
+    return { x: (pt.clientX - rect.left) / rect.width, y: (pt.clientY - rect.top) / rect.height }
   }
 
   function startDrag(type, e) {
@@ -357,12 +357,12 @@ function CropTool({ src, onConfirm, onSkip }) {
     canvas.toBlob(onConfirm, 'image/jpeg', 0.95)
   }
 
-  const H = 22
+  const H = 26
   const corners = [
-    { key: 'tl', style: { top: -H / 2, left: -H / 2 } },
-    { key: 'tr', style: { top: -H / 2, right: -H / 2 } },
-    { key: 'bl', style: { bottom: -H / 2, left: -H / 2 } },
-    { key: 'br', style: { bottom: -H / 2, right: -H / 2 } },
+    { key: 'tl', style: { top: -H / 2, left: -H / 2, borderTopLeftRadius: 6, borderTopRightRadius: 2, borderBottomLeftRadius: 2 } },
+    { key: 'tr', style: { top: -H / 2, right: -H / 2, borderTopRightRadius: 6, borderTopLeftRadius: 2, borderBottomRightRadius: 2 } },
+    { key: 'bl', style: { bottom: -H / 2, left: -H / 2, borderBottomLeftRadius: 6, borderTopLeftRadius: 2, borderBottomRightRadius: 2 } },
+    { key: 'br', style: { bottom: -H / 2, right: -H / 2, borderBottomRightRadius: 6, borderTopRightRadius: 2, borderBottomLeftRadius: 2 } },
   ]
 
   return (
@@ -370,20 +370,34 @@ function CropTool({ src, onConfirm, onSkip }) {
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, textAlign: 'center' }}>
         Arraste as bordas para recortar a área da receita
       </div>
-      <div ref={containerRef} style={{ position: 'relative', userSelect: 'none', touchAction: 'none', borderRadius: 8, overflow: 'hidden', cursor: 'crosshair' }}
+      <div ref={containerRef}
+        style={{ position: 'relative', userSelect: 'none', touchAction: 'none', borderRadius: 8, overflow: 'hidden' }}
         onMouseMove={onMove} onMouseUp={stopDrag} onMouseLeave={stopDrag}
         onTouchMove={onMove} onTouchEnd={stopDrag}
       >
-        <img ref={imgRef} src={src} style={{ width: '100%', display: 'block', opacity: 0.35 }} draggable={false} />
-        {/* Bright crop window */}
-        <div style={{ position: 'absolute', left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, border: '2px solid var(--teal)', boxSizing: 'border-box', cursor: 'move', overflow: 'hidden' }}
-          onMouseDown={e => startDrag('move', e)} onTouchStart={e => startDrag('move', e)}>
-          {/* Full image clipped to crop rect */}
-          <img src={src} style={{ position: 'absolute', left: `${-box.x / box.w * 100}%`, top: `${-box.y / box.h * 100}%`, width: `${100 / box.w}%`, pointerEvents: 'none' }} draggable={false} />
-          {/* Corner handles */}
+        {/* Full image always visible */}
+        <img ref={imgRef} src={src} style={{ width: '100%', display: 'block' }} draggable={false} />
+
+        {/* Dark overlay outside crop — 4 rects */}
+        {[
+          { left: 0, top: 0, width: '100%', height: `${box.y * 100}%` },
+          { left: 0, top: `${(box.y + box.h) * 100}%`, width: '100%', bottom: 0 },
+          { left: 0, top: `${box.y * 100}%`, width: `${box.x * 100}%`, height: `${box.h * 100}%` },
+          { right: 0, top: `${box.y * 100}%`, width: `${(1 - box.x - box.w) * 100}%`, height: `${box.h * 100}%` },
+        ].map((style, i) => (
+          <div key={i} style={{ position: 'absolute', background: 'rgba(0,0,0,0.6)', pointerEvents: 'none', ...style }} />
+        ))}
+
+        {/* Crop border + handles */}
+        <div
+          style={{ position: 'absolute', left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, border: '2px solid var(--teal)', boxSizing: 'border-box', cursor: 'move' }}
+          onMouseDown={e => startDrag('move', e)} onTouchStart={e => startDrag('move', e)}
+        >
           {corners.map(({ key, style }) => (
-            <div key={key} style={{ position: 'absolute', width: H, height: H, background: 'var(--teal)', borderRadius: 4, zIndex: 2, ...style }}
-              onMouseDown={e => startDrag(key, e)} onTouchStart={e => startDrag(key, e)} />
+            <div key={key}
+              style={{ position: 'absolute', width: H, height: H, background: 'var(--teal)', zIndex: 2, ...style }}
+              onMouseDown={e => startDrag(key, e)} onTouchStart={e => startDrag(key, e)}
+            />
           ))}
         </div>
       </div>
