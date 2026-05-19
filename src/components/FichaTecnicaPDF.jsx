@@ -52,27 +52,32 @@ function makeStyles(size) {
       justifyContent: 'space-between',
       alignItems: 'flex-start',
     },
+    headerLeft: {
+      flex: 1,
+      flexDirection: 'column',
+      marginRight: 8,
+    },
     nome: {
       fontSize: isCard ? 13 : isA5 ? 16 : 20,
       fontFamily: 'Helvetica-Bold',
       color: '#111827',
-      flex: 1,
-      marginRight: 8,
     },
     badge: {
       fontSize: isCard ? 7 : 9,
       color: TEAL,
       borderWidth: 1,
+      borderStyle: 'solid',
       borderColor: TEAL,
       borderRadius: 4,
       paddingHorizontal: 5,
       paddingVertical: 2,
       marginTop: 2,
+      flexShrink: 0,
     },
     rendimento: {
       fontSize: isCard ? 8 : 10,
       color: GRAY,
-      marginTop: 3,
+      marginTop: 4,
     },
     sectionLabel: {
       fontSize: isCard ? 7 : 9,
@@ -229,10 +234,11 @@ function ReceitaPage({ receita, size, styles }) {
     <Page size={PAGE_SIZES[size]} style={styles.page}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
+        <View style={styles.headerLeft}>
           <Text style={styles.nome}>{receita.nome}</Text>
           <Text style={styles.rendimento}>
-            Rendimento: {fmtQtd(receita.rendimento)} {receita.unidadeGera}
+            {'Rendimento: '}
+            {fmtQtd(receita.rendimento)} {receita.unidadeGera}
             {receita.pesoLiquido ? `  ·  ${receita.pesoLiquido}g líquido` : ''}
           </Text>
         </View>
