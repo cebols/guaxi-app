@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getReceitas, saveReceita, deleteReceita, getInsumos } from '../services/db'
+import { getReceitas, saveReceita, deleteReceita, getInsumos, saveInsumo } from '../services/db'
+import ImportarImagem from './ImportarImagem'
 
 function norm(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -160,7 +161,7 @@ export default function ReceitaForm() {
   const isEdit = !!id && id !== 'nova'
 
   const { data: receitas, loading: loadRec } = useData(getReceitas)
-  const { data: insumos, loading: loadIns } = useData(getInsumos)
+  const { data: insumos, loading: loadIns, reload: rIns } = useData(getInsumos)
 
   const [form, setForm] = useState({
     nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'un', fatorPerda: '', porcoes: '',
@@ -176,6 +177,10 @@ export default function ReceitaForm() {
   const [deleting, setDeleting] = useState(false)
   const [ingDrop, setIngDrop] = useState(null) // { idx, matches[] }
   const ingDropRef = useRef(null)
+  const [importandoImg, setImportandoImg] = useState(false)
+  const [insumoRapido, setInsumoRapido] = useState(null) // [{nome,unidade,custoEmb,pesoEmb}] | null
+  const [salvandoInsumos, setSalvandoInsumos] = useState(false)
+  const [savedRecId, setSavedRecId] = useState(null)
 
   useEffect(() => {
     if (!isEdit || !receitas) return
@@ -262,6 +267,11 @@ export default function ReceitaForm() {
     [ingredientes, insumos]
   )
 
+  const catsInsumo = useMemo(() =>
+    [...new Set((insumos || []).map(i => i.categoria).filter(Boolean))].sort(),
+    [insumos]
+  )
+
   // Bruto = soma dos pesos dos ingredientes
   const rendimentoBruto = useMemo(() =>
     ingredientes.reduce((s, ing) => {
@@ -315,11 +325,37 @@ export default function ReceitaForm() {
         ings
       )
       show(isEdit ? 'Receita atualizada!' : 'Receita criada!')
+      const faltantes = ings.filter(ing => {
+        if (ing.insumoId || ing.subReceitaId) return false
+        return !(insumos || []).some(ins => norm(ins.nome) === norm(ing.nome))
+      })
+      if (faltantes.length > 0) {
+        setSavedRecId(recId)
+        setInsumoRapido(faltantes.map(ing => ({ nome: ing.nome, unidade: ing.unidade || 'g', custoEmb: '', pesoEmb: '' })))
+        return
+      }
       navigate(`/fichas/${recId}`)
     } catch (e) {
       show('Erro: ' + e.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleSalvarInsumos = async () => {
+    setSalvandoInsumos(true)
+    try {
+      const para_salvar = (insumoRapido || []).filter(i => i.nome.trim())
+      await Promise.all(para_salvar.map(i => saveInsumo({
+        nome: i.nome, marca: '', categoria: '', unidade: i.unidade || 'g',
+        pesoEmb: i.pesoEmb || '', custoEmb: i.custoEmb || '',
+        linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '',
+      })))
+    } catch (e) {
+      show('Erro ao salvar insumos: ' + e.message)
+    } finally {
+      setSalvandoInsumos(false)
+      navigate(`/fichas/${savedRecId}`)
     }
   }
 
@@ -450,7 +486,12 @@ export default function ReceitaForm() {
           </div>
         )}
 
-        <div className="section-label" style={{ marginTop: 4 }}>Ingredientes</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, marginBottom: 4 }}>
+          <div className="section-label" style={{ margin: 0 }}>Ingredientes</div>
+          <button type="button" onClick={() => setImportandoImg(true)} style={{ fontSize: 12, color: 'var(--teal)', background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
+            📷 Importar foto
+          </button>
+        </div>
         <div className="card card-flush" style={{ padding: '0 14px' }}>
           {ingredientes.map((ing, i) => {
             const custo = ingCusto(ing)
@@ -598,6 +639,76 @@ export default function ReceitaForm() {
       </div>
 
       {toast && <div className="toast">{toast}</div>}
+
+      {importandoImg && (
+        <ImportarImagem
+          categorias={catsInsumo}
+          fornecedoresList={[]}
+          onClose={() => setImportandoImg(false)}
+          onImported={() => { rIns(); setImportandoImg(false) }}
+        />
+      )}
+
+      {insumoRapido && (
+        <>
+          <div className="sheet-overlay" />
+          <div className="sheet">
+            <div className="sheet-title">
+              <span>Cadastrar insumos novos</span>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
+              {insumoRapido.length} ingrediente{insumoRapido.length > 1 ? 's' : ''} da receita ainda não estão cadastrados. Preencha o que quiser e clique em salvar.
+            </div>
+            {insumoRapido.map((item, i) => (
+              <div key={i} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>{item.nome}</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 3 }}>Unidade</div>
+                    <select
+                      value={item.unidade}
+                      onChange={e => setInsumoRapido(r => r.map((x, n) => n === i ? { ...x, unidade: e.target.value } : x))}
+                      className="field-input" style={{ marginBottom: 0 }}>
+                      {['g', 'ml', 'un', 'kg', 'L', 'cx'].map(u => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 3 }}>Peso emb. ({item.unidade})</div>
+                    <input
+                      type="text" inputMode="decimal" className="field-input" style={{ marginBottom: 0 }}
+                      placeholder="ex: 1000"
+                      value={item.pesoEmb}
+                      onChange={e => setInsumoRapido(r => r.map((x, n) => n === i ? { ...x, pesoEmb: e.target.value } : x))}
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 3 }}>Custo emb. (R$)</div>
+                    <input
+                      type="text" inputMode="decimal" className="field-input" style={{ marginBottom: 0 }}
+                      placeholder="ex: 12,50"
+                      value={item.custoEmb}
+                      onChange={e => setInsumoRapido(r => r.map((x, n) => n === i ? { ...x, custoEmb: e.target.value } : x))}
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button
+                onClick={handleSalvarInsumos}
+                disabled={salvandoInsumos}
+                style={{ flex: 1, padding: '12px', borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#fff', fontWeight: 700, fontSize: 14, cursor: salvandoInsumos ? 'wait' : 'pointer' }}>
+                {salvandoInsumos ? 'Salvando...' : `Salvar ${insumoRapido.length} insumo${insumoRapido.length > 1 ? 's' : ''}`}
+              </button>
+              <button
+                onClick={() => navigate(`/fichas/${savedRecId}`)}
+                style={{ padding: '12px 16px', borderRadius: 10, border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>
+                Pular
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </>
   )
 }
