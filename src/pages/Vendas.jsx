@@ -509,6 +509,10 @@ function LancamentoRapido({ produtos, onSave, onClose }) {
 const CMP_COLORS = ['#14b8a6', '#f59e0b', '#6366f1']
 const N_WEEKS = 8
 
+function norm(s) {
+  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
 function weekStarts(n) {
   const hoje = new Date()
   return Array.from({ length: n }, (_, i) => {
@@ -562,8 +566,8 @@ function ComparadorProdutos({ vendas, produtos }) {
   }
 
   const filtered = useMemo(() => {
-    const q = (busca || '').toLowerCase()
-    return q ? nomesProdutos.filter(n => n.toLowerCase().includes(q)) : nomesProdutos
+    const q = norm(busca)
+    return q ? nomesProdutos.filter(n => norm(n).includes(q)) : nomesProdutos
   }, [nomesProdutos, busca])
 
   // SVG line chart

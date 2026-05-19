@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import ImportarExcel from './ImportarExcel'
+import ImportarImagem from './ImportarImagem'
 import {
   getInsumos, saveInsumo, deleteInsumo, deleteInsumos,
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
@@ -148,21 +149,22 @@ function InsumoForm({ item, categorias, fornecedoresList, onSave, onDelete, onDu
   } : INSUMO_EMPTY)
 
   // Edit mode: unified supplier list
-  const [suppliers, setSuppliers] = useState([])
+  const mainSupplier = item ? {
+    marca: item.marca || '',
+    fornecedor: item.fornecedor || '',
+    pesoEmb: item.pesoEmb > 0 ? String(item.pesoEmb) : '',
+    custoEmb: item.custoEmb > 0 ? String(item.custoEmb) : '',
+    linkCompra: item.linkCompra || '',
+    telefone: item.whatsapp || '',
+  } : null
+  const [suppliers, setSuppliers] = useState(mainSupplier ? [mainSupplier] : [])
   const [primaryIdx, setPrimaryIdx] = useState(0)
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   useEffect(() => {
     if (!item?.id) return
-    const main = {
-      marca: item.marca || '',
-      fornecedor: item.fornecedor || '',
-      pesoEmb: item.pesoEmb > 0 ? String(item.pesoEmb) : '',
-      custoEmb: item.custoEmb > 0 ? String(item.custoEmb) : '',
-      linkCompra: item.linkCompra || '',
-      telefone: item.whatsapp || '',
-    }
+    const main = mainSupplier
     getInsumoFornecedores(item.id)
       .then(fontes => setSuppliers([main, ...fontes.map(f => ({
         marca: f.marca || '',
@@ -298,7 +300,7 @@ function InsumoForm({ item, categorias, fornecedoresList, onSave, onDelete, onDu
       )}
 
       {/* Edit mode: unified selectable supplier list */}
-      {item && suppliers.length > 0 && (
+      {item && (
         <>
           <div className="section-label" style={{ marginTop: 8 }}>Fornecedores</div>
           {suppliers.map((s, i) => {
@@ -611,6 +613,7 @@ export default function Cadastros() {
   const [busca, setBusca] = useState('')
   const [filtroCat, setFiltroCat] = useState('')
   const [importando, setImportando] = useState(false)
+  const [importandoImg, setImportandoImg] = useState(false)
   const [bulkDelete, setBulkDelete] = useState(false)
   const [bulkSel, setBulkSel]       = useState([])
   const [bulkConfirm, setBulkConfirm] = useState(false)
@@ -721,6 +724,10 @@ export default function Cadastros() {
         <div className="topbar-inner">
           <div className="topbar-title">Insumos &amp; Embalagens</div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setImportandoImg(true)}
+              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              📷 Foto
+            </button>
             <button onClick={() => setImportando(true)}
               style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               ↑ Excel
@@ -1085,6 +1092,9 @@ export default function Cadastros() {
 
       {importando && (
         <ImportarExcel mode="insumos" onClose={() => setImportando(false)} onImported={() => { rIns(); rEmb(); setImportando(false) }} />
+      )}
+      {importandoImg && (
+        <ImportarImagem onClose={() => setImportandoImg(false)} onImported={() => { rIns(); setImportandoImg(false) }} />
       )}
 
       {toast && <div className="toast">{toast}</div>}

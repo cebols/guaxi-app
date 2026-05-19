@@ -35,9 +35,13 @@ export default function Fichas() {
     [receitas]
   )
 
+  function norm(s) {
+    return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  }
+
   const filtradas = (receitas || []).filter(r => {
     if (filtroTipo !== 'todos' && r.tipo !== filtroTipo) return false
-    return r.nome.toLowerCase().includes(busca.toLowerCase())
+    return norm(r.nome).includes(norm(busca))
   })
 
   const handleDuplicar = async (rec, e) => {
