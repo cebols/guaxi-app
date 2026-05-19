@@ -104,9 +104,9 @@ export default function Fichas() {
           <div className="topbar-title">Receitas</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setImportando(true)}
-              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>↑ Excel</button>
+              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬇️ Importar</button>
             <button onClick={() => { setExportSel([]); setExportMode(true) }}
-              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>PDF</button>
+              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬆️ Exportar</button>
             <button onClick={() => { setBulkSel([]); setBulkDelete(true) }}
               style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Excluir</button>
             <button onClick={() => navigate('/fichas/nova')}

@@ -898,7 +898,7 @@ export default function Cadastros() {
             </button>
             <button onClick={() => setImportando(true)}
               style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              ↑ Excel
+              ⬇️ Importar
             </button>
             <button onClick={() => { setBulkSel([]); setBulkBusca(''); setBulkDelete(true) }}
               style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
