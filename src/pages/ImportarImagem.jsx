@@ -102,6 +102,15 @@ function extrairFornecedor(rawText) {
   return header || ''
 }
 
+const isOvo = nome => /ovo|ovos/i.test(nome)
+
+// Eggs: qty ≤ 30 without explicit unit → units; qty > 30 without explicit unit → grams;
+// explicit 'g' but qty ≤ 30 → nonsense, treat as units
+function resolveOvoUnidade(qtd, rawUnit) {
+  if (!rawUnit || rawUnit === 'g') return qtd <= 30 ? 'un' : 'g'
+  return null // trust explicit unit (ml, kg, L, un…)
+}
+
 function parseIngredientList(rawText) {
   const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean)
   const result = []
@@ -120,6 +129,7 @@ function parseIngredientList(rawText) {
       else if (rawUnit.startsWith('kg')) unidade = 'kg'
       else if (rawUnit === 'l') unidade = 'L'
       else if (!rawUnit || rawUnit.startsWith('un') || rawUnit.startsWith('xíc') || rawUnit.startsWith('col')) unidade = 'un'
+      if (isOvo(nome)) unidade = resolveOvoUnidade(qtd, rawUnit) || unidade
       result.push({ nome, quantidade: qtd, unidade })
       continue
     }
@@ -129,7 +139,8 @@ function parseIngredientList(rawText) {
       const qtd = parseFloat(m2[2].replace(',', '.'))
       const nome = `${m2[1]} ${m2[3]}`.trim()
       if (qtd > 0 && nome.length >= 3 && !/R\$/.test(line)) {
-        result.push({ nome, quantidade: qtd, unidade: 'un' })
+        const unidade = isOvo(nome) ? (qtd <= 30 ? 'un' : 'g') : 'un'
+        result.push({ nome, quantidade: qtd, unidade })
       }
     }
   }
