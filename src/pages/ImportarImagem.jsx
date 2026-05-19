@@ -1,9 +1,63 @@
 import { useState, useRef, useEffect } from 'react'
 import { createWorker } from 'tesseract.js'
 import { saveInsumo } from '../services/db'
+import { norm, bestFuzzyMatch } from '../utils/norm'
 
-function norm(s) {
-  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+// ── NormSearch: accent-aware searchable dropdown ──────────────
+
+function NormSearch({ value, onChange, options, placeholder, style }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ] = useState(value || '')
+  const ref = useRef()
+
+  useEffect(() => { setQ(value || '') }, [value])
+  useEffect(() => {
+    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filtered = q ? options.filter(o => norm(o.label).includes(norm(q))) : options
+
+  function select(opt) {
+    setQ(opt.label)
+    onChange(opt)
+    setOpen(false)
+  }
+
+  function handleChange(e) {
+    const val = e.target.value
+    setQ(val)
+    onChange({ label: val, value: null })
+    setOpen(true)
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flex: 1 }}>
+      <input
+        className="field-input"
+        style={{ marginBottom: 0, width: '100%', ...style }}
+        placeholder={placeholder}
+        value={q}
+        onChange={handleChange}
+        onFocus={() => setOpen(true)}
+      />
+      {open && filtered.length > 0 && (
+        <div style={{ position: 'absolute', zIndex: 200, top: '100%', left: 0, right: 0, marginTop: 2,
+          background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.35)', maxHeight: 200, overflowY: 'auto' }}>
+          {filtered.map(opt => (
+            <div key={opt.id || opt.label} onMouseDown={e => { e.preventDefault(); select(opt) }}
+              style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(13,148,136,0.1)'}
+              onMouseLeave={e => e.currentTarget.style.background = ''}>
+              {opt.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Parser ────────────────────────────────────────────────────
@@ -418,7 +472,7 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
           return
         }
         const indexados = ings.map((ing, idx) => {
-          const match = insumosList.find(ins => norm(ins.nome) === norm(ing.nome) || norm(ins.nome).includes(norm(ing.nome)) || norm(ing.nome).includes(norm(ins.nome)))
+          const match = bestFuzzyMatch(ing.nome, insumosList, i => i.nome)
           return { ...ing, _id: idx, insumoId: match?.id || null, insumoNome: match?.nome || null, unidade: ing.unidade }
         })
         setEditados(indexados)
@@ -572,7 +626,6 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
             </div>
             {editados.map((ing, idx) => {
               const sel = selecionados.includes(ing._id)
-              const listId = `ins-sub-${ing._id}`
               return (
                 <div key={ing._id} style={{
                   border: sel ? '1px solid var(--teal)' : '1px solid var(--border)',
@@ -582,27 +635,23 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                     <input type="checkbox" checked={sel} onChange={() => toggleSel(ing._id)} />
-                    <input
-                      className="field-input" style={{ flex: 1, marginBottom: 0, fontWeight: 600 }}
-                      list={listId} placeholder="Nome"
+                    <NormSearch
+                      style={{ fontWeight: 600 }}
+                      placeholder="Nome"
                       value={ing.nome}
-                      onChange={e => {
-                        const val = e.target.value
-                        upd(idx, 'nome', val)
-                        const found = insumosList.find(i => i.nome === val)
-                        if (found) {
-                          upd(idx, 'insumoId', found.id)
-                          upd(idx, 'insumoNome', found.nome)
-                          upd(idx, 'unidade', found.unidade)
+                      options={insumosList.map(i => ({ id: i.id, label: i.nome, unidade: i.unidade }))}
+                      onChange={opt => {
+                        upd(idx, 'nome', opt.label)
+                        if (opt.value !== null && opt.id) {
+                          upd(idx, 'insumoId', opt.id)
+                          upd(idx, 'insumoNome', opt.label)
+                          upd(idx, 'unidade', opt.unidade)
                         } else {
                           upd(idx, 'insumoId', null)
                           upd(idx, 'insumoNome', null)
                         }
                       }}
                     />
-                    <datalist id={listId}>
-                      {insumosList.map(i => <option key={i.id} value={i.nome} />)}
-                    </datalist>
                     {ing.insumoId
                       ? <span style={{ fontSize: 10, color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>✓ cadastrado</span>
                       : <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>novo</span>

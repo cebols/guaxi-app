@@ -252,7 +252,7 @@ export default function ReceitaForm() {
       setIngDrop(null)
       return
     }
-    const found = insumos?.find(ins => ins.nome === nome)
+    const found = insumos?.find(ins => norm(ins.nome) === norm(nome))
     setIngredientes(prev => prev.map((it, idx) =>
       idx === i ? { ...it, nome, insumoId: found?.id ?? null, subReceitaId: null, unidade: found ? found.unidade : it.unidade } : it
     ))
