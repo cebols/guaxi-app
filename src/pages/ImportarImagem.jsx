@@ -120,7 +120,7 @@ async function ocr(file, onProgress) {
 
 const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
 
-export default function ImportarImagem({ onClose, onImported, categorias = [] }) {
+export default function ImportarImagem({ onClose, onImported, categorias = [], fornecedoresList = [] }) {
   const inputRef = useRef()
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -309,7 +309,20 @@ export default function ImportarImagem({ onClose, onImported, categorias = [] })
               <div className="field-row">
                 <div>
                   <div className="field-label">Nome</div>
-                  <input className="field-input" placeholder="Fornecedor" value={fornecedor} onChange={e => setFornecedor(e.target.value)} />
+                  <input
+                    className="field-input"
+                    list="forn-img-list"
+                    placeholder="Fornecedor"
+                    value={fornecedor}
+                    onChange={e => {
+                      setFornecedor(e.target.value)
+                      const match = fornecedoresList.find(f => f.nome === e.target.value)
+                      if (match) setTelefone(match.whatsapp || '')
+                    }}
+                  />
+                  <datalist id="forn-img-list">
+                    {fornecedoresList.map(f => <option key={f.nome} value={f.nome} />)}
+                  </datalist>
                 </div>
                 <div>
                   <div className="field-label">Telefone</div>
