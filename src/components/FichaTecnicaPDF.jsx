@@ -77,7 +77,7 @@ function makeStyles(size) {
       flexShrink: 0,
     },
     rendimento: {
-      fontSize: 10,
+      fontSize: 12,
       color: GRAY,
       marginTop: 4,
     },
@@ -144,7 +144,7 @@ function makeStyles(size) {
     },
     stepRow: {
       flexDirection: 'row',
-      marginBottom: isA5 ? 4 : 6,
+      marginBottom: isA5 ? 8 : 12,
       alignItems: 'flex-start',
     },
     stepNum: {
@@ -252,16 +252,12 @@ function ReceitaPage({ receita, size, styles }) {
         <Text style={[styles.tableHeaderText, styles.cellNome]}>Ingrediente</Text>
         <Text style={[styles.tableHeaderText, styles.cellQtd]}>Qtd</Text>
         <Text style={[styles.tableHeaderText, styles.cellUnid]}>Un</Text>
-        <Text style={[styles.tableHeaderText, styles.cellCusto]}>Custo</Text>
       </View>
       {(receita.ingredientes || []).map((ing, i) => (
         <View key={i} style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}>
           <Text style={[styles.cellText, styles.cellNome]}>{ing.nome}</Text>
           <Text style={[styles.cellText, styles.cellQtd]}>{fmtQtd(ing.quantidade)}</Text>
           <Text style={[styles.cellText, styles.cellUnid]}>{ing.unidade}</Text>
-          <Text style={[styles.cellText, styles.cellCusto]}>
-            {ing.custoUnit > 0 ? `R$ ${fmtR(ing.quantidade * (ing.custoUnit || 0))}` : '—'}
-          </Text>
         </View>
       ))}
 
@@ -270,13 +266,13 @@ function ReceitaPage({ receita, size, styles }) {
         <View style={styles.infoRow}>
           {hasForno && (
             <View style={styles.infoBox}>
-              <Text style={styles.infoLabel}>🔥 Forno</Text>
+              <Text style={styles.infoLabel}>Forno</Text>
               <Text style={styles.infoValue}>{receita.tempForno}°C · {receita.tempoForno} min</Text>
             </View>
           )}
           {hasResfriamento && (
             <View style={styles.infoBox}>
-              <Text style={styles.infoLabel}>❄️ {receita.tipoResfriamento || 'Resfriar'}</Text>
+              <Text style={styles.infoLabel}>{receita.tipoResfriamento || 'Resfriar'}</Text>
               <Text style={styles.infoValue}>{receita.tempoResfriamento}h</Text>
             </View>
           )}
