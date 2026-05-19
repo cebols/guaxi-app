@@ -304,24 +304,35 @@ function norm(s) {
                       <tr style={{ borderBottom: '1px solid var(--border)' }}>
                         <th style={{ textAlign: 'left', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0', fontSize: 9 }}>Ingrediente</th>
                         <th style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0', fontSize: 9 }}>Qtd</th>
-                        <th style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0 2px 6px', fontSize: 9 }}>Un</th>
-                        <th style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0', fontSize: 9 }}>Custo</th>
+                        <th style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0', fontSize: 9 }}>x2</th>
+                        <th style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0', fontSize: 9 }}>x3</th>
+                        <th style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0', fontSize: 9 }}>x4</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(prev.ingredientes || []).slice(0, 5).map((ing, i) => (
-                        <tr key={i} style={{ background: i % 2 === 1 ? '#f9fafb' : '#fff', borderBottom: '0.5px solid var(--border)' }}>
-                          <td style={{ padding: '3px 0' }}>{ing.nome}</td>
-                          <td style={{ textAlign: 'right', padding: '3px 0' }}>{ing.quantidade}</td>
-                          <td style={{ textAlign: 'right', padding: '3px 0 3px 6px' }}>{ing.unidade}</td>
-                          <td style={{ textAlign: 'right', padding: '3px 0', color: 'var(--text-secondary)' }}>
-                            {ing.custoUnit > 0 ? `R$ ${(ing.quantidade * ing.custoUnit).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
-                          </td>
-                        </tr>
-                      ))}
+                      {(prev.ingredientes || []).slice(0, 5).map((ing, i) => {
+                        const q = Number(ing.quantidade || 0)
+                        const u = ing.unidade || ''
+                        return (
+                          <tr key={i} style={{ background: i % 2 === 1 ? '#f9fafb' : '#fff', borderBottom: '0.5px solid var(--border)' }}>
+                            <td style={{ padding: '3px 0' }}>{ing.nome}</td>
+                            <td style={{ textAlign: 'right', padding: '3px 0', fontWeight: 700 }}>{q}{u}</td>
+                            <td style={{ textAlign: 'right', padding: '3px 0', color: 'var(--text-secondary)' }}>{q * 2}{u}</td>
+                            <td style={{ textAlign: 'right', padding: '3px 0', color: 'var(--text-secondary)' }}>{q * 3}{u}</td>
+                            <td style={{ textAlign: 'right', padding: '3px 0', color: 'var(--text-secondary)' }}>{q * 4}{u}</td>
+                          </tr>
+                        )
+                      })}
                       {(prev.ingredientes || []).length > 5 && (
-                        <tr><td colSpan={4} style={{ color: 'var(--text-secondary)', fontSize: 10, paddingTop: 3 }}>+ {prev.ingredientes.length - 5} ingredientes</td></tr>
+                        <tr><td colSpan={5} style={{ color: 'var(--text-secondary)', fontSize: 10, paddingTop: 3 }}>+ {prev.ingredientes.length - 5} ingredientes</td></tr>
                       )}
+                      <tr style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: '3px 0', fontWeight: 700, color: 'var(--teal)', fontSize: 10 }}>Rendimento</td>
+                        <td style={{ textAlign: 'right', padding: '3px 0', fontWeight: 700 }}>{prev.rendimento}{prev.unidadeGera}</td>
+                        <td style={{ textAlign: 'right', padding: '3px 0', color: 'var(--text-secondary)' }}>{prev.rendimento * 2}{prev.unidadeGera}</td>
+                        <td style={{ textAlign: 'right', padding: '3px 0', color: 'var(--text-secondary)' }}>{prev.rendimento * 3}{prev.unidadeGera}</td>
+                        <td style={{ textAlign: 'right', padding: '3px 0', color: 'var(--text-secondary)' }}>{prev.rendimento * 4}{prev.unidadeGera}</td>
+                      </tr>
                     </tbody>
                   </table>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 6 }}>

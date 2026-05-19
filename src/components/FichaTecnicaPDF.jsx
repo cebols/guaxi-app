@@ -253,7 +253,7 @@ function ReceitaPage({ receita, size, styles }) {
       <Text style={styles.sectionLabel}>Ingredientes</Text>
       <View style={styles.tableHeader}>
         <Text style={[styles.tableHeaderText, styles.cellNome]}>Ingrediente</Text>
-        <Text style={[styles.tableHeaderText, styles.cellQtd]}>x1</Text>
+        <Text style={[styles.tableHeaderText, styles.cellQtd]}>Qtd</Text>
         <Text style={[styles.tableHeaderText, styles.cellMult]}>x2</Text>
         <Text style={[styles.tableHeaderText, styles.cellMult]}>x3</Text>
         <Text style={[styles.tableHeaderText, styles.cellMult]}>x4</Text>
@@ -261,18 +261,24 @@ function ReceitaPage({ receita, size, styles }) {
       {(receita.ingredientes || []).map((ing, i) => {
         const q = Number(ing.quantidade || 0)
         const u = ing.unidade || ''
-        const fmt1 = `${fmtQtd(q)}${u}`
         const fmtN = (n) => `${fmtQtd(q * n)}${u}`
         return (
           <View key={i} style={[styles.tableRow, i % 2 === 1 ? styles.tableRowAlt : {}]}>
             <Text style={[styles.cellText, styles.cellNome]}>{ing.nome}</Text>
-            <Text style={[styles.cellText, styles.cellQtd]}>{fmt1}</Text>
+            <Text style={[styles.cellText, styles.cellQtd, { fontFamily: 'Helvetica-Bold' }]}>{fmtN(1)}</Text>
             <Text style={[styles.cellTextMult, styles.cellMult]}>{fmtN(2)}</Text>
             <Text style={[styles.cellTextMult, styles.cellMult]}>{fmtN(3)}</Text>
             <Text style={[styles.cellTextMult, styles.cellMult]}>{fmtN(4)}</Text>
           </View>
         )
       })}
+      <View style={[styles.tableRow, { borderTopWidth: 1, borderTopColor: BORDER, marginTop: 2 }]}>
+        <Text style={[styles.cellTextMult, styles.cellNome, { fontFamily: 'Helvetica-Bold', color: TEAL }]}>Rendimento</Text>
+        <Text style={[styles.cellText, styles.cellQtd, { fontFamily: 'Helvetica-Bold' }]}>{fmtQtd(receita.rendimento)}{receita.unidadeGera}</Text>
+        <Text style={[styles.cellTextMult, styles.cellMult]}>{fmtQtd(receita.rendimento * 2)}{receita.unidadeGera}</Text>
+        <Text style={[styles.cellTextMult, styles.cellMult]}>{fmtQtd(receita.rendimento * 3)}{receita.unidadeGera}</Text>
+        <Text style={[styles.cellTextMult, styles.cellMult]}>{fmtQtd(receita.rendimento * 4)}{receita.unidadeGera}</Text>
+      </View>
 
       {/* Forno / Resfriamento info */}
       {(hasForno || hasResfriamento) && (
