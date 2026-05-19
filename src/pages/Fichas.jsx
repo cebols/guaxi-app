@@ -36,6 +36,7 @@ export default function Fichas() {
   const [exportSize, setExportSize]   = useState('a4')
   const [gerando, setGerando]         = useState(false)
   const [importandoImg, setImportandoImg] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   async function handleGerarPDF() {
     const selecionadas = (receitas || []).filter(r => exportSel.includes(r.id))
@@ -111,17 +112,30 @@ function norm(s) {
       <div className="topbar">
         <div className="topbar-inner">
           <div className="topbar-title">Receitas</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setImportandoImg(true)}
-              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>📷 Foto</button>
-            <button onClick={() => setImportando(true)}
-              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬇️ Importar</button>
-            <button onClick={() => { setExportSel([]); setExportMode(true) }}
-              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬆️ Exportar</button>
-            <button onClick={() => { setBulkSel([]); setBulkDelete(true) }}
-              style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Excluir</button>
-            <button onClick={() => navigate('/fichas/nova')}
-              style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Nova</button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', position: 'relative' }}>
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setMenuOpen(o => !o)} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', fontSize: 16, cursor: 'pointer', color: 'var(--text-secondary)', lineHeight: 1 }}>···</button>
+              {menuOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 98 }} onClick={() => setMenuOpen(false)} />
+                  <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 99, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', overflow: 'hidden' }}>
+                    {[
+                      { label: '📷 Importar foto', action: () => { setImportandoImg(true); setMenuOpen(false) } },
+                      { label: '⬇️ Importar planilha', action: () => { setImportando(true); setMenuOpen(false) } },
+                      { label: '⬆️ Exportar PDF', action: () => { setExportSel([]); setExportMode(true); setMenuOpen(false) } },
+                      { label: '🗑️ Excluir receitas', action: () => { setBulkSel([]); setBulkDelete(true); setMenuOpen(false) }, danger: true },
+                    ].map(item => (
+                      <button key={item.label} onClick={item.action} style={{
+                        width: '100%', padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer',
+                        textAlign: 'left', fontSize: 13, color: item.danger ? 'var(--alert-text)' : 'var(--text-primary)',
+                        borderBottom: '1px solid var(--border)',
+                      }}>{item.label}</button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <button onClick={() => navigate('/fichas/nova')} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Nova</button>
           </div>
         </div>
       </div>
@@ -208,43 +222,22 @@ function norm(s) {
             {/* Mobile cards */}
             <div className="mobile-only" style={{ padding: '0 16px' }}>
               {filtradas.map(r => (
-                <div
-                  key={r.id}
-                  className="card"
-                  style={{ cursor: 'pointer', position: 'relative' }}
-                  onClick={() => navigate(`/fichas/${r.id}`)}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontWeight: 600, fontSize: 15 }}>{r.nome}</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {r.custoUnid > 0
-                        ? <span style={{ fontWeight: 600, fontSize: 14 }}>R$ {fmt(r.custoUnid)}/un</span>
-                        : <span style={{ fontSize: 13, color: '#aaa' }}>—</span>
-                      }
-                      <button
-                        onClick={e => { e.stopPropagation(); navigate(`/fichas/${r.id}/editar`) }}
-                        title="Editar"
-                        style={{
-                          background: 'none', border: 'none', color: 'var(--text-tertiary)',
-                          fontSize: 14, cursor: 'pointer', padding: '2px 6px', borderRadius: 4,
-                        }}>✏️</button>
-                      <button
-                        onClick={e => handleDuplicar(r, e)}
-                        disabled={duplicando === r.id}
-                        title="Duplicar"
-                        style={{
-                          background: 'none', border: 'none', color: 'var(--text-tertiary)',
-                          fontSize: 14, cursor: 'pointer', padding: '2px 6px', borderRadius: 4,
-                        }}>
-                        {duplicando === r.id ? '⏳' : '⎘'}
-                      </button>
+                <div key={r.id} className="card" style={{ cursor: 'pointer', marginBottom: 8 }} onClick={() => navigate(`/fichas/${r.id}`)}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{r.nome}</div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {r.custoUnid > 0 && (
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal)' }}>R$ {fmt(r.custoUnid)}/un</span>
+                        )}
+                        {r.rendimento > 0 && (
+                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{r.rendimento} {r.unidadeGera || 'un'}</span>
+                        )}
+                        {r.tipo && <span className={`badge ${TIPO_COLOR[r.tipo] || ''}`}>{r.tipo}</span>}
+                      </div>
                     </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
-                    <span style={{ fontSize: 12, color: '#aaa' }}>
-                      {r.custoTotal > 0 ? `Custo lote: R$ ${fmt(r.custoTotal)}` : 'Custo não calculado'}
-                    </span>
-                    {r.tipo && <span className={`badge ${TIPO_COLOR[r.tipo] || ''}`}>{r.tipo}</span>}
+                    <button onClick={e => { e.stopPropagation(); navigate(`/fichas/${r.id}/editar`) }}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 16, cursor: 'pointer', padding: '2px 4px', flexShrink: 0 }}>✏️</button>
                   </div>
                 </div>
               ))}

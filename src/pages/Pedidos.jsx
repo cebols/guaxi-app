@@ -107,6 +107,32 @@ function buildAlertMap(produtos, receitas, insumos) {
   return map
 }
 
+// ── EntregaDateChips — Hoje / Amanhã / 📅 Agendar ─────────────
+function EntregaDateChips({ value, onChange }) {
+  const today    = new Date().toISOString().split('T')[0]
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+  const fmt = (iso) => { const [, m, d] = iso.split('-'); return `${d}/${m}` }
+  const init = value === tomorrow ? 'amanha' : (value && value !== today) ? 'data' : 'hoje'
+  const [chip, setChip] = useState(init)
+  const cs = (id) => {
+    const a = chip === id
+    const base = { padding: '6px 11px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none' }
+    if (!a) return { ...base, background: 'var(--bg-secondary)', outline: '1.5px solid transparent', color: 'var(--text-secondary)' }
+    if (id === 'hoje') return { ...base, background: 'var(--warn-bg)', outline: '1px solid var(--warn-text)', color: 'var(--warn-text)' }
+    return { ...base, background: 'var(--teal-light)', outline: '1px solid var(--teal)', color: 'var(--teal)' }
+  }
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button style={cs('hoje')}   onClick={() => { setChip('hoje');   onChange(today)    }}>Hoje · {fmt(today)}</button>
+        <button style={cs('amanha')} onClick={() => { setChip('amanha'); onChange(tomorrow) }}>Amanhã · {fmt(tomorrow)}</button>
+        <button style={cs('data')}   onClick={() => setChip('data')}>📅 Agendar</button>
+      </div>
+      {chip === 'data' && <input type="date" className="field-input" defaultValue={value !== today && value !== tomorrow ? value : ''} onChange={e => onChange(e.target.value)} style={{ marginTop: 8 }} />}
+    </div>
+  )
+}
+
 // ── DateInput — accepts dd/mm/aaaa, stores YYYY-MM-DD ─────────
 function DateInput({ value, onChange, className, style }) {
   // Display stored ISO value (YYYY-MM-DD) as dd/mm/aaaa
@@ -164,67 +190,95 @@ function Badge({ label, style }) {
 }
 
 // ── Order card ────────────────────────────────────────────────
-function PedidoCard({ pedido, alertMap, onClick, onLongPress, selected, selecaoMode }) {
+function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatus, selected, selecaoMode }) {
   const urg      = urgency(pedido.dataEntrega)
   const stStyle  = STATUS_STYLE[pedido.status] || STATUS_STYLE.Pendente
   const pgStyle  = PGTO_STYLE[pedido.pgto]     || PGTO_STYLE.Aguardando
   const hasAlert = (pedido.itens || []).some(it => alertMap[it.produto])
 
-  // Long press to enter selection mode (mobile)
   const [pressTimer, setPressTimer] = useState(null)
   const startPress = () => {
     if (selecaoMode) return
     const t = setTimeout(() => {
-      onLongPress?.()
       if (navigator.vibrate) navigator.vibrate(40)
     }, 500)
     setPressTimer(t)
   }
   const cancelPress = () => { if (pressTimer) clearTimeout(pressTimer); setPressTimer(null) }
 
+  const dateChipStyle = (() => {
+    if (!pedido.dataEntrega) return null
+    const today = new Date(); today.setHours(0,0,0,0)
+    const dt = new Date(pedido.dataEntrega + 'T00:00:00')
+    const diff = Math.round((dt - today) / 86400000)
+    if (diff < 0)   return { bg: 'var(--alert-bg)', color: 'var(--alert-text)' }
+    if (diff === 0) return { bg: 'var(--warn-bg)', color: 'var(--warn-text)' }
+    return { bg: 'var(--ok-bg)', color: 'var(--ok-text)' }
+  })()
+
   return (
-    <div className="card"
-      onClick={onClick}
-      onTouchStart={startPress} onTouchEnd={cancelPress} onTouchMove={cancelPress}
-      onMouseDown={startPress} onMouseUp={cancelPress} onMouseLeave={cancelPress}
-      style={{
-        padding: '12px 14px', marginBottom: 8, cursor: 'pointer',
-        border: selected ? '2px solid var(--teal)' : undefined,
-        background: selected ? 'var(--teal-light)' : undefined,
-        position: 'relative',
-      }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 3 }}>
-            {urg && <Badge label={urg.label} style={urg} />}
-            {hasAlert && (
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', padding: '2px 6px', background: '#3b2700', borderRadius: 10 }}>
-                ⚠️ estoque
-              </span>
+    <div style={{ marginBottom: expanded ? 0 : 8 }}>
+      <div className="card"
+        onClick={() => selecaoMode ? undefined : onToggle()}
+        onTouchStart={startPress} onTouchEnd={cancelPress} onTouchMove={cancelPress}
+        onMouseDown={startPress} onMouseUp={cancelPress} onMouseLeave={cancelPress}
+        style={{
+          padding: '12px 14px', cursor: 'pointer',
+          border: selected ? '2px solid var(--teal)' : undefined,
+          background: selected ? 'var(--teal-light)' : undefined,
+          borderRadius: expanded ? '12px 12px 0 0' : 12,
+          marginBottom: 0,
+        }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 3 }}>
+              {urg && <Badge label={urg.label} style={urg} />}
+              {hasAlert && <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', padding: '2px 6px', background: '#3b2700', borderRadius: 10 }}>⚠️ estoque</span>}
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{pedido.id}</span>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{pedido.cliente}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: pedido.obs ? 4 : 0 }}>
+              {pedido.contato ? pedido.contato : ''}
+            </div>
+            {pedido.obs && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>{pedido.obs}</div>}
+          </div>
+          <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>R$ {fmtR(pedido.valor)}</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Badge label={pedido.status} style={stStyle} />
+          <Badge label={pedido.pgto}   style={pgStyle} />
+          {dateChipStyle && pedido.dataEntrega && (
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: dateChipStyle.bg, color: dateChipStyle.color }}>
+              {fmtDate(pedido.dataEntrega)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {expanded && (
+        <div style={{ background: 'var(--bg-tertiary)', border: '1px solid #2a2a2a', borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '10px 14px', marginBottom: 8 }}>
+          {(pedido.itens || []).map((it, i, arr) => (
+            <div key={it.id || i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: i < arr.length - 1 ? '1px solid #1e1e1e' : 'none', fontSize: 13 }}>
+              <span>{it.produto} <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>×{it.quantidade}</span></span>
+              <span style={{ fontWeight: 600 }}>R$ {fmtR((it.precoUnit || 0) * (it.quantidade || 1))}</span>
+            </div>
+          ))}
+          {pedido.canal && (
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>Canal: {pedido.canal}</div>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            {pedido.status === 'Pendente' && (
+              <button onClick={() => onQuickStatus('Pronto')} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#14532d', color: '#4ade80', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>✓ Marcar pronto</button>
             )}
-            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{pedido.id}</span>
+            {pedido.status === 'Pronto' && (
+              <button onClick={() => onQuickStatus('Entregue')} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#000', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>🚀 Registrar entrega</button>
+            )}
+            <button onClick={onEdit} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>Editar detalhes</button>
           </div>
-          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>{pedido.cliente}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: pedido.obs ? 4 : 0 }}>
-            {fmtDate(pedido.dataEntrega)}
-            {pedido.contato ? ` · ${pedido.contato}` : ''}
-          </div>
-          {pedido.obs ? (
-            <div style={{
-              fontSize: 11, color: 'var(--text-tertiary)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              maxWidth: 220,
-            }}>{pedido.obs}</div>
-          ) : null}
         </div>
-        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>R$ {fmtR(pedido.valor)}</div>
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-        <Badge label={pedido.status} style={stStyle} />
-        <Badge label={pedido.pgto}   style={pgStyle} />
-      </div>
+      )}
     </div>
   )
 }
@@ -575,19 +629,15 @@ function NovoView({ produtos, clientes, alertMap, onBack, onSaved }) {
           )}
         </div>
 
-        {/* Canal + Entrega */}
-        <div className="field-row">
-          <div>
-            <div className="field-label">Canal</div>
-            <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
-              {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="field-label">Entrega *</div>
-            <DateInput className="field-input" value={form.dataEntrega} onChange={v => setField('dataEntrega', v)} />
-          </div>
-        </div>
+        {/* Canal */}
+        <div className="field-label">Canal</div>
+        <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
+          {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
+        </select>
+
+        {/* Entrega date chips */}
+        <div className="field-label">Entrega *</div>
+        <EntregaDateChips value={form.dataEntrega} onChange={v => setField('dataEntrega', v)} />
 
         {/* Pgto + Status */}
         <div className="field-row">
@@ -795,18 +845,13 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
           )}
         </div>
 
-        <div className="field-row">
-          <div>
-            <div className="field-label">Canal</div>
-            <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
-              {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="field-label">Entrega *</div>
-            <DateInput className="field-input" value={form.dataEntrega} onChange={v => setField('dataEntrega', v)} />
-          </div>
-        </div>
+        <div className="field-label">Canal</div>
+        <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
+          {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
+        </select>
+
+        <div className="field-label">Entrega *</div>
+        <EntregaDateChips value={form.dataEntrega} onChange={v => setField('dataEntrega', v)} />
 
         <div className="field-row">
           <div>
@@ -1082,6 +1127,7 @@ export default function Pedidos() {
   const [filtro, setFiltro] = useState(() => localStorage.getItem('pedidos_filtro') || 'todos')
   const [aba, setAba]     = useState('pedidos') // 'pedidos' | 'producao'
   const [selecao, setSelecao] = useState({}) // { [pedidoId]: true }
+  const [expandedPedidoId, setExpandedPedidoId] = useState(null)
   const selecaoMode = Object.keys(selecao).some(k => selecao[k])
 
   const setFiltroAndSave = (f) => {
@@ -1109,6 +1155,15 @@ export default function Pedidos() {
     }
     return out
   }, [pedidos])
+
+  const handleQuickStatus = async (pedido, novoStatus) => {
+    try {
+      const novoPgto = novoStatus === 'Entregue' && pedido.pgto !== 'Pago' ? 'Atrasado' : pedido.pgto
+      await updateStatusEncomenda(pedido.id, novoStatus, novoPgto, pedido.tipoEntrega, pedido.frete, pedido.valor)
+      reloadPedidos()
+      setExpandedPedidoId(null)
+    } catch (e) { alert('Erro: ' + e.message) }
+  }
 
   const handleBulkStatus = async (novoStatus) => {
     const ids = Object.keys(selecao).filter(k => selecao[k])
@@ -1260,9 +1315,10 @@ export default function Pedidos() {
                   alertMap={alertMap}
                   selected={!!selecao[p.id]}
                   selecaoMode={selecaoMode}
-                  onToggleSelect={() => setSelecao(s => ({ ...s, [p.id]: !s[p.id] }))}
-                  onClick={() => selecaoMode ? setSelecao(s => ({ ...s, [p.id]: !s[p.id] })) : setMode(p)}
-                  onLongPress={() => setSelecao({ [p.id]: true })}
+                  expanded={expandedPedidoId === p.id}
+                  onToggle={() => setExpandedPedidoId(id => id === p.id ? null : p.id)}
+                  onEdit={() => setMode(p)}
+                  onQuickStatus={(status) => handleQuickStatus(p, status)}
                 />
               ))
             )}

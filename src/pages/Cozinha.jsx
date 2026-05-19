@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
-import { getReceitas } from '../services/db'
+import { getReceitas, deleteReceitas, saveReceita } from '../services/db'
 
 const ACAO_MAP = {
   misturar:     { icon: '🥣', label: 'Misturar' },
@@ -47,6 +47,8 @@ export default function Cozinha() {
   const [checked, setChecked] = useState({})
   const [checkedStep, setCheckedStep] = useState({})
   const [modoSimples, setModoSimples] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [confirmExcluir, setConfirmExcluir] = useState(false)
 
   const pesoBase = ingredientes.reduce((s, i) => {
     if (['g', 'ml'].includes(i.unidade)) return s + i.quantidade
@@ -88,17 +90,49 @@ export default function Cozinha() {
             <div className="topbar-title">{loading ? '...' : (receita?.nome || 'Receita')}</div>
             <div className="topbar-sub">Modo cozinha</div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn-ghost" onClick={() => setModoSimples(s => !s)}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="btn-ghost" onClick={() => setModoSimples(s => !s)} style={{ fontSize: 12, padding: '5px 10px' }}>
               {modoSimples ? 'Completo' : 'Simples'}
             </button>
-            <button className="btn-ghost" onClick={() => navigate(`/fichas/${id}/editar`)}>
-              Editar
-            </button>
-            <button className="btn-ghost" onClick={() => navigate('/fichas')}>
-              ←
-            </button>
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setMenuOpen(o => !o)} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 11px', fontSize: 16, cursor: 'pointer', color: 'var(--text-secondary)', lineHeight: 1 }}>···</button>
+              {menuOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 98 }} onClick={() => setMenuOpen(false)} />
+                  <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 99, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, minWidth: 150, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', overflow: 'hidden' }}>
+                    <button onClick={() => { navigate(`/fichas/${id}/editar`); setMenuOpen(false) }} style={{ width: '100%', padding: '11px 14px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-primary)' }}>✏️ Editar</button>
+                    <button onClick={async () => {
+                      setMenuOpen(false)
+                      if (!receita) return
+                      try {
+                        const ings = (receita.ingredientes || []).map(i => ({ nome: i.nome, quantidade: i.quantidade, unidade: i.unidade, insumoId: i.insumoId, subReceitaId: i.subReceitaId }))
+                        await saveReceita({ nome: `${receita.nome} (cópia)`, tipo: receita.tipo, rendimento: receita.rendimento, unidadeGera: receita.unidadeGera, pesoLiquido: receita.pesoLiquido, fatorPerda: receita.fatorPerda, instrucoes: receita.instrucoes, custoTotal: receita.custoTotal, custoUnid: receita.custoUnid }, ings)
+                        navigate('/fichas')
+                      } catch (e) { alert('Erro: ' + e.message) }
+                    }} style={{ width: '100%', padding: '11px 14px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-primary)' }}>⎘ Duplicar</button>
+                    <button onClick={() => { setMenuOpen(false); setConfirmExcluir(true) }} style={{ width: '100%', padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--alert-text)' }}>🗑️ Excluir</button>
+                  </div>
+                </>
+              )}
+            </div>
+            <button className="btn-ghost" onClick={() => navigate('/fichas')} style={{ fontSize: 16, padding: '5px 10px' }}>←</button>
           </div>
+          {confirmExcluir && (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)' }}>
+              <div style={{ background: 'var(--bg-card)', borderRadius: 14, padding: 24, maxWidth: 300, width: '90%', textAlign: 'center' }}>
+                <div style={{ fontSize: 28, marginBottom: 8 }}>🗑️</div>
+                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Excluir {receita?.nome}?</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>Essa ação não pode ser desfeita.</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setConfirmExcluir(false)} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
+                  <button onClick={async () => {
+                    try { await deleteReceitas([receita.id]); navigate('/fichas') }
+                    catch (e) { alert('Erro: ' + e.message); setConfirmExcluir(false) }
+                  }} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: '#7f1d1d', color: '#fca5a5', fontWeight: 700, cursor: 'pointer', fontSize: 13 }}>Excluir</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
