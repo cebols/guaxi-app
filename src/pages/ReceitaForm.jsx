@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getReceitas, saveReceita, deleteReceita, getInsumos, saveInsumo } from '../services/db'
@@ -157,6 +157,7 @@ function StepBuilder({ steps, onChange, ingredientes = [] }) {
 export default function ReceitaForm() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const { toast, show } = useToast()
   const isEdit = !!id && id !== 'nova'
 
@@ -178,6 +179,16 @@ export default function ReceitaForm() {
   const [ingDrop, setIngDrop] = useState(null) // { idx, matches[] }
   const ingDropRef = useRef(null)
   const [importandoImg, setImportandoImg] = useState(false)
+
+  // Pre-fill ingredients from photo import (navigated from Fichas)
+  useEffect(() => {
+    if (isEdit || !location.state?.ingredientes?.length) return
+    setIngredientes([
+      ...location.state.ingredientes,
+      { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' },
+    ])
+    window.history.replaceState({}, '') // clear state so refresh doesn't re-fill
+  }, [])
   const [insumoRapido, setInsumoRapido] = useState(null) // [{nome,unidade,custoEmb,pesoEmb}] | null
   const [salvandoInsumos, setSalvandoInsumos] = useState(false)
   const [savedRecId, setSavedRecId] = useState(null)

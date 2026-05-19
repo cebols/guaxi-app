@@ -370,6 +370,7 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
             </div>
             {editados.map((ing, idx) => {
               const sel = selecionados.includes(ing._id)
+              const listId = `ins-sub-${ing._id}`
               return (
                 <div key={ing._id} style={{
                   border: sel ? '1px solid var(--teal)' : '1px solid var(--border)',
@@ -380,11 +381,12 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                     <input type="checkbox" checked={sel} onChange={() => toggleSel(ing._id)} />
                     <input className="field-input" style={{ flex: 1, marginBottom: 0, fontWeight: 600 }} value={ing.nome} onChange={e => upd(idx, 'nome', e.target.value)} placeholder="Nome" />
-                    {ing.insumoNome && (
-                      <span style={{ fontSize: 10, color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>✓ cadastrado</span>
-                    )}
+                    {ing.insumoId
+                      ? <span style={{ fontSize: 10, color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>✓ {ing.insumoNome || 'cadastrado'}</span>
+                      : <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>novo</span>
+                    }
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: ing.insumoId ? 0 : 6 }}>
                     <div style={{ flex: 1 }}>
                       <div className="field-label">Qtd</div>
                       <input className="field-input" style={{ marginBottom: 0 }} type="text" inputMode="decimal" value={ing.quantidade} onChange={e => upd(idx, 'quantidade', e.target.value)} />
@@ -396,6 +398,34 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
                       </select>
                     </div>
                   </div>
+                  {!ing.insumoId && (
+                    <div>
+                      <div className="field-label">Vincular a insumo cadastrado (opcional)</div>
+                      <input
+                        className="field-input" style={{ marginBottom: 0 }} list={listId}
+                        placeholder="Buscar insumo..."
+                        value={ing._subInput || ''}
+                        onChange={e => {
+                          upd(idx, '_subInput', e.target.value)
+                          const found = insumosList.find(i => i.nome === e.target.value)
+                          if (found) {
+                            upd(idx, 'insumoId', found.id)
+                            upd(idx, 'insumoNome', found.nome)
+                            upd(idx, 'unidade', found.unidade)
+                          }
+                        }}
+                      />
+                      <datalist id={listId}>
+                        {insumosList.map(i => <option key={i.id} value={i.nome} />)}
+                      </datalist>
+                    </div>
+                  )}
+                  {ing.insumoId && (
+                    <button onClick={() => { upd(idx, 'insumoId', null); upd(idx, 'insumoNome', null); upd(idx, '_subInput', '') }}
+                      style={{ fontSize: 11, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 0', marginTop: 2 }}>
+                      ✕ remover vínculo
+                    </button>
+                  )}
                 </div>
               )
             })}

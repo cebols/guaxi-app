@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
-import { getReceitas, deleteReceitas, saveReceita } from '../services/db'
+import { getReceitas, deleteReceitas, saveReceita, getInsumos } from '../services/db'
 import ImportarExcel from './ImportarExcel'
 import ImportarImagem from './ImportarImagem'
 
@@ -23,6 +23,7 @@ function fmt(val) {
 export default function Fichas() {
   const navigate = useNavigate()
   const { data: receitas, loading, reload } = useData(getReceitas)
+  const { data: insumos } = useData(getInsumos)
   const [busca, setBusca] = useState('')
   const [filtroTipo, setFiltroTipo] = useState('todos')
   const [importando, setImportando]   = useState(false)
@@ -493,10 +494,13 @@ function norm(s) {
 
       {importandoImg && (
         <ImportarImagem
-          categorias={[]}
-          fornecedoresList={[]}
+          mode="receita"
+          insumosList={insumos || []}
           onClose={() => setImportandoImg(false)}
-          onImported={() => setImportandoImg(false)}
+          onIngredientesImportados={ings => {
+            setImportandoImg(false)
+            navigate('/fichas/nova', { state: { ingredientes: ings } })
+          }}
         />
       )}
     </>
