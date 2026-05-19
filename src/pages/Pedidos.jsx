@@ -8,29 +8,29 @@ const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
 const CANAL_OPTS  = ['WhatsApp', 'iFood', '99Food', 'Keeta', 'Presencial']
 const PIPE_STEPS  = ['Pendente', 'Pronto', 'Entregue']
 
-const SMART_FILTROS = [
-  { key: 'todos',      label: 'Todos',        match: () => true },
-  { key: 'atrasados',  label: '🔴 Atrasados', match: p => {
+// Urgency/temporal filters (row 1)
+const FILTROS_URGENCIA = [
+  { key: 'todos',     label: 'Todos',        match: () => true },
+  { key: 'atrasados', label: '🔴 Atrasados', match: p => {
       if (['Entregue','Cancelado'].includes(p.status)) return false
       if (!p.dataEntrega) return false
       const t = new Date(); t.setHours(0,0,0,0)
       return new Date(p.dataEntrega + 'T00:00:00') < t
     }},
-  { key: 'hoje',      label: '🟠 Hoje',       match: p => {
+  { key: 'hoje',      label: '🟠 Hoje',      match: p => {
       if (!p.dataEntrega) return false
       const t = new Date(); t.setHours(0,0,0,0)
       return new Date(p.dataEntrega + 'T00:00:00').getTime() === t.getTime() && p.status !== 'Cancelado'
     }},
-  { key: 'amanha',    label: '🟡 Amanhã',     match: p => {
+  { key: 'amanha',    label: '🟡 Amanhã',    match: p => {
       if (!p.dataEntrega) return false
       const t = new Date(); t.setHours(0,0,0,0); t.setDate(t.getDate()+1)
       return new Date(p.dataEntrega + 'T00:00:00').getTime() === t.getTime() && p.status !== 'Cancelado'
     }},
-  { key: 'areceber',  label: '💰 A receber',  match: p => p.status !== 'Cancelado' && p.pgto !== 'Pago' },
-  { key: 'Pendente',  label: 'Pendente',       match: p => p.status === 'Pendente' },
-  { key: 'Pronto',    label: 'Pronto',         match: p => p.status === 'Pronto' },
-  { key: 'Entregue',  label: 'Entregue',       match: p => p.status === 'Entregue' },
+  { key: 'areceber',  label: '💰 A receber', match: p => p.status !== 'Cancelado' && p.pgto !== 'Pago' },
 ]
+// Status filters (row 2)
+const STATUS_FILTROS = ['Pendente', 'Pronto', 'Entregue']
 
 const WA_TEMPLATES = [
   { icon: '✅', label: 'Pedido pronto',    msg: 'Oi {nome}! Seu pedido {id} tá pronto pra retirada. ❤️' },
@@ -353,7 +353,7 @@ function ProdModal({ produtos, itens, onAdd, onClose }) {
 
 // ── Item row (form) ───────────────────────────────────────────
 function ItemRow({ item, onChange, onRemove, canRemove }) {
-  const total = (parseFloat(item.precoUnit) || 0) * (parseInt(item.quantidade) || 1)
+  const total = (parseFloat(item.precoUnit) || 0) * (parseFloat(item.quantidade) || 1)
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 10,
@@ -364,17 +364,17 @@ function ItemRow({ item, onChange, onRemove, canRemove }) {
         <div style={{ fontSize: 14, fontWeight: 500, marginBottom: item.avulso ? 2 : 0 }}>{item.produto}</div>
         {item.avulso && <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>item avulso</div>}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <button
-          onClick={() => onChange('quantidade', Math.max(1, (parseInt(item.quantidade)||1) - 1))}
-          style={{ width: 28, height: 28, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        >−</button>
-        <span style={{ fontSize: 14, fontWeight: 700, minWidth: 20, textAlign: 'center' }}>{item.quantidade}</span>
-        <button
-          onClick={() => onChange('quantidade', (parseInt(item.quantidade)||1) + 1)}
-          style={{ width: 28, height: 28, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        >+</button>
-      </div>
+      <input
+        type="text" inputMode="numeric"
+        value={item.quantidade}
+        onChange={e => onChange('quantidade', e.target.value)}
+        style={{
+          width: 52, textAlign: 'center', padding: '5px 6px',
+          background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
+          borderRadius: 7, color: 'var(--text-primary)', fontSize: 14, fontWeight: 700,
+        }}
+      />
+      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>un</span>
       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)', whiteSpace: 'nowrap' }}>R$ {fmtR(total)}</span>
       {canRemove && (
         <button onClick={onRemove} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 18, cursor: 'pointer', padding: '0 2px' }}>×</button>
@@ -619,7 +619,7 @@ function NovoView({ produtos, clientes, onBack, onSaved }) {
 }
 
 // ── Order card ────────────────────────────────────────────────
-function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatus }) {
+function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatus, onTogglePgto }) {
   const urg      = urgency(pedido.dataEntrega)
   const hasAlert = (pedido.itens || []).some(it => alertMap[it.produto])
 
@@ -674,12 +674,18 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
             {pedido.status === 'Cancelado' ? (
               <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#3b1f1f', color: '#ef4444' }}>Cancelado</span>
             ) : (
-              <Pipeline status={pedido.status} />
+              <Pipeline
+                status={pedido.status}
+                onStepClick={(s) => { onQuickStatus(s) }}
+              />
             )}
           </div>
-          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: pgtoS.bg, color: pgtoS.color, whiteSpace: 'nowrap', flexShrink: 0 }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onTogglePgto() }}
+            style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: pgtoS.bg, color: pgtoS.color, whiteSpace: 'nowrap', flexShrink: 0, border: 'none', cursor: 'pointer' }}
+          >
             {pgtoS.label}
-          </span>
+          </button>
           {dateChipStyle && pedido.dataEntrega && (
             <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: dateChipStyle.bg, color: dateChipStyle.color, whiteSpace: 'nowrap', flexShrink: 0 }}>
               {fmtDate(pedido.dataEntrega)}
@@ -1090,14 +1096,15 @@ export default function Pedidos() {
   const { data: receitas } = useData(getReceitas)
   const { data: clientes, reload: reloadClientes } = useData(getClientes)
 
-  const [mode, setMode]         = useState('list')
-  const [filtro, setFiltro]     = useState(() => localStorage.getItem('pedidos_filtro') || 'todos')
-  const [aba, setAba]           = useState('pedidos')
-  const [selecao, setSelecao]   = useState({})
+  const [mode, setMode]               = useState('list')
+  const [filtroUrgencia, setFiltroUrgencia] = useState(() => localStorage.getItem('pedidos_filtro') || 'todos')
+  const [filtroStatus, setFiltroStatus]     = useState(null) // null | 'Pendente' | 'Pronto' | 'Entregue'
+  const [aba, setAba]                 = useState('pedidos')
+  const [selecao, setSelecao]         = useState({})
   const [expandedPedidoId, setExpandedPedidoId] = useState(null)
   const selecaoMode = Object.keys(selecao).some(k => selecao[k])
 
-  const setFiltroAndSave = (f) => { setFiltro(f); localStorage.setItem('pedidos_filtro', f) }
+  const setFiltroUrgenciaAndSave = (f) => { setFiltroUrgencia(f); localStorage.setItem('pedidos_filtro', f) }
 
   const alertMap = useMemo(
     () => buildAlertMap(produtos || [], receitas || [], insumos || []),
@@ -1106,18 +1113,31 @@ export default function Pedidos() {
 
   const pedidosFiltrados = useMemo(() => {
     const list = pedidos || []
-    const f = SMART_FILTROS.find(x => x.key === filtro) || SMART_FILTROS[0]
-    return list.filter(p => f.match(p))
-  }, [pedidos, filtro])
+    const fu = FILTROS_URGENCIA.find(x => x.key === filtroUrgencia) || FILTROS_URGENCIA[0]
+    return list.filter(p => {
+      if (!fu.match(p)) return false
+      if (filtroStatus && p.status !== filtroStatus) return false
+      return true
+    })
+  }, [pedidos, filtroUrgencia, filtroStatus])
 
-  const filterCounts = useMemo(() => {
+  const urgenciaCounts = useMemo(() => {
     const out = {}
-    for (const f of SMART_FILTROS) {
+    for (const f of FILTROS_URGENCIA) {
       if (f.key === 'todos') continue
       out[f.key] = (pedidos || []).filter(p => f.match(p)).length
     }
     return out
   }, [pedidos])
+
+  const statusCounts = useMemo(() => {
+    const out = {}
+    const fu = FILTROS_URGENCIA.find(x => x.key === filtroUrgencia) || FILTROS_URGENCIA[0]
+    for (const s of STATUS_FILTROS) {
+      out[s] = (pedidos || []).filter(p => fu.match(p) && p.status === s).length
+    }
+    return out
+  }, [pedidos, filtroUrgencia])
 
   const handleQuickStatus = async (pedido, novoStatus) => {
     try {
@@ -1125,6 +1145,15 @@ export default function Pedidos() {
       await updateStatusEncomenda(pedido.id, novoStatus, novoPgto, pedido.tipoEntrega, pedido.frete, pedido.valor)
       reloadPedidos()
       setExpandedPedidoId(null)
+    } catch(e) { alert('Erro: '+e.message) }
+  }
+
+  const handleTogglePgto = async (pedido) => {
+    const ordem = ['Aguardando', 'Pago', 'Atrasado']
+    const nextPgto = ordem[(ordem.indexOf(pedido.pgto) + 1) % 3]
+    try {
+      await updateStatusEncomenda(pedido.id, pedido.status, nextPgto, pedido.tipoEntrega, pedido.frete, pedido.valor)
+      reloadPedidos()
     } catch(e) { alert('Erro: '+e.message) }
   }
 
@@ -1179,15 +1208,15 @@ export default function Pedidos() {
           <ProducaoView pedidos={pedidos} produtos={produtos} receitas={receitas} onEstoqueUpdated={reloadProdutos} />
         ) : (
           <>
-            {/* Filter chips */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 14, overflowX: 'auto', paddingBottom: 2 }}>
-              {SMART_FILTROS.map(f => {
-                const count  = filterCounts[f.key]
-                const active = filtro === f.key
+            {/* Filter row 1: urgência/temporal */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, overflowX: 'auto', paddingBottom: 2 }}>
+              {FILTROS_URGENCIA.map(f => {
+                const count  = urgenciaCounts[f.key]
+                const active = filtroUrgencia === f.key
                 return (
-                  <button key={f.key} onClick={() => setFiltroAndSave(f.key)} style={{
+                  <button key={f.key} onClick={() => setFiltroUrgenciaAndSave(f.key)} style={{
                     padding: '5px 11px', borderRadius: 16, fontSize: 11.5, fontWeight: 600,
-                    border: '1.5px solid', whiteSpace: 'nowrap', cursor: 'pointer',
+                    border: '1.5px solid', whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0,
                     borderColor: active ? 'var(--teal)' : '#333',
                     background:  active ? 'var(--teal-light)' : 'transparent',
                     color:       active ? 'var(--teal)' : 'var(--text-secondary)',
@@ -1195,10 +1224,41 @@ export default function Pedidos() {
                   }}>
                     {f.label}
                     {count > 0 && (
-                      <span style={{ width: 14, height: 14, borderRadius: '50%', background: active ? 'var(--teal)' : 'var(--border)', color: active ? '#000' : 'var(--text-secondary)', fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ width: 14, height: 14, borderRadius: '50%', background: active ? 'var(--teal)' : '#333', color: active ? '#000' : 'var(--text-secondary)', fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         {count}
                       </span>
                     )}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Filter row 2: status de produção */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+              <button
+                onClick={() => setFiltroStatus(null)}
+                style={{
+                  padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+                  border: '1.5px solid', cursor: 'pointer',
+                  borderColor: filtroStatus === null ? 'var(--teal)' : '#333',
+                  background:  filtroStatus === null ? 'var(--teal-light)' : 'transparent',
+                  color:       filtroStatus === null ? 'var(--teal)' : 'var(--text-tertiary)',
+                }}
+              >Todos status</button>
+              {STATUS_FILTROS.map(s => {
+                const active = filtroStatus === s
+                const count  = statusCounts[s]
+                return (
+                  <button key={s} onClick={() => setFiltroStatus(active ? null : s)} style={{
+                    padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+                    border: '1.5px solid', whiteSpace: 'nowrap', cursor: 'pointer',
+                    borderColor: active ? 'var(--teal)' : '#333',
+                    background:  active ? 'var(--teal-light)' : 'transparent',
+                    color:       active ? 'var(--teal)' : 'var(--text-tertiary)',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                  }}>
+                    {s}
+                    {count > 0 && <span style={{ fontSize: 9, opacity: 0.7 }}>{count}</span>}
                   </button>
                 )
               })}
@@ -1231,6 +1291,7 @@ export default function Pedidos() {
                   onToggle={() => setExpandedPedidoId(id => id === p.id ? null : p.id)}
                   onEdit={() => setMode(p)}
                   onQuickStatus={(status) => handleQuickStatus(p, status)}
+                  onTogglePgto={() => handleTogglePgto(p)}
                 />
               ))
             )}
