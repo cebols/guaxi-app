@@ -15,20 +15,40 @@ import Produtos from './pages/Produtos'
 import Vendas from './pages/Vendas'
 import MiseEnPlace from './pages/MiseEnPlace'
 
-const NAV = [
-  { path: '/',               label: 'Home',          icon: HomeIcon },
-  { path: '/pedidos',        label: 'Pedidos',        icon: PedidosIcon },
-  { path: '/vendas',         label: 'Vendas',         icon: VendasIcon },
-  { path: '/fichas',         label: 'Receitas',       icon: FichasIcon },
-  { path: '/contagem',       label: 'Contagem',       icon: ContagemIcon },
-  { path: '/produtos',       label: 'Produtos',       icon: ProdutosIcon },
-  { path: '/mise-en-place',  label: 'Mise en place',  icon: MiseIcon },
-  { path: '/cadastros',      label: 'Insumos',        icon: CadastrosIcon },
-  { path: '/configuracoes',  label: 'Preços',         icon: ConfigIcon },
+const NAV_BOTTOM = [
+  { path: '/',        label: 'Início',   icon: HomeIcon },
+  { path: '/pedidos', label: 'Pedidos',  icon: PedidosIcon },
+  { path: '/fichas',  label: 'Receitas', icon: FichasIcon },
+  { path: '/vendas',  label: 'Vendas',   icon: VendasIcon },
 ]
 
-const NAV_BOTTOM_FIXED = NAV.slice(0, 4)   // Home Pedidos Vendas Receitas
-const NAV_MAIS         = NAV.slice(4)       // Contagem Produtos Mise Insumos Preços
+const MENU_GROUPS = [
+  {
+    label: 'Produção do dia',
+    items: [
+      { path: '/mise-en-place', label: 'Planejar produção', sub: 'Organize o que fazer hoje', icon: MiseIcon },
+      { path: '/contagem',      label: 'Estoque',           sub: 'Contagem de ingredientes',  icon: ContagemIcon },
+    ],
+  },
+  {
+    label: 'Cadastros',
+    items: [
+      { path: '/produtos',      label: 'Produtos',        sub: 'Cardápio e preços',         icon: ProdutosIcon },
+      { path: '/cadastros',     label: 'Insumos',         sub: 'Ingredientes e embalagens', icon: CadastrosIcon },
+      { path: '/configuracoes', label: 'Preços e custos', sub: 'Precificação e margens',    icon: ConfigIcon },
+    ],
+  },
+]
+
+const SIDEBAR_GROUPS = [
+  { label: 'Dia a dia',  items: NAV_BOTTOM },
+  { label: 'Produção',   items: MENU_GROUPS[0].items },
+  { label: 'Cadastros',  items: MENU_GROUPS[1].items },
+]
+
+function isActive(path, pathname) {
+  return path === '/' ? pathname === '/' : pathname.startsWith(path)
+}
 
 function Sidebar() {
   const { user, signOut } = useAuth()
@@ -43,21 +63,29 @@ function Sidebar() {
         <div className="sidebar-logo-name">Guaxi</div>
       </div>
       <nav className="sidebar-nav">
-        {NAV.map(({ path, label, icon: Icon }) => {
-          const active = path === '/'
-            ? location.pathname === '/'
-            : location.pathname.startsWith(path)
-          return (
-            <button
-              key={path}
-              className={`sidebar-item ${active ? 'active' : ''}`}
-              onClick={() => navigate(path)}
-            >
-              <Icon />
-              <span>{label}</span>
-            </button>
-          )
-        })}
+        {SIDEBAR_GROUPS.map(({ label, items }) => (
+          <div key={label} style={{ marginBottom: 8 }}>
+            <div style={{
+              fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase',
+              letterSpacing: '0.08em', fontWeight: 700, padding: '14px 12px 6px',
+            }}>
+              {label}
+            </div>
+            {items.map(({ path, label: itemLabel, icon: Icon }) => {
+              const active = isActive(path, location.pathname)
+              return (
+                <button
+                  key={path}
+                  className={`sidebar-item ${active ? 'active' : ''}`}
+                  onClick={() => navigate(path)}
+                >
+                  <Icon />
+                  <span>{itemLabel}</span>
+                </button>
+              )
+            })}
+          </div>
+        ))}
       </nav>
       <div className="sidebar-footer">
         <div className="sidebar-user">
@@ -75,10 +103,10 @@ function Sidebar() {
 }
 
 export default function App() {
-  const { isAuthenticated, loading, session } = useAuth()
+  const { isAuthenticated, loading, session, signOut } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
-  const [maisOpen, setMaisOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     initConfig(session?.user?.id ?? null)
@@ -86,14 +114,14 @@ export default function App() {
   }, [session?.user?.id])
 
   useEffect(() => {
-    setMaisOpen(false)
+    setMenuOpen(false)
   }, [location.pathname])
 
   if (loading) return <div className="loading" style={{ minHeight: '100dvh' }}>Carregando...</div>
   if (!isAuthenticated) return <Login />
 
   const isReceitaForm = location.pathname.match(/^\/fichas\/(nova|\d+\/editar)/)
-  const maisActive = NAV_MAIS.some(n => location.pathname.startsWith(n.path))
+  const menuActive = MENU_GROUPS.flatMap(g => g.items).some(n => location.pathname.startsWith(n.path))
 
   return (
     <div className="app-shell">
@@ -119,10 +147,8 @@ export default function App() {
 
       {!isReceitaForm && (
         <nav className="bottom-nav">
-          {NAV_BOTTOM_FIXED.map(({ path, label, icon: Icon }) => {
-            const active = path === '/'
-              ? location.pathname === '/'
-              : location.pathname.startsWith(path)
+          {NAV_BOTTOM.map(({ path, label, icon: Icon }) => {
+            const active = isActive(path, location.pathname)
             return (
               <button
                 key={path}
@@ -136,48 +162,87 @@ export default function App() {
             )
           })}
           <button
-            className={`nav-item ${maisActive || maisOpen ? 'active' : ''}`}
-            onClick={() => setMaisOpen(o => !o)}
+            className={`nav-item ${menuActive || menuOpen ? 'active' : ''}`}
+            onClick={() => setMenuOpen(o => !o)}
           >
-            <MaisIcon />
-            <span>Mais</span>
+            <MenuIcon />
+            <span>Menu</span>
             <div className="nav-indicator" />
           </button>
         </nav>
       )}
 
-      {maisOpen && (
+      {menuOpen && (
         <>
-          <div className="sheet-overlay" style={{ zIndex: 45 }} onClick={() => setMaisOpen(false)} />
-          <div className="sheet" style={{ zIndex: 55, paddingBottom: 80 }}>
-            <div className="sheet-title">
-              <span>Menu</span>
-              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setMaisOpen(false)}>×</button>
-            </div>
-            {NAV_MAIS.map(({ path, label, icon: Icon }) => {
-              const active = location.pathname.startsWith(path)
-              return (
-                <button
-                  key={path}
-                  onClick={() => navigate(path)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 14,
-                    width: '100%', padding: '14px 8px',
-                    background: active ? 'var(--teal-subtle, rgba(20,184,166,.1))' : 'none',
-                    border: 'none', borderBottom: '1px solid var(--border)',
-                    borderRadius: active ? 10 : 0,
-                    color: active ? 'var(--teal)' : 'var(--text-primary)',
-                    fontSize: 15, fontWeight: active ? 600 : 400,
-                    cursor: 'pointer', textAlign: 'left',
-                  }}
-                >
-                  <span style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', color: active ? 'var(--teal)' : 'var(--text-secondary)' }}>
-                    <Icon />
-                  </span>
+          <div className="sheet-overlay" style={{ zIndex: 45 }} onClick={() => setMenuOpen(false)} />
+          <div className="sheet" style={{ zIndex: 55, paddingBottom: 80, paddingLeft: 0, paddingRight: 0 }}>
+            <div style={{ width: 36, height: 4, background: 'var(--bg-secondary)', borderRadius: 2, margin: '4px auto 12px' }} />
+            {MENU_GROUPS.map(({ label, items }) => (
+              <div key={label} style={{ marginBottom: 18 }}>
+                <div style={{
+                  fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase',
+                  letterSpacing: '0.06em', fontWeight: 700,
+                  padding: '0 16px 8px',
+                }}>
                   {label}
-                </button>
-              )
-            })}
+                </div>
+                {items.map(({ path, label: itemLabel, sub, icon: Icon }) => {
+                  const active = location.pathname.startsWith(path)
+                  return (
+                    <button
+                      key={path}
+                      onClick={() => navigate(path)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 14,
+                        width: '100%', padding: '13px 16px',
+                        background: active ? 'var(--teal-light)' : 'none',
+                        border: 'none',
+                        color: active ? 'var(--teal)' : 'var(--text-primary)',
+                        cursor: 'pointer', textAlign: 'left',
+                      }}
+                    >
+                      <span style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', flexShrink: 0, color: active ? 'var(--teal)' : 'var(--text-secondary)' }}>
+                        <Icon />
+                      </span>
+                      <span style={{ flex: 1 }}>
+                        <span style={{ display: 'block', fontSize: 15, fontWeight: 500, color: active ? 'var(--teal)' : 'var(--text-primary)' }}>
+                          {itemLabel}
+                        </span>
+                        <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                          {sub}
+                        </span>
+                      </span>
+                      <span style={{ fontSize: 16, color: 'var(--text-tertiary)', flexShrink: 0 }}>›</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{
+                fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase',
+                letterSpacing: '0.06em', fontWeight: 700,
+                padding: '0 16px 8px',
+              }}>
+                Conta
+              </div>
+              <button
+                onClick={signOut}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  width: '100%', padding: '13px 16px',
+                  background: 'none', border: 'none',
+                  color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <span style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', flexShrink: 0, color: 'var(--text-secondary)' }}>
+                  <SairIcon />
+                </span>
+                <span style={{ flex: 1 }}>
+                  <span style={{ display: 'block', fontSize: 15, fontWeight: 500 }}>Sair</span>
+                </span>
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -245,10 +310,17 @@ function MiseIcon() {
     <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
   </svg>
 }
-function MaisIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/>
-    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
-    <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+function MenuIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <line x1="3" y1="6"  x2="21" y2="6"/>
+    <line x1="3" y1="12" x2="21" y2="12"/>
+    <line x1="3" y1="18" x2="21" y2="18"/>
+  </svg>
+}
+function SairIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
+    <polyline points="16 17 21 12 16 7"/>
+    <line x1="21" y1="12" x2="9" y2="12"/>
   </svg>
 }
