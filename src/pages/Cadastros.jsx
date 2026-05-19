@@ -799,13 +799,22 @@ export default function Cadastros() {
 
   const fornecedores = useMemo(() => {
     const map = {}
+    const addForn = (nome, tel) => {
+      if (!nome) return
+      if (!map[nome]) map[nome] = { nome, whatsapp: '' }
+      if (tel && !map[nome].whatsapp) map[nome].whatsapp = tel
+    }
     ;[...(insumos || []), ...(embalagens || [])].forEach(i => {
-      if (i.fornecedor && !map[i.fornecedor]) {
-        map[i.fornecedor] = { nome: i.fornecedor, whatsapp: i.whatsapp || '' }
-      }
+      addForn(i.fornecedor, i.telefone || i.whatsapp)
+    })
+    ;[...(todasFontes || [])].forEach(f => {
+      addForn(f.fornecedor, f.telefone)
+    })
+    ;[...(todasFontesEmb || [])].forEach(f => {
+      addForn(f.fornecedor, f.telefone)
     })
     return Object.values(map).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-  }, [insumos, embalagens])
+  }, [insumos, embalagens, todasFontes, todasFontesEmb])
 
   const catsEmbalagem = useMemo(() =>
     [...new Set((embalagens || []).map(e => e.categoria).filter(Boolean))].sort(),
