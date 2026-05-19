@@ -1094,7 +1094,7 @@ export default function Cadastros() {
         <ImportarExcel mode="insumos" onClose={() => setImportando(false)} onImported={() => { rIns(); rEmb(); setImportando(false) }} />
       )}
       {importandoImg && (
-        <ImportarImagem onClose={() => setImportandoImg(false)} onImported={() => { rIns(); setImportandoImg(false) }} />
+        <ImportarImagem categorias={catsInsumo} onClose={() => setImportandoImg(false)} onImported={() => { rIns(); setImportandoImg(false) }} />
       )}
 
       {toast && <div className="toast">{toast}</div>}

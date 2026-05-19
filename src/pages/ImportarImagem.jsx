@@ -120,7 +120,7 @@ async function ocr(file, onProgress) {
 
 const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
 
-export default function ImportarImagem({ onClose, onImported }) {
+export default function ImportarImagem({ onClose, onImported, categorias = [] }) {
   const inputRef = useRef()
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
@@ -145,6 +145,18 @@ export default function ImportarImagem({ onClose, onImported }) {
       setPreview(url)
     } else {
       setPreview(null)
+    }
+  }
+
+  function handlePaste(e) {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const f = item.getAsFile()
+        if (f) handleFile(f)
+        break
+      }
     }
   }
 
@@ -219,7 +231,7 @@ export default function ImportarImagem({ onClose, onImported }) {
   return (
     <>
       <div className="sheet-overlay" onClick={onClose} />
-      <div className="sheet" style={{ maxHeight: '92dvh', overflow: 'auto' }}>
+      <div className="sheet" style={{ maxHeight: '92dvh', overflow: 'auto' }} onPaste={handlePaste}>
         <div className="sheet-title">
           <span>Importar lista de preços</span>
           <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
@@ -254,7 +266,7 @@ export default function ImportarImagem({ onClose, onImported }) {
                 : <div>
                     <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
                     <div style={{ fontSize: 14, fontWeight: 600 }}>{file ? file.name : 'Toque para selecionar'}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>JPG, PNG ou PDF</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>JPG, PNG ou PDF · ou Cole com Ctrl+V</div>
                   </div>
               }
             </div>
@@ -306,6 +318,10 @@ export default function ImportarImagem({ onClose, onImported }) {
               </div>
             </div>
 
+            <datalist id="cats-img-import">
+              {categorias.map(c => <option key={c} value={c} />)}
+            </datalist>
+
             {/* Cabeçalho da lista */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <div style={{ fontSize: 13, fontWeight: 700 }}>
@@ -342,7 +358,7 @@ export default function ImportarImagem({ onClose, onImported }) {
                   <div className="field-row" style={{ marginBottom: 6 }}>
                     <div>
                       <div className="field-label">Categoria</div>
-                      <input className="field-input" value={ins.categoria || ''} onChange={e => upd(idx, 'categoria', e.target.value)} placeholder="—" />
+                      <input className="field-input" list="cats-img-import" value={ins.categoria || ''} onChange={e => upd(idx, 'categoria', e.target.value)} placeholder="—" />
                     </div>
                     <div>
                       <div className="field-label">Unidade</div>
