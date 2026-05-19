@@ -17,6 +17,7 @@ const ACAO_MAP = {
   congelar:     { icon: '🧊', label: 'Congelar' },
   descansar:    { icon: '⏱️', label: 'Descansar' },
   cortar:       { icon: '🔪', label: 'Cortar' },
+  esticar:      { icon: '🫓', label: 'Esticar' },
 }
 
 function parseInstrucoes(raw) {

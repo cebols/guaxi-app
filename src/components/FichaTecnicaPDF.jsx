@@ -25,6 +25,8 @@ const ACAO_LABEL = {
   resfriar: 'Resfriar', congelar: 'Congelar', decorar: 'Decorar',
   derreter: 'Derreter', temperar: 'Temperar', montar: 'Montar',
   mixar: 'Mixar', liquidificar: 'Liquidificar', processar: 'Processar',
+  incorporar: 'Incorporar', ferver: 'Ferver', aquecer: 'Aquecer',
+  descansar: 'Descansar', cortar: 'Cortar', esticar: 'Esticar',
 }
 
 // ── styles ────────────────────────────────────────────────────

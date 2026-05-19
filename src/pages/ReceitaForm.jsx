@@ -21,6 +21,7 @@ const ACOES = [
   { tipo: 'congelar',     icon: '🧊', label: 'Congelar' },
   { tipo: 'descansar',    icon: '⏱️', label: 'Descansar' },
   { tipo: 'cortar',       icon: '🔪', label: 'Cortar' },
+  { tipo: 'esticar',     icon: '🫓', label: 'Esticar' },
 ]
 const ACAO_MAP = Object.fromEntries(ACOES.map(a => [a.tipo, a]))
 
@@ -34,8 +35,7 @@ function parseInstrucoes(raw) {
 }
 
 function serializeInstrucoes(steps) {
-  const valid = steps.filter(s => s.descricao?.trim())
-  return valid.length > 0 ? JSON.stringify(valid) : null
+  return steps.length > 0 ? JSON.stringify(steps) : null
 }
 
 // picker: 'tipo' | 'ings' | null
