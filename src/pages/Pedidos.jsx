@@ -1098,7 +1098,7 @@ export default function Pedidos() {
 
   const [mode, setMode]               = useState('list')
   const [filtroUrgencia, setFiltroUrgencia] = useState(() => localStorage.getItem('pedidos_filtro') || 'todos')
-  const [filtroStatus, setFiltroStatus]     = useState(null) // null | 'Pendente' | 'Pronto' | 'Entregue'
+  const [filtroStatus, setFiltroStatus]     = useState(['Pendente', 'Pronto'])
   const [aba, setAba]                 = useState('pedidos')
   const [selecao, setSelecao]         = useState({})
   const [expandedPedidoId, setExpandedPedidoId] = useState(null)
@@ -1116,7 +1116,7 @@ export default function Pedidos() {
     const fu = FILTROS_URGENCIA.find(x => x.key === filtroUrgencia) || FILTROS_URGENCIA[0]
     return list.filter(p => {
       if (!fu.match(p)) return false
-      if (filtroStatus && p.status !== filtroStatus) return false
+      if (filtroStatus.length > 0 && !filtroStatus.includes(p.status)) return false
       return true
     })
   }, [pedidos, filtroUrgencia, filtroStatus])
@@ -1138,6 +1138,9 @@ export default function Pedidos() {
     }
     return out
   }, [pedidos, filtroUrgencia])
+
+  const toggleStatusFiltro = (s) =>
+    setFiltroStatus(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])
 
   const handleQuickStatus = async (pedido, novoStatus) => {
     try {
@@ -1170,7 +1173,7 @@ export default function Pedidos() {
     } catch(e) { alert('Erro: '+e.message) }
   }
 
-  if (loadingPed || loadingProd) return <div className="loading">Carregando...</div>
+  if ((loadingPed && !pedidos) || (loadingProd && !produtos)) return <div className="loading">Carregando...</div>
 
   if (mode === 'novo') {
     return <NovoView produtos={produtos||[]} clientes={clientes||[]} onBack={() => setMode('list')} onSaved={() => { reloadPedidos(); reloadClientes() }} />
@@ -1208,49 +1211,47 @@ export default function Pedidos() {
           <ProducaoView pedidos={pedidos} produtos={produtos} receitas={receitas} onEstoqueUpdated={reloadProdutos} />
         ) : (
           <>
-            {/* Filter row 1: urgência/temporal */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8, overflowX: 'auto', paddingBottom: 2 }}>
+            {/* Filter row 1: urgência/temporal — wraps se não couber */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
               {FILTROS_URGENCIA.map(f => {
                 const count  = urgenciaCounts[f.key]
                 const active = filtroUrgencia === f.key
                 return (
                   <button key={f.key} onClick={() => setFiltroUrgenciaAndSave(f.key)} style={{
-                    padding: '5px 11px', borderRadius: 16, fontSize: 11.5, fontWeight: 600,
-                    border: '1.5px solid', whiteSpace: 'nowrap', cursor: 'pointer', flexShrink: 0,
+                    padding: '4px 9px', borderRadius: 14, fontSize: 11, fontWeight: 600,
+                    border: '1.5px solid', whiteSpace: 'nowrap', cursor: 'pointer',
                     borderColor: active ? 'var(--teal)' : '#333',
                     background:  active ? 'var(--teal-light)' : 'transparent',
                     color:       active ? 'var(--teal)' : 'var(--text-secondary)',
-                    display: 'flex', alignItems: 'center', gap: 5,
+                    display: 'flex', alignItems: 'center', gap: 4,
                   }}>
                     {f.label}
                     {count > 0 && (
-                      <span style={{ width: 14, height: 14, borderRadius: '50%', background: active ? 'var(--teal)' : '#333', color: active ? '#000' : 'var(--text-secondary)', fontSize: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {count}
-                      </span>
+                      <span style={{ fontSize: 9, fontWeight: 700, opacity: 0.8 }}>{count}</span>
                     )}
                   </button>
                 )
               })}
             </div>
 
-            {/* Filter row 2: status de produção */}
+            {/* Filter row 2: status — multi-select, Entregue off by default */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
               <button
-                onClick={() => setFiltroStatus(null)}
+                onClick={() => setFiltroStatus([])}
                 style={{
-                  padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600,
-                  border: '1.5px solid', cursor: 'pointer',
-                  borderColor: filtroStatus === null ? 'var(--teal)' : '#333',
-                  background:  filtroStatus === null ? 'var(--teal-light)' : 'transparent',
-                  color:       filtroStatus === null ? 'var(--teal)' : 'var(--text-tertiary)',
+                  padding: '4px 9px', borderRadius: 14, fontSize: 11, fontWeight: 600,
+                  border: '1.5px solid', cursor: 'pointer', whiteSpace: 'nowrap',
+                  borderColor: filtroStatus.length === 0 ? 'var(--teal)' : '#333',
+                  background:  filtroStatus.length === 0 ? 'var(--teal-light)' : 'transparent',
+                  color:       filtroStatus.length === 0 ? 'var(--teal)' : 'var(--text-tertiary)',
                 }}
-              >Todos status</button>
+              >Todos</button>
               {STATUS_FILTROS.map(s => {
-                const active = filtroStatus === s
+                const active = filtroStatus.includes(s)
                 const count  = statusCounts[s]
                 return (
-                  <button key={s} onClick={() => setFiltroStatus(active ? null : s)} style={{
-                    padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600,
+                  <button key={s} onClick={() => toggleStatusFiltro(s)} style={{
+                    padding: '4px 9px', borderRadius: 14, fontSize: 11, fontWeight: 600,
                     border: '1.5px solid', whiteSpace: 'nowrap', cursor: 'pointer',
                     borderColor: active ? 'var(--teal)' : '#333',
                     background:  active ? 'var(--teal-light)' : 'transparent',
