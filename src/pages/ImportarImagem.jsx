@@ -371,17 +371,17 @@ function CropTool({ src, onConfirm, onSkip }) {
         Arraste as bordas para recortar a área da receita
       </div>
       <div ref={containerRef}
-        style={{ position: 'relative', userSelect: 'none', touchAction: 'none', borderRadius: 8, overflow: 'hidden' }}
+        style={{ position: 'relative', userSelect: 'none', touchAction: 'none', borderRadius: 8 }}
         onMouseMove={onMove} onMouseUp={stopDrag} onMouseLeave={stopDrag}
         onTouchMove={onMove} onTouchEnd={stopDrag}
       >
         {/* Full image always visible */}
-        <img ref={imgRef} src={src} style={{ width: '100%', display: 'block' }} draggable={false} />
+        <img ref={imgRef} src={src} style={{ width: '100%', display: 'block', borderRadius: 8 }} draggable={false} />
 
-        {/* Dark overlay outside crop — 4 rects */}
+        {/* Dark overlay outside crop — 4 rects, all sized explicitly (no overflow:hidden needed) */}
         {[
           { left: 0, top: 0, width: '100%', height: `${box.y * 100}%` },
-          { left: 0, top: `${(box.y + box.h) * 100}%`, width: '100%', bottom: 0 },
+          { left: 0, top: `${(box.y + box.h) * 100}%`, width: '100%', height: `${(1 - box.y - box.h) * 100}%` },
           { left: 0, top: `${box.y * 100}%`, width: `${box.x * 100}%`, height: `${box.h * 100}%` },
           { right: 0, top: `${box.y * 100}%`, width: `${(1 - box.x - box.w) * 100}%`, height: `${box.h * 100}%` },
         ].map((style, i) => (
