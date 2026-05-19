@@ -783,8 +783,8 @@ export default function Vendas() {
   const { data: compras }                                   = useData(getCompras)
   const { data: encomendas, loading: lEnc }                 = useData(getEncomendas)
   const { data: embalagens }                                = useData(getEmbalagens)
-  const custoSacola = getCustoSacolaDelivery(cfg, embalagens || [])
   const cfg = getConfig()
+  const custoSacola = getCustoSacolaDelivery(cfg, embalagens || [])
 
   const inicio = useMemo(() => {
     if (periodo === 'semana') {
