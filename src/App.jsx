@@ -13,16 +13,18 @@ import Cadastros from './pages/Cadastros'
 import Configuracoes from './pages/Configuracoes'
 import Produtos from './pages/Produtos'
 import Vendas from './pages/Vendas'
+import MiseEnPlace from './pages/MiseEnPlace'
 
 const NAV = [
-  { path: '/',              label: 'Home',      icon: HomeIcon },
-  { path: '/pedidos',       label: 'Pedidos',   icon: PedidosIcon },
-  { path: '/contagem',      label: 'Contagem',  icon: ContagemIcon },
-  { path: '/fichas',        label: 'Receitas',  icon: FichasIcon },
-  { path: '/produtos',      label: 'Produtos',  icon: ProdutosIcon },
-  { path: '/vendas',        label: 'Vendas',    icon: VendasIcon },
-  { path: '/cadastros',     label: 'Insumos',   icon: CadastrosIcon },
-  { path: '/configuracoes', label: 'Preços',    icon: ConfigIcon },
+  { path: '/',               label: 'Home',          icon: HomeIcon },
+  { path: '/pedidos',        label: 'Pedidos',        icon: PedidosIcon },
+  { path: '/contagem',       label: 'Contagem',       icon: ContagemIcon },
+  { path: '/fichas',         label: 'Receitas',       icon: FichasIcon },
+  { path: '/produtos',       label: 'Produtos',       icon: ProdutosIcon },
+  { path: '/vendas',         label: 'Vendas',         icon: VendasIcon },
+  { path: '/mise-en-place',  label: 'Mise en place',  icon: MiseIcon },
+  { path: '/cadastros',      label: 'Insumos',        icon: CadastrosIcon },
+  { path: '/configuracoes',  label: 'Preços',         icon: ConfigIcon },
 ]
 
 const NAV_BOTTOM_FIXED = NAV.slice(0, 5)   // Home Pedidos Contagem Receitas Produtos
@@ -109,6 +111,7 @@ export default function App() {
           <Route path="/cadastros"           element={<Cadastros />} />
           <Route path="/produtos"            element={<Produtos />} />
           <Route path="/vendas"              element={<Vendas />} />
+          <Route path="/mise-en-place"       element={<MiseEnPlace />} />
           <Route path="/configuracoes"       element={<Configuracoes />} />
           <Route path="*"                    element={<Navigate to="/" />} />
         </Routes>
@@ -234,6 +237,12 @@ function ConfigIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <line x1="12" y1="1" x2="12" y2="23"/>
     <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+  </svg>
+}
+function MiseIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 11l3 3L22 4"/>
+    <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
   </svg>
 }
 function MaisIcon() {

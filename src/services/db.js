@@ -699,6 +699,7 @@ export async function getReceitas() {
       unidadeGera: r.unidade_gera || 'un',
       custoTotal: r.custo_total || 0,
       custoUnid: r.custo_unid || 0,
+      porcoes: r.porcoes || null,
       pesoLiquido: r.peso_liquido || null,
       fatorPerda: r.fator_perda ?? null,
       instrucoes: r.instrucoes || '',
@@ -737,6 +738,7 @@ export async function saveReceita(receita, ingredientes) {
     tipo_resfriamento: receita.tipoResfriamento || null,
     custo_total: parseFloat(receita.custoTotal) || 0,
     custo_unid: parseFloat(receita.custoUnid) || 0,
+    porcoes: receita.porcoes ? parseInt(receita.porcoes) : null,
   }
 
   const buildIngRow = (receitaId, i) => ({

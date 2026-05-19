@@ -252,6 +252,7 @@ export default function Cozinha() {
                 Rendimento base: {receita.rendimento} {receita.unidadeGera || 'un'}
                 {receita.fatorPerda > 0 && <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>(−{receita.fatorPerda}% perda)</span>}
                 {receita.custoUnid > 0 && ` · R$ ${receita.custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/${receita.unidadeGera || 'un'}`}
+                {receita.porcoes > 1 && receita.custoTotal > 0 ? ` · R$ ${(receita.custoTotal * fator / receita.porcoes).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/porção` : ''}
               </div>
             )}
 

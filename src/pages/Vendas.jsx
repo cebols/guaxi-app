@@ -904,7 +904,14 @@ export default function Vendas() {
     (compras || []).filter(c => c.data >= inicio).reduce((s, c) => s + (c.total || 0), 0),
     [compras, inicio]
   )
-  const lucroReal = totalRevNet - totalCost - totalComprasPeriodo
+  const totalRevBruto      = Object.values(statsPerProd).reduce((s, p) => s + p.revenue, 0)
+  const totalTaxas         = totalRevBruto - totalRevNet
+  const lucroBruto         = totalRevNet - totalCost
+  const margemBruta        = totalRevNet > 0 ? (lucroBruto / totalRevNet) * 100 : 0
+  const custoFixoPeriodo   = periodo === 'mes' ? (cfg.custoFixoMensal || 0) : (cfg.custoFixoMensal || 0) / 4.33
+  const lucroLiquido       = lucroBruto - custoFixoPeriodo
+  const margemLiquida      = totalRevNet > 0 ? (lucroLiquido / totalRevNet) * 100 : 0
+  const lucroReal = lucroLiquido
 
   const unidadesProj = cfg.unidadesProjetadas || 0
   const pctProj      = unidadesProj > 0 ? (totalUnits / unidadesProj) * 100 : null
@@ -1009,15 +1016,15 @@ export default function Vendas() {
                 <div className="metric-value" style={{ fontSize: 14 }}>{loading ? '—' : fmtR(totalRevNet)}</div>
               </div>
               <div className="metric-card">
-                <div className="metric-label">Lucro real</div>
-                <div className="metric-value" style={{ fontSize: 14, color: lucroReal >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>
-                  {loading ? '—' : fmtR(lucroReal)}
+                <div className="metric-label">Lucro líquido</div>
+                <div className="metric-value" style={{ fontSize: 14, color: lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>
+                  {loading ? '—' : fmtR(lucroLiquido)}
                 </div>
               </div>
               <div className="metric-card">
-                <div className="metric-label">Margem real</div>
-                <div className="metric-value" style={{ color: totalRevNet > 0 && (lucroReal/totalRevNet)*100 >= cfg.margem ? 'var(--teal)' : lucroReal > 0 ? '#f59e0b' : 'var(--alert-text)' }}>
-                  {loading ? '—' : totalRevNet > 0 ? `${fmtN((lucroReal/totalRevNet)*100)}%` : '—'}
+                <div className="metric-label">Margem líquida</div>
+                <div className="metric-value" style={{ color: totalRevNet > 0 && (lucroLiquido/totalRevNet)*100 >= cfg.margem ? 'var(--teal)' : lucroLiquido > 0 ? '#f59e0b' : 'var(--alert-text)' }}>
+                  {loading ? '—' : totalRevNet > 0 ? `${fmtN((lucroLiquido/totalRevNet)*100)}%` : '—'}
                 </div>
               </div>
               <div className="metric-card">

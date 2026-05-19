@@ -310,6 +310,12 @@ function ReceitaPage({ receita, size, styles }) {
             <Text style={styles.costValue}>R$ {fmtR(receita.custoUnid)}</Text>
           </View>
         )}
+        {receita.porcoes > 1 && receita.custoTotal > 0 && (
+          <View style={styles.costItem}>
+            <Text style={styles.costLabel}>Por porção</Text>
+            <Text style={styles.costValue}>R$ {fmtR(receita.custoTotal / receita.porcoes)}</Text>
+          </View>
+        )}
       </View>
 
       {/* Steps */}

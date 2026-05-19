@@ -159,7 +159,7 @@ export default function ReceitaForm() {
   const { data: insumos, loading: loadIns } = useData(getInsumos)
 
   const [form, setForm] = useState({
-    nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'un', fatorPerda: '',
+    nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'un', fatorPerda: '', porcoes: '',
     tempoForno: '', tempForno: '', tempoResfriamento: '', tipoResfriamento: '',
   })
   const [steps, setSteps] = useState([])
@@ -181,6 +181,7 @@ export default function ReceitaForm() {
       rendimento: rec.rendimento || '',
       unidadeGera: rec.unidadeGera || 'un',
       fatorPerda: rec.fatorPerda != null ? String(rec.fatorPerda) : '',
+      porcoes: rec.porcoes ? String(rec.porcoes) : '',
       tempoForno: rec.tempoForno != null ? String(rec.tempoForno) : '',
       tempForno: rec.tempForno != null ? String(rec.tempForno) : '',
       tempoResfriamento: rec.tempoResfriamento != null ? String(rec.tempoResfriamento) : '',
@@ -288,6 +289,7 @@ export default function ReceitaForm() {
           instrucoes: serializeInstrucoes(steps),
           custoTotal,
           custoUnid,
+          porcoes: form.porcoes ? parseInt(form.porcoes) : null,
         },
         ings
       )
@@ -396,6 +398,16 @@ export default function ReceitaForm() {
               }}
             />
           </div>
+          <div>
+            <div className="field-label">Porções <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 6 }}>opcional</span></div>
+            <input
+              className="field-input"
+              type="text" inputMode="numeric"
+              placeholder="ex: 12 fatias"
+              value={form.porcoes}
+              onChange={e => { const v = e.target.value; if (v === '' || parseInt(v) > 0) setField('porcoes', v) }}
+            />
+          </div>
         </div>
 
         {/* Resumo peso/rendimento */}
@@ -477,6 +489,9 @@ export default function ReceitaForm() {
                   <span style={{ marginLeft: 10, fontWeight: 600 }}>
                     → R$ {custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{form.unidadeGera || 'un'}
                   </span>
+                )}
+                {form.porcoes && parseInt(form.porcoes) > 0 && custoTotal > 0 && (
+                  <span> · R$ {(custoTotal / parseInt(form.porcoes)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/porção</span>
                 )}
               </div>
             )}
