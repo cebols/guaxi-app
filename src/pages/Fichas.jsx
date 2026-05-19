@@ -112,7 +112,7 @@ function norm(s) {
           <div className="topbar-title">Receitas</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setImportandoImg(true)}
-              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>📷 Foto</button>
+              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>📷 Insumos</button>
             <button onClick={() => setImportando(true)}
               style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>⬇️ Importar</button>
             <button onClick={() => { setExportSel([]); setExportMode(true) }}
