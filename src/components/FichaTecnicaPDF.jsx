@@ -36,18 +36,18 @@ const GRAY = '#6b7280'
 const BORDER = '#e5e7eb'
 
 function makeStyles(size) {
-  const isCard = size === 'card'
-  const isA5   = size === 'a5'
+  const isA5 = size === 'a5'
 
   return StyleSheet.create({
     page: {
       backgroundColor: '#ffffff',
-      padding: isCard ? 14 : isA5 ? 22 : 28,
+      padding: isA5 ? 22 : 28,
+      paddingBottom: size === 'a4' ? 44 : isA5 ? 22 : 28,
       fontFamily: 'Helvetica',
     },
     header: {
-      marginBottom: isCard ? 6 : 10,
-      paddingBottom: isCard ? 6 : 10,
+      marginBottom: 10,
+      paddingBottom: 10,
       borderBottomWidth: 1.5,
       borderBottomColor: TEAL,
       flexDirection: 'row',
@@ -65,7 +65,7 @@ function makeStyles(size) {
       color: '#111827',
     },
     badge: {
-      fontSize: isCard ? 7 : 9,
+      fontSize: 9,
       color: TEAL,
       borderWidth: 1,
       borderStyle: 'solid',
@@ -77,18 +77,18 @@ function makeStyles(size) {
       flexShrink: 0,
     },
     rendimento: {
-      fontSize: isCard ? 8 : 10,
+      fontSize: 10,
       color: GRAY,
       marginTop: 4,
     },
     sectionLabel: {
-      fontSize: isCard ? 7 : 9,
+      fontSize: 9,
       fontFamily: 'Helvetica-Bold',
       color: TEAL,
       textTransform: 'uppercase',
       letterSpacing: 0.8,
       marginBottom: 4,
-      marginTop: isCard ? 6 : 10,
+      marginTop: 10,
     },
     tableHeader: {
       flexDirection: 'row',
@@ -98,14 +98,14 @@ function makeStyles(size) {
       marginBottom: 2,
     },
     tableHeaderText: {
-      fontSize: isCard ? 7 : 8,
+      fontSize: 8,
       fontFamily: 'Helvetica-Bold',
       color: GRAY,
       textTransform: 'uppercase',
     },
     tableRow: {
       flexDirection: 'row',
-      paddingVertical: isCard ? 2 : 3,
+      paddingVertical: 3,
       borderBottomWidth: 0.5,
       borderBottomColor: BORDER,
       alignItems: 'center',
@@ -118,27 +118,27 @@ function makeStyles(size) {
     cellUnid:  { flex: 0.9, textAlign: 'right', marginLeft: 4 },
     cellCusto: { flex: 1.2, textAlign: 'right' },
     cellText: {
-      fontSize: isCard ? 8 : 9.5,
+      fontSize: 9.5,
       color: '#111827',
     },
     costBox: {
       flexDirection: 'row',
       justifyContent: 'flex-end',
-      gap: 16,
-      marginTop: isCard ? 6 : 10,
-      paddingTop: isCard ? 6 : 8,
+      marginTop: 10,
+      paddingTop: 8,
       borderTopWidth: 1,
       borderTopColor: BORDER,
     },
     costItem: {
       alignItems: 'flex-end',
+      marginLeft: 16,
     },
     costLabel: {
-      fontSize: isCard ? 7 : 8,
+      fontSize: 8,
       color: GRAY,
     },
     costValue: {
-      fontSize: isCard ? 10 : 12,
+      fontSize: 12,
       fontFamily: 'Helvetica-Bold',
       color: TEAL,
     },
@@ -176,14 +176,14 @@ function makeStyles(size) {
     },
     infoRow: {
       flexDirection: 'row',
-      gap: 12,
-      marginTop: isCard ? 6 : 8,
+      marginTop: 8,
     },
     infoBox: {
       flex: 1,
       backgroundColor: '#f3f4f6',
       borderRadius: 4,
       padding: 6,
+      marginRight: 8,
     },
     infoLabel: {
       fontSize: 7,
@@ -192,7 +192,7 @@ function makeStyles(size) {
       textTransform: 'uppercase',
     },
     infoValue: {
-      fontSize: isCard ? 9 : 11,
+      fontSize: 11,
       fontFamily: 'Helvetica-Bold',
       color: '#111827',
       marginTop: 2,
@@ -217,16 +217,13 @@ function makeStyles(size) {
 // ── Page size map ─────────────────────────────────────────────
 
 const PAGE_SIZES = {
-  card: [283.46, 425.20],  // 10×15cm in points
-  a5:   'A5',
-  a4:   'A4',
+  a5: 'A5',
+  a4: 'A4',
 }
 
 // ── Single recipe page ────────────────────────────────────────
 
 function ReceitaPage({ receita, size, styles }) {
-  const isCard = size === 'card'
-  const showSteps = !isCard
   const steps = parseInstrucoes(receita.instrucoes)
   const hasSteps = steps.length > 0
   const hasForno = receita.tempoForno && receita.tempForno
@@ -262,11 +259,9 @@ function ReceitaPage({ receita, size, styles }) {
           <Text style={[styles.cellText, styles.cellNome]}>{ing.nome}</Text>
           <Text style={[styles.cellText, styles.cellQtd]}>{fmtQtd(ing.quantidade)}</Text>
           <Text style={[styles.cellText, styles.cellUnid]}>{ing.unidade}</Text>
-          {!isCard && (
-            <Text style={[styles.cellText, styles.cellCusto]}>
-              {ing.custoUnit > 0 ? `R$ ${fmtR(ing.quantidade * (ing.custoUnit || 0))}` : '—'}
-            </Text>
-          )}
+          <Text style={[styles.cellText, styles.cellCusto]}>
+            {ing.custoUnit > 0 ? `R$ ${fmtR(ing.quantidade * (ing.custoUnit || 0))}` : '—'}
+          </Text>
         </View>
       ))}
 
@@ -302,8 +297,8 @@ function ReceitaPage({ receita, size, styles }) {
         )}
       </View>
 
-      {/* Steps — A5 / A4 only */}
-      {showSteps && hasSteps && (
+      {/* Steps */}
+      {hasSteps && (
         <>
           <Text style={styles.sectionLabel}>Modo de preparo</Text>
           {steps.map((step, i) => (

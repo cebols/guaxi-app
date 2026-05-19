@@ -255,9 +255,8 @@ export default function Fichas() {
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Tamanho</div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
               {[
-                { id: 'card', label: 'Card', desc: '10×15cm · ingredientes' },
-                { id: 'a5',   label: 'A5',   desc: 'Meia folha · + instruções' },
-                { id: 'a4',   label: 'A4',   desc: 'Folha inteira · completo' },
+                { id: 'a5', label: 'A5', desc: 'Meia folha · + instruções' },
+                { id: 'a4', label: 'A4', desc: 'Folha inteira · completo' },
               ].map(s => (
                 <button key={s.id} onClick={() => setExportSize(s.id)} style={{
                   flex: 1, padding: '10px 8px', borderRadius: 10, cursor: 'pointer', textAlign: 'center',
@@ -269,6 +268,69 @@ export default function Fichas() {
                 </button>
               ))}
             </div>
+
+            {/* Preview */}
+            {exportSel.length > 0 && (() => {
+              const prev = (receitas || []).find(r => r.id === exportSel[0])
+              if (!prev) return null
+              return (
+                <div style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 16, fontSize: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid var(--teal)', paddingBottom: 8, marginBottom: 8 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: '#111' }}>{prev.nome}</div>
+                      <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginTop: 2 }}>
+                        Rendimento: {prev.rendimento} {prev.unidadeGera}
+                        {prev.pesoLiquido ? ` · ${prev.pesoLiquido}g líquido` : ''}
+                      </div>
+                    </div>
+                    {prev.tipo && prev.tipo !== 'Outro' && (
+                      <span style={{ fontSize: 10, color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 4, padding: '2px 6px' }}>{prev.tipo}</span>
+                    )}
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: 9, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4 }}>Ingredientes</div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ textAlign: 'left', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0', fontSize: 9 }}>Ingrediente</th>
+                        <th style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0', fontSize: 9 }}>Qtd</th>
+                        <th style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0 2px 6px', fontSize: 9 }}>Un</th>
+                        <th style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 0', fontSize: 9 }}>Custo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(prev.ingredientes || []).slice(0, 6).map((ing, i) => (
+                        <tr key={i} style={{ background: i % 2 === 1 ? '#f9fafb' : '#fff', borderBottom: '0.5px solid var(--border)' }}>
+                          <td style={{ padding: '3px 0' }}>{ing.nome}</td>
+                          <td style={{ textAlign: 'right', padding: '3px 0' }}>{ing.quantidade}</td>
+                          <td style={{ textAlign: 'right', padding: '3px 0 3px 6px' }}>{ing.unidade}</td>
+                          <td style={{ textAlign: 'right', padding: '3px 0', color: 'var(--text-secondary)' }}>
+                            {ing.custoUnit > 0 ? `R$ ${(ing.quantidade * ing.custoUnit).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                      {(prev.ingredientes || []).length > 6 && (
+                        <tr><td colSpan={4} style={{ color: 'var(--text-secondary)', fontSize: 10, paddingTop: 4 }}>+ {prev.ingredientes.length - 6} ingredientes</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 16, borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 6 }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 9, color: 'var(--text-secondary)' }}>Custo total</div>
+                      <div style={{ fontWeight: 700, color: 'var(--teal)', fontSize: 13 }}>R$ {fmt(prev.custoTotal || 0)}</div>
+                    </div>
+                    {prev.custoUnid > 0 && (
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 9, color: 'var(--text-secondary)' }}>Por {prev.unidadeGera}</div>
+                        <div style={{ fontWeight: 700, color: 'var(--teal)', fontSize: 13 }}>R$ {fmt(prev.custoUnid)}</div>
+                      </div>
+                    )}
+                  </div>
+                  {exportSel.length > 1 && (
+                    <div style={{ textAlign: 'center', fontSize: 10, color: 'var(--text-secondary)', marginTop: 6 }}>+ {exportSel.length - 1} ficha(s) adicional</div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Seleção */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
