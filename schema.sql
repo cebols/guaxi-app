@@ -331,3 +331,33 @@ CREATE INDEX IF NOT EXISTS idx_emb_forn_emb_id ON embalagem_fornecedores (embala
 ALTER TABLE embalagem_fornecedores ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "own_data" ON embalagem_fornecedores;
 CREATE POLICY "own_data" ON embalagem_fornecedores FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+-- ── Produções (mise en place history) ───────────────────────
+CREATE TABLE IF NOT EXISTS producoes (
+  id         bigserial primary key,
+  user_id    uuid default auth.uid() references auth.users(id) on delete cascade,
+  created_at timestamptz default now()
+);
+ALTER TABLE producoes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own_data" ON producoes;
+CREATE POLICY "own_data" ON producoes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+CREATE TABLE IF NOT EXISTS producao_itens (
+  id               bigserial primary key,
+  producao_id      bigint not null references producoes(id) on delete cascade,
+  receita_id       bigint,
+  receita_nome     text not null,
+  quantidade       int not null default 1,
+  rendimento_total numeric,
+  unidade_gera     text default 'un'
+);
+ALTER TABLE producao_itens ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own_data" ON producao_itens;
+CREATE POLICY "own_data" ON producao_itens FOR ALL USING (
+  producao_id IN (SELECT id FROM producoes WHERE user_id = auth.uid())
+) WITH CHECK (
+  producao_id IN (SELECT id FROM producoes WHERE user_id = auth.uid())
+);
+
+-- ── Receita porcoes (custo por porção) ───────────────────────
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS porcoes integer;

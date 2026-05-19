@@ -510,10 +510,10 @@ export default function ReceitaForm() {
             left: ingDrop.rect.left,
             width: ingDrop.rect.width,
             zIndex: 200,
-            background: 'var(--card-bg)',
+            background: '#1e1e1e',
             border: '1px solid var(--border)',
             borderRadius: 8,
-            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
             overflow: 'hidden',
           }}>
             {ingDrop.matches.map((m, mi) => (
@@ -523,7 +523,7 @@ export default function ReceitaForm() {
                   padding: '9px 12px', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', gap: 8, fontSize: 13,
                   borderBottom: '1px solid var(--border)',
-                  background: mi === ingDrop.selectedIdx ? 'var(--teal-light)' : 'transparent',
+                  background: mi === ingDrop.selectedIdx ? 'var(--teal-light)' : '#1e1e1e',
                   color: mi === ingDrop.selectedIdx ? 'var(--teal)' : 'var(--text-primary)',
                 }}>
                 {m.tag && <span style={{ fontSize: 9, background: 'var(--teal)', color: '#fff', borderRadius: 3, padding: '1px 4px', fontWeight: 700 }}>{m.tag}</span>}

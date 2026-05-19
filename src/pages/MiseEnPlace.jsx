@@ -132,11 +132,9 @@ export default function MiseEnPlace() {
         <div className="topbar-inner">
           <div className="topbar-title">Mise en place</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            {(historico || []).length > 0 && (
-              <button onClick={() => setSheet('historico')} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
-                Histórico
-              </button>
-            )}
+            <button onClick={() => setSheet('historico')} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
+              Histórico
+            </button>
             {lote.length > 0 && (
               <button onClick={() => setSheet('lista')} style={{
                 background: temFalta ? '#f59e0b' : 'var(--teal)',
@@ -224,36 +222,32 @@ export default function MiseEnPlace() {
         </div>
       </div>
 
-      {/* Sheet: lista de ingredientes */}
+      {/* Sheet: lista de ingredientes por receita */}
       {sheet === 'lista' && (
         <>
           <div className="sheet-overlay" onClick={() => setSheet(null)} />
           <div className="sheet">
             <div className="sheet-title">
-              <span>Ingredientes necessários</span>
+              <span>Lista por receita</span>
               <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setSheet(null)}>×</button>
             </div>
-            {temFalta && (
-              <div style={{ background: 'rgba(245,158,11,0.12)', border: '1px solid #f59e0b', borderRadius: 8, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#f59e0b' }}>
-                ⚠ Alguns ingredientes estão abaixo do necessário
-              </div>
-            )}
-            {necessarios.map((item, i) => {
-              const falta = item.estoque !== null && item.estoque < item.necessario
-              const ok    = item.estoque !== null && item.estoque >= item.necessario
+            {lote.map(({ receitaId, qtd }) => {
+              const rec = (receitas || []).find(r => r.id === receitaId)
+              if (!rec) return null
               return (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: falta ? '#ef4444' : 'var(--text-primary)' }}>{item.nome}</div>
-                    {item.estoque !== null && (
-                      <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Estoque: {fmtQtd(item.estoque)} {item.unidade}</div>
-                    )}
+                <div key={receitaId} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+                    {rec.nome} <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>×{qtd} → {fmtQtd(rec.rendimento * qtd)} {rec.unidadeGera}</span>
                   </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: falta ? '#ef4444' : 'var(--text-primary)' }}>{fmtQtd(item.necessario)} {item.unidade}</div>
-                    {falta && <div style={{ fontSize: 11, color: '#ef4444' }}>falta {fmtQtd(item.necessario - item.estoque)} {item.unidade}</div>}
-                    {ok && <div style={{ fontSize: 11, color: 'var(--teal)' }}>✓</div>}
-                  </div>
+                  {(rec.ingredientes || []).map((ing, i) => {
+                    const q = ing.quantidade * qtd
+                    return (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+                        <span style={{ color: 'var(--text-primary)' }}>{ing.nome}</span>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{fmtQtd(q)}{ing.unidade}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               )
             })}
