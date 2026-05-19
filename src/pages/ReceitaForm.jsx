@@ -475,6 +475,11 @@ export default function ReceitaForm() {
               value={form.porcoes}
               onChange={e => { const v = e.target.value; if (v === '' || parseInt(v) > 0) setField('porcoes', v) }}
             />
+            {form.porcoes && parseInt(form.porcoes) > 1 && rendimentoBruto > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4 }}>
+                {Math.round(rendimentoBruto / parseInt(form.porcoes))}g por porção
+              </div>
+            )}
           </div>
         </div>
 
