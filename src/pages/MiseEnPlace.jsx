@@ -26,6 +26,7 @@ export default function MiseEnPlace() {
   const [lote, setLote]              = useState([])
   const [sheet, setSheet]            = useState(null) // 'lista' | 'confirmar' | 'historico'
   const [confirmando, setConfirmando] = useState(false)
+  const [histDetalhe, setHistDetalhe] = useState(null) // producao entry
 
   const loteIds = useMemo(() => new Set(lote.map(x => x.receitaId)), [lote])
 
@@ -96,6 +97,20 @@ export default function MiseEnPlace() {
   }, [lote, receitas, insumos])
 
   const temFalta = necessarios.some(n => n.estoque !== null && n.estoque < n.necessario)
+
+  function calcNecessariosHist(prod) {
+    const map = {}
+    ;(prod.itens || []).forEach(({ receitaId, quantidade }) => {
+      const rec = (receitas || []).find(r => r.id === receitaId)
+      if (!rec) return
+      ;(rec.ingredientes || []).forEach(ing => {
+        const key = ing.insumoId ? `id:${ing.insumoId}` : `nome:${norm(ing.nome)}`
+        if (!map[key]) map[key] = { nome: ing.nome, unidade: ing.unidade, necessario: 0 }
+        map[key].necessario += ing.quantidade * quantidade
+      })
+    })
+    return Object.values(map).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }
 
   async function handleConfirmar() {
     setConfirmando(true)
@@ -264,9 +279,7 @@ export default function MiseEnPlace() {
               <span>Confirmar produção</span>
               <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setSheet(null)}>×</button>
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-              Isso vai debitar os ingredientes do estoque e salvar no histórico.
-            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Receitas</div>
             {lote.map(item => {
               const rec = (receitas || []).find(r => r.id === item.receitaId)
               return (
@@ -278,10 +291,20 @@ export default function MiseEnPlace() {
                 </div>
               )
             })}
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 14, marginBottom: 6 }}>Mise en place</div>
+            {necessarios.map((item, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '0.5px solid var(--border)', fontSize: 13 }}>
+                <span style={{ color: item.estoque !== null && item.estoque < item.necessario ? 'var(--alert-text, #ef4444)' : 'var(--text-primary)' }}>{item.nome}</span>
+                <span style={{ fontWeight: 600 }}>{fmtQtd(item.necessario)}{item.unidade}</span>
+              </div>
+            ))}
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8, marginBottom: 4 }}>
+              Debita ingredientes do estoque e salva no histórico.
+            </div>
             <button
               disabled={confirmando}
               onClick={handleConfirmar}
-              style={{ width: '100%', marginTop: 16, padding: '13px', borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#fff', fontWeight: 700, fontSize: 14, cursor: confirmando ? 'wait' : 'pointer' }}>
+              style={{ width: '100%', marginTop: 8, padding: '13px', borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#fff', fontWeight: 700, fontSize: 14, cursor: confirmando ? 'wait' : 'pointer' }}>
               {confirmando ? 'Salvando...' : 'Confirmar e salvar'}
             </button>
           </div>
@@ -301,7 +324,14 @@ export default function MiseEnPlace() {
               <div style={{ color: 'var(--text-tertiary)', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>Nenhuma produção registrada</div>
             ) : (historico || []).map(prod => (
               <div key={prod.id} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>{fmtDate(prod.createdAt)}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{fmtDate(prod.createdAt)}</div>
+                  <button
+                    onClick={() => setHistDetalhe(prod)}
+                    style={{ fontSize: 11, color: 'var(--teal)', background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', flexShrink: 0 }}>
+                    Ver mise en place
+                  </button>
+                </div>
                 {prod.itens.map((item, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '2px 0' }}>
                     <span style={{ fontWeight: 600 }}>{item.nome}</span>
@@ -313,6 +343,39 @@ export default function MiseEnPlace() {
                 ))}
               </div>
             ))}
+          </div>
+        </>
+      )}
+
+      {/* Sheet: detalhe mise en place de produção histórica */}
+      {histDetalhe && (
+        <>
+          <div className="sheet-overlay" style={{ zIndex: 65 }} onClick={() => setHistDetalhe(null)} />
+          <div className="sheet" style={{ zIndex: 75 }}>
+            <div className="sheet-title">
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 14, cursor: 'pointer', padding: '0 8px 0 0' }} onClick={() => setHistDetalhe(null)}>← </button>
+              <span style={{ flex: 1 }}>Mise en place · {fmtDate(histDetalhe.createdAt)}</span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setHistDetalhe(null)}>×</button>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Receitas</div>
+            {histDetalhe.itens.map((item, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '0.5px solid var(--border)', fontSize: 13 }}>
+                <span style={{ fontWeight: 600 }}>{item.nome}</span>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  ×{item.quantidade}{item.rendimentoTotal ? ` → ${fmtQtd(item.rendimentoTotal)} ${item.unidadeGera}` : ''}
+                </span>
+              </div>
+            ))}
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 14, marginBottom: 6 }}>Ingredientes</div>
+            {calcNecessariosHist(histDetalhe).map((item, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '0.5px solid var(--border)', fontSize: 13 }}>
+                <span style={{ color: 'var(--text-primary)' }}>{item.nome}</span>
+                <span style={{ fontWeight: 600 }}>{fmtQtd(item.necessario)}{item.unidade}</span>
+              </div>
+            ))}
+            {calcNecessariosHist(histDetalhe).length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', paddingTop: 8 }}>Receitas não encontradas — podem ter sido excluídas.</div>
+            )}
           </div>
         </>
       )}
