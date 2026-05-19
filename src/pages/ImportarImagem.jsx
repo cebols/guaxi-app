@@ -164,6 +164,183 @@ async function ocr(file, onProgress) {
   return text
 }
 
+// ── Image preprocessing ───────────────────────────────────────
+
+async function preprocessForOCR(blob) {
+  return new Promise((resolve) => {
+    const img = new Image()
+    const url = URL.createObjectURL(blob)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+
+      // Scale up small images — Tesseract reads better at ~2000px wide
+      const TARGET_W = 2000
+      const scale = img.width < TARGET_W ? TARGET_W / img.width : 1
+      const w = Math.round(img.width * scale)
+      const h = Math.round(img.height * scale)
+
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, w, h)
+
+      const id = ctx.getImageData(0, 0, w, h)
+      const d = id.data
+
+      // 1. Grayscale (luminance-weighted)
+      for (let i = 0; i < d.length; i += 4) {
+        const g = Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2])
+        d[i] = d[i + 1] = d[i + 2] = g
+      }
+
+      // 2. Contrast stretch — map [min,max] → [0,255]
+      let lo = 255, hi = 0
+      for (let i = 0; i < d.length; i += 4) { if (d[i] < lo) lo = d[i]; if (d[i] > hi) hi = d[i] }
+      const range = hi - lo || 1
+      for (let i = 0; i < d.length; i += 4) {
+        const v = Math.round(((d[i] - lo) / range) * 255)
+        d[i] = d[i + 1] = d[i + 2] = v
+      }
+
+      // 3. Sharpening via unsharp mask (kernel approximation on a copy)
+      const sharp = new Uint8ClampedArray(d)
+      const K = [[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]]
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          let s = 0
+          for (let ky = -1; ky <= 1; ky++)
+            for (let kx = -1; kx <= 1; kx++)
+              s += d[((y + ky) * w + (x + kx)) * 4] * K[ky + 1][kx + 1]
+          const v = Math.max(0, Math.min(255, s))
+          const idx = (y * w + x) * 4
+          sharp[idx] = sharp[idx + 1] = sharp[idx + 2] = v
+        }
+      }
+
+      // 4. Otsu binarization on sharpened image
+      const hist = new Array(256).fill(0)
+      for (let i = 0; i < sharp.length; i += 4) hist[sharp[i]]++
+      const total = sharp.length / 4
+      let sum = 0
+      for (let t = 0; t < 256; t++) sum += t * hist[t]
+      let sumB = 0, wB = 0, maxVar = 0, thr = 128
+      for (let t = 0; t < 256; t++) {
+        wB += hist[t]; if (!wB) continue
+        const wF = total - wB; if (!wF) break
+        sumB += t * hist[t]
+        const between = wB * wF * ((sumB / wB) - ((sum - sumB) / wF)) ** 2
+        if (between > maxVar) { maxVar = between; thr = t }
+      }
+      // Invert if background is dark (>50% pixels below threshold)
+      const darkPct = hist.slice(0, thr).reduce((s, v) => s + v, 0) / total
+      for (let i = 0; i < sharp.length; i += 4) {
+        const v = (sharp[i] < thr) !== (darkPct > 0.5) ? 0 : 255
+        sharp[i] = sharp[i + 1] = sharp[i + 2] = v
+        sharp[i + 3] = 255
+      }
+
+      ctx.putImageData(new ImageData(sharp, w, h), 0, 0)
+      canvas.toBlob(resolve, 'image/png')
+    }
+    img.src = url
+  })
+}
+
+// ── Crop tool ─────────────────────────────────────────────────
+
+function CropTool({ src, onConfirm, onSkip }) {
+  const containerRef = useRef()
+  const imgRef = useRef()
+  const [box, setBox] = useState({ x: 0.05, y: 0.05, w: 0.9, h: 0.9 })
+  const dragging = useRef(null)
+  const startPos = useRef(null)
+  const startBox = useRef(null)
+
+  function getPos(e) {
+    const rect = containerRef.current.getBoundingClientRect()
+    const src = e.touches ? e.touches[0] : e
+    return { x: (src.clientX - rect.left) / rect.width, y: (src.clientY - rect.top) / rect.height }
+  }
+
+  function startDrag(type, e) {
+    e.preventDefault(); e.stopPropagation()
+    dragging.current = type
+    startPos.current = getPos(e)
+    startBox.current = { ...box }
+  }
+
+  function onMove(e) {
+    if (!dragging.current) return
+    e.preventDefault()
+    const pos = getPos(e)
+    const dx = pos.x - startPos.current.x
+    const dy = pos.y - startPos.current.y
+    const MIN = 0.1
+    setBox(() => {
+      let { x, y, w, h } = startBox.current
+      const t = dragging.current
+      if (t === 'move') {
+        x = Math.max(0, Math.min(1 - w, x + dx)); y = Math.max(0, Math.min(1 - h, y + dy))
+      } else {
+        if (t.includes('l')) { const nx = Math.min(x + w - MIN, x + dx); w -= nx - x; x = nx }
+        if (t.includes('r')) { w = Math.max(MIN, Math.min(1 - x, w + dx)) }
+        if (t.includes('t')) { const ny = Math.min(y + h - MIN, y + dy); h -= ny - y; y = ny }
+        if (t.includes('b')) { h = Math.max(MIN, Math.min(1 - y, h + dy)) }
+      }
+      return { x, y, w, h }
+    })
+  }
+
+  function stopDrag() { dragging.current = null }
+
+  function applyCrop() {
+    const img = imgRef.current
+    const nw = img.naturalWidth, nh = img.naturalHeight
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(box.w * nw); canvas.height = Math.round(box.h * nh)
+    canvas.getContext('2d').drawImage(img, box.x * nw, box.y * nh, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height)
+    canvas.toBlob(onConfirm, 'image/jpeg', 0.95)
+  }
+
+  const H = 22
+  const corners = [
+    { key: 'tl', style: { top: -H / 2, left: -H / 2 } },
+    { key: 'tr', style: { top: -H / 2, right: -H / 2 } },
+    { key: 'bl', style: { bottom: -H / 2, left: -H / 2 } },
+    { key: 'br', style: { bottom: -H / 2, right: -H / 2 } },
+  ]
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, textAlign: 'center' }}>
+        Arraste as bordas para recortar a área da receita
+      </div>
+      <div ref={containerRef} style={{ position: 'relative', userSelect: 'none', touchAction: 'none', borderRadius: 8, overflow: 'hidden', cursor: 'crosshair' }}
+        onMouseMove={onMove} onMouseUp={stopDrag} onMouseLeave={stopDrag}
+        onTouchMove={onMove} onTouchEnd={stopDrag}
+      >
+        <img ref={imgRef} src={src} style={{ width: '100%', display: 'block', opacity: 0.35 }} draggable={false} />
+        {/* Bright crop window */}
+        <div style={{ position: 'absolute', left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, border: '2px solid var(--teal)', boxSizing: 'border-box', cursor: 'move', overflow: 'hidden' }}
+          onMouseDown={e => startDrag('move', e)} onTouchStart={e => startDrag('move', e)}>
+          {/* Full image clipped to crop rect */}
+          <img src={src} style={{ position: 'absolute', left: `${-box.x / box.w * 100}%`, top: `${-box.y / box.h * 100}%`, width: `${100 / box.w}%`, pointerEvents: 'none' }} draggable={false} />
+          {/* Corner handles */}
+          {corners.map(({ key, style }) => (
+            <div key={key} style={{ position: 'absolute', width: H, height: H, background: 'var(--teal)', borderRadius: 4, zIndex: 2, ...style }}
+              onMouseDown={e => startDrag(key, e)} onTouchStart={e => startDrag(key, e)} />
+          ))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button type="button" className="btn-outline-teal" onClick={onSkip} style={{ flex: 1 }}>Pular recorte</button>
+        <button type="button" className="btn-primary" onClick={applyCrop} style={{ flex: 2 }}>Recortar e analisar</button>
+      </div>
+    </div>
+  )
+}
+
 // ── Componente ────────────────────────────────────────────────
 
 const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
@@ -182,20 +359,32 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
   const [selecionados, setSelecionados] = useState([])
   const [erro, setErro] = useState('')
   const [done, setDone] = useState(false)
+  const [cropSrc, setCropSrc] = useState(null)
+  const rawFileRef = useRef(null)
   const isReceita = mode === 'receita'
 
   function handleFile(f) {
     if (!f) return
-    setFile(f)
-    setDone(false)
-    setErro('')
-    setProgresso(0)
+    setDone(false); setErro(''); setProgresso(0)
     if (f.type.startsWith('image/')) {
-      const url = URL.createObjectURL(f)
-      setPreview(url)
+      rawFileRef.current = f
+      setCropSrc(URL.createObjectURL(f))
+      setFile(null); setPreview(null)
     } else {
-      setPreview(null)
+      setFile(f); setPreview(null); setCropSrc(null)
     }
+  }
+
+  function handleCropConfirm(blob) {
+    const url = URL.createObjectURL(blob)
+    setFile(blob); setPreview(url); setCropSrc(null)
+    analyzeBlob(blob)
+  }
+
+  function handleCropSkip() {
+    const f = rawFileRef.current
+    if (f) { setFile(f); setPreview(URL.createObjectURL(f)) }
+    setCropSrc(null)
   }
 
   function handlePaste(e) {
@@ -216,13 +405,11 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
     return () => window.removeEventListener('paste', handlePaste)
   }, [])
 
-  async function handleAnalisar() {
-    if (!file) return
-    setAnalisando(true)
-    setErro('')
-    setProgresso(0)
+  async function analyzeBlob(blob) {
+    setAnalisando(true); setErro(''); setProgresso(0)
     try {
-      const texto = await ocr(file, setProgresso)
+      const processado = await preprocessForOCR(blob)
+      const texto = await ocr(processado, setProgresso)
       if (isReceita) {
         const ings = parseIngredientList(texto)
         if (ings.length === 0) {
@@ -304,7 +491,11 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
           <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
         </div>
 
-        {!done && (
+        {!done && cropSrc && (
+          <CropTool src={cropSrc} onConfirm={handleCropConfirm} onSkip={handleCropSkip} />
+        )}
+
+        {!done && !cropSrc && (
           <>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
               {isReceita
@@ -352,7 +543,7 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
             )}
 
             {file && !analisando && (
-              <button className="btn-primary" onClick={handleAnalisar}>
+              <button className="btn-primary" onClick={() => file && analyzeBlob(file)}>
                 🔍 Ler lista
               </button>
             )}
