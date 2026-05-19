@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { createWorker } from 'tesseract.js'
 import { saveInsumo } from '../services/db'
 
@@ -159,6 +159,7 @@ const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
 
 export default function ImportarImagem({ onClose, onImported, categorias = [], fornecedoresList = [], mode = 'insumos', insumosList = [], onIngredientesImportados }) {
   const inputRef = useRef()
+  const sheetRef = useRef()
   const [file, setFile] = useState(null)
   const [preview, setPreview] = useState(null)
   const [progresso, setProgresso] = useState(0)
@@ -197,6 +198,12 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
       }
     }
   }
+
+  useEffect(() => {
+    sheetRef.current?.focus()
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [])
 
   async function handleAnalisar() {
     if (!file) return
@@ -280,7 +287,7 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
   return (
     <>
       <div className="sheet-overlay" onClick={onClose} />
-      <div className="sheet" style={{ maxHeight: '92dvh', overflow: 'auto' }} onPaste={handlePaste}>
+      <div ref={sheetRef} className="sheet" style={{ maxHeight: '92dvh', overflow: 'auto' }} tabIndex={-1} onPaste={handlePaste} outline="none">
         <div className="sheet-title">
           <span>{isReceita ? 'Importar ingredientes' : 'Importar lista de preços'}</span>
           <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
