@@ -7,6 +7,7 @@ import {
   getInsumos, saveInsumo, deleteInsumo, deleteInsumos,
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
   getInsumoFornecedores, saveInsumoFornecedores, getAllInsumoFornecedores,
+  getEmbalagemFornecedores, saveEmbalagemFornecedores, getAllEmbalagemFornecedores,
   getInsumoCostHistory,
 } from '../services/db'
 
@@ -96,7 +97,7 @@ function calcCustoUnitInsumo(form) {
   return null
 }
 
-function SupplierFields({ s, i, unidade, onChange, children }) {
+function SupplierFields({ s, i, unidade, onChange, fornecedoresList = [], listId = 'sup-forn-list', children }) {
   const cu = parseFloat(s.pesoEmb) > 0 && parseFloat(s.custoEmb) > 0
     ? parseFloat(s.custoEmb) / parseFloat(s.pesoEmb) : null
   const upd = (k, v) => onChange(i, k, v)
@@ -109,7 +110,20 @@ function SupplierFields({ s, i, unidade, onChange, children }) {
         </div>
         <div>
           <div className="field-label">Fornecedor</div>
-          <input className="field-input" placeholder="Nome" value={s.fornecedor} onChange={e => upd('fornecedor', e.target.value)} />
+          <input
+            className="field-input"
+            list={listId}
+            placeholder="Nome"
+            value={s.fornecedor}
+            onChange={e => {
+              upd('fornecedor', e.target.value)
+              const match = fornecedoresList.find(f => f.nome === e.target.value)
+              if (match) upd('telefone', match.whatsapp || '')
+            }}
+          />
+          <datalist id={listId}>
+            {fornecedoresList.map(f => <option key={f.nome} value={f.nome} />)}
+          </datalist>
         </div>
       </div>
       <div className="field-row">
@@ -332,7 +346,7 @@ function InsumoForm({ item, categorias, fornecedoresList, onSave, onDelete, onDu
                     <button className="item-rm" onClick={() => removeSup(i)}>×</button>
                   )}
                 </div>
-                <SupplierFields s={s} i={i} unidade={form.unidade} onChange={updSup} />
+                <SupplierFields s={s} i={i} unidade={form.unidade} onChange={updSup} fornecedoresList={fornecedoresList} listId={`ins-forn-${i}`} />
               </div>
             )
           })}
@@ -374,7 +388,9 @@ const EMB_EMPTY = {
   linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '',
 }
 
-function EmbalagemForm({ item, categorias, fornecedoresList, onSave, onDelete, onClose }) {
+const EMB_SUP_EMPTY = { fornecedor: '', qtdCompra: '', custoCompra: '', linkCompra: '', telefone: '', marca: '', pesoEmb: '', custoEmb: '' }
+
+function EmbalagemForm({ item, categorias, fornecedoresList, onSave, onDelete, onDuplicate, onClose }) {
   const [form, setForm] = useState(item ? {
     ...item,
     qtdCompra: item.qtdCompra || '',
@@ -383,8 +399,39 @@ function EmbalagemForm({ item, categorias, fornecedoresList, onSave, onDelete, o
     estoqueAtual: item.estoqueAtual ?? '',
     estoqueMin: item.estoqueMin || '',
   } : EMB_EMPTY)
+
+  const mainSupplier = item ? {
+    fornecedor: item.fornecedor || '',
+    qtdCompra: item.qtdCompra > 0 ? String(item.qtdCompra) : '',
+    custoCompra: item.custoCompra > 0 ? String(item.custoCompra) : '',
+    linkCompra: item.linkCompra || '',
+    telefone: item.whatsapp || '',
+    marca: '', pesoEmb: '', custoEmb: '',
+  } : null
+  const [suppliers, setSuppliers] = useState(mainSupplier ? [mainSupplier] : [])
+  const [primaryIdx, setPrimaryIdx] = useState(0)
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    if (!item?.id) return
+    getEmbalagemFornecedores(item.id)
+      .then(fontes => setSuppliers([mainSupplier, ...fontes.map(f => ({
+        fornecedor: f.fornecedor || '',
+        qtdCompra: f.qtdCompra > 0 ? String(f.qtdCompra) : '',
+        custoCompra: f.custoCompra > 0 ? String(f.custoCompra) : '',
+        linkCompra: f.linkCompra || '',
+        telefone: f.telefone || '',
+        marca: '', pesoEmb: '', custoEmb: '',
+      }))]))
+      .catch(() => {})
+  }, [item?.id])
+
+  const updSup = (i, k, v) => setSuppliers(prev => prev.map((s, idx) => idx === i ? { ...s, [k]: v } : s))
+  const removeSup = i => {
+    setSuppliers(prev => prev.filter((_, idx) => idx !== i))
+    if (primaryIdx >= i && primaryIdx > 0) setPrimaryIdx(p => p - 1)
+  }
 
   const qtdCompra = parseFloat(form.qtdCompra) || 0
   const custoCompra = parseFloat(form.custoCompra) || 0
@@ -394,7 +441,20 @@ function EmbalagemForm({ item, categorias, fornecedoresList, onSave, onDelete, o
     if (!form.nome) return
     setSaving(true)
     try {
-      await onSave(form)
+      if (item) {
+        const primary = suppliers[primaryIdx] || suppliers[0] || {}
+        const others = suppliers.filter((_, i) => i !== primaryIdx)
+        await onSave({
+          ...form,
+          fornecedor: primary.fornecedor || '',
+          qtdCompra: primary.qtdCompra || form.qtdCompra,
+          custoCompra: primary.custoCompra || form.custoCompra,
+          linkCompra: primary.linkCompra || form.linkCompra,
+          whatsapp: primary.telefone || '',
+        }, others)
+      } else {
+        await onSave(form, [])
+      }
       if (keepOpen) setForm(EMB_EMPTY)
       else onClose()
     } catch (e) { alert(e.message) } finally { setSaving(false) }
@@ -410,22 +470,35 @@ function EmbalagemForm({ item, categorias, fornecedoresList, onSave, onDelete, o
       <input className="field-input" list="cats-embalagem" placeholder="ex: Caixas" value={form.categoria} onChange={e => set('categoria', e.target.value)} />
       <datalist id="cats-embalagem">{(categorias || []).map(c => <option key={c} value={c} />)}</datalist>
 
-      <div className="section-label" style={{ marginTop: 4 }}>Precificação</div>
-      <div className="field-row">
-        <div>
-          <div className="field-label">Qtd. na compra (un)</div>
-          <input className="field-input" type="text" inputMode="decimal" min="1" step="1" placeholder="ex: 10" value={form.qtdCompra} onChange={e => set('qtdCompra', e.target.value)} />
-        </div>
-        <div>
-          <div className="field-label">Custo da compra (R$)</div>
-          <input className="field-input" type="text" inputMode="decimal" min="0" step="0.01" placeholder="0,00" value={form.custoCompra} onChange={e => set('custoCompra', e.target.value)} />
-        </div>
-      </div>
-
-      {custoUnitCalc !== null && <CalcBadge label="Custo por unidade" value={custoUnitCalc} />}
-
-      <div className="field-label">Link da Shopee / loja</div>
-      <input className="field-input" type="url" placeholder="https://shopee.com.br/..." value={form.linkCompra} onChange={e => set('linkCompra', e.target.value)} />
+      {/* Criar modo: campos inline */}
+      {!item && (
+        <>
+          <div className="section-label" style={{ marginTop: 4 }}>Precificação</div>
+          <div className="field-row">
+            <div>
+              <div className="field-label">Qtd. na compra (un)</div>
+              <input className="field-input" type="text" inputMode="decimal" min="1" step="1" placeholder="ex: 10" value={form.qtdCompra} onChange={e => set('qtdCompra', e.target.value)} />
+            </div>
+            <div>
+              <div className="field-label">Custo da compra (R$)</div>
+              <input className="field-input" type="text" inputMode="decimal" min="0" step="0.01" placeholder="0,00" value={form.custoCompra} onChange={e => set('custoCompra', e.target.value)} />
+            </div>
+          </div>
+          {custoUnitCalc !== null && <CalcBadge label="Custo por unidade" value={custoUnitCalc} />}
+          <div className="field-label">Link da Shopee / loja</div>
+          <input className="field-input" type="url" placeholder="https://shopee.com.br/..." value={form.linkCompra} onChange={e => set('linkCompra', e.target.value)} />
+          <div className="section-label" style={{ marginTop: 4 }}>Fornecedor</div>
+          <input className="field-input" list="forn-emb-new" placeholder="Nome do fornecedor" value={form.fornecedor}
+            onChange={e => {
+              set('fornecedor', e.target.value)
+              const match = (fornecedoresList || []).find(f => f.nome === e.target.value)
+              if (match) set('whatsapp', match.whatsapp || '')
+            }} />
+          <datalist id="forn-emb-new">{(fornecedoresList || []).map(f => <option key={f.nome} value={f.nome} />)}</datalist>
+          <div className="field-label">Telefone</div>
+          <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
+        </>
+      )}
 
       <div className="section-label" style={{ marginTop: 4 }}>Estoque</div>
       <div className="field-row">
@@ -439,17 +512,71 @@ function EmbalagemForm({ item, categorias, fornecedoresList, onSave, onDelete, o
         </div>
       </div>
 
-      <div className="section-label" style={{ marginTop: 4 }}>Fornecedor</div>
-      <input className="field-input" list="forn-emb" placeholder="Nome do fornecedor" value={form.fornecedor}
-        onChange={e => {
-          const val = e.target.value
-          set('fornecedor', val)
-          const match = (fornecedoresList || []).find(f => f.nome === val)
-          if (match) set('whatsapp', match.whatsapp || '')
-        }} />
-      <datalist id="forn-emb">{(fornecedoresList || []).map(f => <option key={f.nome} value={f.nome} />)}</datalist>
-      <div className="field-label">Telefone</div>
-      <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
+      {/* Editar modo: multi-fornecedor */}
+      {item && (
+        <>
+          <div className="section-label" style={{ marginTop: 8 }}>Fornecedores</div>
+          {suppliers.map((s, i) => {
+            const isPrimary = i === primaryIdx
+            const cu = parseFloat(s.qtdCompra) > 0 && parseFloat(s.custoCompra) > 0
+              ? parseFloat(s.custoCompra) / parseFloat(s.qtdCompra) : null
+            return (
+              <div key={i} style={{
+                border: isPrimary ? '2px solid var(--teal)' : '1px solid var(--border)',
+                borderRadius: 12, padding: '12px 14px', marginBottom: 10,
+                background: isPrimary ? 'rgba(20,184,166,0.06)' : 'var(--card-bg)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  {isPrimary
+                    ? <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--teal)', background: 'rgba(20,184,166,0.15)', padding: '3px 10px', borderRadius: 10 }}>✓ Prioritário</span>
+                    : <button onClick={() => setPrimaryIdx(i)} style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', background: 'transparent', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: 10, cursor: 'pointer' }}>Definir como prioritário</button>
+                  }
+                  {suppliers.length > 1 && <button className="item-rm" onClick={() => removeSup(i)}>×</button>}
+                </div>
+                <div>
+                  <div className="field-label">Fornecedor</div>
+                  <input
+                    className="field-input"
+                    list={`emb-forn-list-${i}`}
+                    placeholder="Nome"
+                    value={s.fornecedor}
+                    onChange={e => {
+                      updSup(i, 'fornecedor', e.target.value)
+                      const match = (fornecedoresList || []).find(f => f.nome === e.target.value)
+                      if (match) updSup(i, 'telefone', match.whatsapp || '')
+                    }}
+                  />
+                  <datalist id={`emb-forn-list-${i}`}>
+                    {(fornecedoresList || []).map(f => <option key={f.nome} value={f.nome} />)}
+                  </datalist>
+                </div>
+                <div className="field-row">
+                  <div>
+                    <div className="field-label">Qtd. na compra (un)</div>
+                    <input className="field-input" type="text" inputMode="decimal" placeholder="ex: 10" value={s.qtdCompra} onChange={e => updSup(i, 'qtdCompra', e.target.value)} />
+                  </div>
+                  <div>
+                    <div className="field-label">Custo (R$)</div>
+                    <input className="field-input" type="text" inputMode="decimal" placeholder="0,00" value={s.custoCompra} onChange={e => updSup(i, 'custoCompra', e.target.value)} />
+                  </div>
+                </div>
+                {cu !== null && (
+                  <div style={{ fontSize: 11, color: 'var(--teal)', marginBottom: 6 }}>
+                    R$ {cu.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/un
+                  </div>
+                )}
+                <div className="field-label">Link da loja</div>
+                <input className="field-input" type="url" placeholder="https://..." value={s.linkCompra} onChange={e => updSup(i, 'linkCompra', e.target.value)} />
+                <div className="field-label">Telefone</div>
+                <input className="field-input" type="tel" placeholder="11 9 1234-5678" value={s.telefone} onChange={e => updSup(i, 'telefone', e.target.value)} />
+              </div>
+            )
+          })}
+          <button className="btn-add-item" style={{ marginBottom: 12 }} onClick={() => setSuppliers(prev => [...prev, { ...EMB_SUP_EMPTY }])}>
+            + novo fornecedor
+          </button>
+        </>
+      )}
 
       <button className="btn-primary" onClick={() => handle(false)} disabled={saving || !form.nome}>
         {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar embalagem'}
@@ -457,6 +584,14 @@ function EmbalagemForm({ item, categorias, fornecedoresList, onSave, onDelete, o
       {!item && (
         <button className="btn-outline-teal" onClick={() => handle(true)} disabled={saving || !form.nome}>
           Salvar e adicionar outro
+        </button>
+      )}
+      {item && (
+        <button className="btn-outline-teal" onClick={async () => {
+          try { await onDuplicate(item, suppliers); onClose() }
+          catch (e) { alert(e.message) }
+        }}>
+          Duplicar embalagem
         </button>
       )}
       {item && (
@@ -622,7 +757,8 @@ export default function Cadastros() {
 
   const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
   const { data: embalagens, loading: lEmb, reload: rEmb } = useData(getEmbalagens)
-  const { data: todasFontes, reload: rFontes } = useData(getAllInsumoFornecedores)
+  const { data: todasFontes,    reload: rFontes }    = useData(getAllInsumoFornecedores)
+  const { data: todasFontesEmb, reload: rFontesEmb } = useData(getAllEmbalagemFornecedores)
   const { data: costHistory, reload: rHist } = useData(() => getInsumoCostHistory(12))
 
   const fontesMap = useMemo(() => {
@@ -708,7 +844,30 @@ export default function Cadastros() {
       rIns(); rFontes(); show('Prioritário atualizado!')
     },
   }
-  const embActions = { save: withReload(saveEmbalagem, rEmb), del: withReload(deleteEmbalagem, rEmb) }
+  const embActions = {
+    save: async (form, fontes) => {
+      const data = await saveEmbalagem(form)
+      if (fontes?.length > 0 || form.id) {
+        const qtd = parseFloat(form.qtdCompra) || 0
+        const custo = parseFloat(form.custoCompra) || 0
+        const mainCusto = qtd > 0 ? custo / qtd : 0
+        await saveEmbalagemFornecedores(data?.id || form.id, fontes || [], mainCusto)
+      }
+      rEmb(); rFontesEmb(); show('Salvo!')
+    },
+    del: withReload(deleteEmbalagem, rEmb),
+    dup: async (item, suppliers) => {
+      const copy = { ...item, id: undefined, nome: `${item.nome} (cópia)` }
+      const data = await saveEmbalagem(copy)
+      const fontes = (suppliers || []).slice(1).map(s => ({ ...s }))
+      if (fontes.length > 0) {
+        const qtd = parseFloat(copy.qtdCompra) || 0
+        const custo = parseFloat(copy.custoCompra) || 0
+        await saveEmbalagemFornecedores(data.id, fontes, qtd > 0 ? custo / qtd : 0)
+      }
+      rEmb(); rFontesEmb(); show('Duplicado!')
+    },
+  }
 
   const loading = tab === 'insumos' ? lIns : lEmb
   const openNew = () => setSheet({ type: tab === 'embalagens' ? 'embalagem' : 'insumo' })
@@ -1006,7 +1165,7 @@ export default function Cadastros() {
         <InsumoForm item={sheet.item} categorias={catsInsumo} fornecedoresList={fornecedores} onSave={insActions.save} onDelete={insActions.del} onDuplicate={insActions.dup} onClose={() => setSheet(null)} />
       )}
       {sheet?.type === 'embalagem' && (
-        <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} fornecedoresList={fornecedores} onSave={embActions.save} onDelete={embActions.del} onClose={() => setSheet(null)} />
+        <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} fornecedoresList={fornecedores} onSave={embActions.save} onDelete={embActions.del} onDuplicate={embActions.dup} onClose={() => setSheet(null)} />
       )}
 
       {bulkDelete && (

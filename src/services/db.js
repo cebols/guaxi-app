@@ -235,7 +235,64 @@ export async function saveEmbalagem(emb) {
     telefone: emb.telefone || '',
     whatsapp: emb.whatsapp || '',
   }
-  await upsert('embalagens', row, emb.id || null, ['link_compra'])
+  const data = await upsert('embalagens', row, emb.id || null, ['link_compra'])
+  return data
+}
+
+export async function getEmbalagemFornecedores(embId) {
+  const { data, error } = await supabase.from('embalagem_fornecedores').select('*').eq('embalagem_id', embId).order('id')
+  if (error?.code === '42P01') return []
+  if (error) throw error
+  return (data || []).map(f => ({
+    id: f.id,
+    embalagemId: f.embalagem_id,
+    fornecedor: f.fornecedor || '',
+    qtdCompra: f.qtd_compra || 0,
+    custoCompra: f.custo_compra || 0,
+    custoUnit: f.custo_unit || 0,
+    linkCompra: f.link_compra || '',
+    telefone: f.telefone || '',
+  }))
+}
+
+export async function saveEmbalagemFornecedores(embId, fontes, mainCustoUnit = 0) {
+  const { error: delErr } = await supabase.from('embalagem_fornecedores').delete().eq('embalagem_id', embId)
+  if (delErr?.code !== '42P01' && delErr) throw delErr
+
+  const valid = fontes.filter(f => f.fornecedor || parseFloat(f.custoCompra) > 0)
+  if (valid.length === 0) return
+
+  const rows = valid.map(f => {
+    const qtdCompra  = parseFloat(f.qtdCompra)  || 0
+    const custoCompra = parseFloat(f.custoCompra) || 0
+    const custoUnit = qtdCompra > 0 ? custoCompra / qtdCompra : 0
+    return { embalagem_id: embId, fornecedor: f.fornecedor || '', qtd_compra: qtdCompra, custo_compra: custoCompra, custo_unit: custoUnit, link_compra: f.linkCompra || '', telefone: f.telefone || '' }
+  })
+
+  const { error: insErr } = await supabase.from('embalagem_fornecedores').insert(rows)
+  if (insErr?.code !== '42P01' && insErr) throw insErr
+
+  const priority = rows.find(r => r.custo_unit > 0)
+  const effectiveCost = priority ? priority.custo_unit : (mainCustoUnit > 0 ? mainCustoUnit : null)
+  if (effectiveCost != null) {
+    await supabase.from('embalagens').update({ custo_unit: effectiveCost }).eq('id', embId)
+  }
+}
+
+export async function getAllEmbalagemFornecedores() {
+  const { data, error } = await supabase.from('embalagem_fornecedores').select('*')
+  if (error?.code === '42P01') return []
+  if (error) throw error
+  return (data || []).map(f => ({
+    id: f.id,
+    embalagemId: f.embalagem_id,
+    fornecedor: f.fornecedor || '',
+    qtdCompra: f.qtd_compra || 0,
+    custoCompra: f.custo_compra || 0,
+    custoUnit: f.custo_unit || 0,
+    linkCompra: f.link_compra || '',
+    telefone: f.telefone || '',
+  }))
 }
 
 export async function deleteEmbalagem(id) {

@@ -313,3 +313,21 @@ CREATE INDEX IF NOT EXISTS idx_ich_user_week ON insumo_cost_history (user_id, we
 ALTER TABLE insumo_cost_history ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "own_data" ON insumo_cost_history;
 CREATE POLICY "own_data" ON insumo_cost_history FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+-- ── Embalagem fornecedores (multi-supplier) ──────────────────
+CREATE TABLE IF NOT EXISTS embalagem_fornecedores (
+  id           bigserial primary key,
+  embalagem_id bigint not null references embalagens(id) on delete cascade,
+  fornecedor   text not null default '',
+  qtd_compra   numeric not null default 0,
+  custo_compra numeric not null default 0,
+  custo_unit   numeric not null default 0,
+  link_compra  text default '',
+  telefone     text default '',
+  user_id      uuid default auth.uid() references auth.users(id) on delete cascade,
+  created_at   timestamptz default now()
+);
+CREATE INDEX IF NOT EXISTS idx_emb_forn_emb_id ON embalagem_fornecedores (embalagem_id);
+ALTER TABLE embalagem_fornecedores ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own_data" ON embalagem_fornecedores;
+CREATE POLICY "own_data" ON embalagem_fornecedores FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
