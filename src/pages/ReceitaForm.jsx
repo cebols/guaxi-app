@@ -184,7 +184,7 @@ export default function ReceitaForm() {
   const { data: insumos, loading: loadIns, reload: rIns } = useData(getInsumos)
 
   const [form, setForm] = useState({
-    nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'un', fatorPerda: '', porcoes: '',
+    nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'g', fatorPerda: '', porcoes: '',
     tempoForno: '', tempForno: '', tempoResfriamento: '', tipoResfriamento: '',
   })
   const [steps, setSteps] = useState([])
@@ -221,7 +221,7 @@ export default function ReceitaForm() {
       nome: rec.nome,
       tipo: rec.tipo || 'Outro',
       rendimento: rec.rendimento || '',
-      unidadeGera: rec.unidadeGera || 'un',
+      unidadeGera: rec.unidadeGera || 'g',
       fatorPerda: rec.fatorPerda != null ? String(rec.fatorPerda) : '',
       porcoes: rec.porcoes ? String(rec.porcoes) : '',
       tempoForno: rec.tempoForno != null ? String(rec.tempoForno) : '',
