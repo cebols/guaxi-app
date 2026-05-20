@@ -45,8 +45,6 @@ export default function Cozinha() {
   const [fator, setFator] = useState(1)
   const [pesoInput, setPesoInput] = useState('')
   const [checked, setChecked] = useState({})
-  const [checkedStep, setCheckedStep] = useState({})
-  const [modo, setModo] = useState('compacto')
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmExcluir, setConfirmExcluir] = useState(false)
 
@@ -75,11 +73,6 @@ export default function Cozinha() {
     setChecked(prev => ({ ...prev, [i]: !prev[i] }))
     if (navigator.vibrate) navigator.vibrate(30)
   }
-  const toggleStep = (i) => {
-    setCheckedStep(prev => ({ ...prev, [i]: !prev[i] }))
-    if (navigator.vibrate) navigator.vibrate(30)
-  }
-
   const checkedCount = Object.values(checked).filter(Boolean).length
 
   return (
@@ -91,18 +84,6 @@ export default function Cozinha() {
             <div className="topbar-sub">Modo cozinha</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {['compacto', 'detalhado'].map(m => (
-                <button key={m} onClick={() => setModo(m)} style={{
-                  padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                  border: '1px solid',
-                  borderColor: modo === m ? 'var(--teal)' : 'var(--border)',
-                  background: modo === m ? 'var(--teal-light)' : 'transparent',
-                  color: modo === m ? 'var(--teal)' : 'var(--text-secondary)',
-                  textTransform: 'capitalize',
-                }}>{m.charAt(0).toUpperCase() + m.slice(1)}</button>
-              ))}
-            </div>
             <div style={{ position: 'relative' }}>
               <button onClick={() => setMenuOpen(o => !o)} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 11px', fontSize: 16, cursor: 'pointer', color: 'var(--text-secondary)', lineHeight: 1 }}>···</button>
               {menuOpen && (
@@ -159,65 +140,35 @@ export default function Cozinha() {
           </div>
         ) : (
           <>
-            {/* DOSES + RENDIMENTO — compact controls */}
-            <div className="card" style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Doses</span>
+            {/* DOSES + RENDIMENTO */}
+            <div className="card" style={{ padding: '12px 16px', marginBottom: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)', flexShrink: 0 }}>Doses</span>
                 <input
                   type="text"
                   inputMode="decimal"
                   value={fator}
                   onChange={e => onFatorChange(e.target.value)}
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 700,
-                    width: 56,
-                    background: 'var(--surface2)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 8,
-                    outline: 'none',
-                    textAlign: 'center',
-                    color: 'var(--text-primary)',
-                    padding: '4px 0',
-                  }}
+                  style={{ fontSize: 22, fontWeight: 700, width: 56, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--text-primary)', padding: '4px 0', flexShrink: 0 }}
                 />
-                <span style={{ fontSize: 16, color: 'var(--text-secondary)' }}>×</span>
-              </div>
-
-              {pesoBase > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Rendimento</span>
+                {pesoBase > 0 && <>
+                  <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>×</span>
                   <input
                     type="text"
                     inputMode="decimal"
                     value={pesoInput || Math.round(pesoBase * fator).toLocaleString('pt-BR')}
                     onChange={e => onPesoChange(e.target.value)}
-                    style={{
-                      fontSize: 22,
-                      fontWeight: 700,
-                      background: 'var(--surface2)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      outline: 'none',
-                      textAlign: 'center',
-                      color: 'var(--text-primary)',
-                      padding: '4px 8px',
-                      minWidth: `${Math.max(64, String(Math.round(pesoBase * fator)).length * 14 + 16)}px`,
-                    }}
+                    style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--text-primary)', padding: '4px 0', flexShrink: 0 }}
                   />
-                  <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>g</span>
-                  {receita.rendimento > 0 && (
-                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                      · {Math.round(receita.rendimento * fator)} un
-                    </span>
-                  )}
-                </div>
-              )}
+                  <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g
+                    {receita.rendimento > 0 && ` · ${Math.round(receita.rendimento * fator)} un`}
+                  </span>
+                </>}
+              </div>
             </div>
 
-            {/* INGREDIENTES checklist — Compacto mode */}
-            {modo === 'compacto' && (
-              <>
+            {/* INGREDIENTES checklist */}
+            <>
                 <div style={{ fontSize: 11, letterSpacing: 2, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
                   Ingredientes · {checkedCount} de {ingredientes.length} prontos
                 </div>
@@ -291,11 +242,9 @@ export default function Cozinha() {
                     )
                   })}
                 </div>
-              </>
-            )}
+            </>
 
-            {/* DETALHADO mode — steps with ingredient chips */}
-            {modo === 'detalhado' && (() => {
+            {/* detalhado removed */ false && (() => {
               const steps = receita.instrucoes ? parseInstrucoes(receita.instrucoes) : []
               if (!Array.isArray(steps) || steps.length === 0) {
                 // fallback to ingredient checklist
