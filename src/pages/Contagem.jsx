@@ -25,21 +25,38 @@ function calcPedir(atual, min) {
   return Math.max(0, m - a)
 }
 
+function fmt(v) {
+  return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function fmtQtd(v) {
+  const n = Number(v || 0)
+  return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+}
+
+function fmtN(v) {
+  const n = Number(v || 0)
+  return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+}
+
+function normStr(s) {
+  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+function getStep(unidade) {
+  const u = (unidade || '').toLowerCase()
+  if (u === 'g' || u === 'ml') return 100
+  return 1
+}
+
+// ─── ListaCompras ───────────────────────────────────────────────────────────
 function ListaCompras({ contagem, itens }) {
   const pedir = itens
     .map(item => {
       const val = parseFloat(contagem[item.id] ?? item.estoqueAtual)
       const falta = calcPedir(val, item.estoqueMin)
       if (!falta || falta <= 0) return null
-      return {
-        id: item.id,
-        nome: item.nome,
-        falta,
-        unidade: item.unidade || '',
-        whatsapp: item.whatsapp || '',
-        fornecedor: item.fornecedor || '',
-        linkCompra: item.linkCompra || '',
-      }
+      return { id: item.id, nome: item.nome, falta, unidade: item.unidade || '', whatsapp: item.whatsapp || '', fornecedor: item.fornecedor || '', linkCompra: item.linkCompra || '' }
     })
     .filter(Boolean)
 
@@ -66,22 +83,11 @@ function ListaCompras({ contagem, itens }) {
         const waComMsg = wa ? `${wa}?text=${encodeURIComponent(`Olá! Preciso pedir:\n${msg}`)}` : null
         return (
           <div key={gi} style={{ marginBottom: gi < arr.length - 1 ? 12 : 0 }}>
-            {grupo.fornecedor && (
-              <div style={{ fontSize: 11, color: 'var(--warn-text)', fontWeight: 600, marginBottom: 4, opacity: 0.8 }}>
-                {grupo.fornecedor}
-              </div>
-            )}
+            {grupo.fornecedor && <div style={{ fontSize: 11, color: 'var(--warn-text)', fontWeight: 600, marginBottom: 4, opacity: 0.8 }}>{grupo.fornecedor}</div>}
             {grupo.items.map((p, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                <span style={{ fontSize: 12, color: 'var(--warn-text)', flex: 1 }}>
-                  · {p.nome}: {p.falta} {p.unidade}
-                </span>
-                {p.linkCompra && (
-                  <a href={p.linkCompra} target="_blank" rel="noreferrer"
-                    style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-                    Ver loja
-                  </a>
-                )}
+                <span style={{ fontSize: 12, color: 'var(--warn-text)', flex: 1 }}>· {p.nome}: {p.falta} {p.unidade}</span>
+                {p.linkCompra && <a href={p.linkCompra} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', whiteSpace: 'nowrap' }}>Ver loja</a>}
               </div>
             ))}
             {waComMsg && (
@@ -97,8 +103,8 @@ function ListaCompras({ contagem, itens }) {
   )
 }
 
+// ─── StockTab ────────────────────────────────────────────────────────────────
 function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', filtro = 'todos' }) {
-  // Apply filter
   const filtered = useMemo(() => {
     if (filtro === 'todos') return itens
     return itens.filter(item => {
@@ -112,24 +118,16 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', 
   }, [itens, contagem, minValues, filtro])
 
   const grupos = groupBy(filtered, 'categoria')
-
-  // Flat ordered list for Enter-to-next navigation
-  const orderedIds = useMemo(() =>
-    Object.values(grupos).flat().map(i => i.id),
-    [grupos]
-  )
+  const orderedIds = useMemo(() => Object.values(grupos).flat().map(i => i.id), [grupos])
   const inputRefs = useRef({})
+
   const handleKey = (id) => (e) => {
     if (e.key === 'Enter') {
       e.preventDefault()
       const idx = orderedIds.indexOf(id)
       const nextId = orderedIds[idx + 1]
-      if (nextId && inputRefs.current[nextId]) {
-        inputRefs.current[nextId].focus()
-        inputRefs.current[nextId].select()
-      } else {
-        e.target.blur()
-      }
+      if (nextId && inputRefs.current[nextId]) { inputRefs.current[nextId].focus(); inputRefs.current[nextId].select() }
+      else e.target.blur()
     }
   }
 
@@ -158,8 +156,7 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', 
                       ref={el => { if (el) inputRefs.current[item.id] = el }}
                       className="stock-input"
                       type="text" inputMode="decimal" min="0"
-                      value={val}
-                      placeholder="—"
+                      value={val} placeholder="—"
                       onChange={e => onChange(item.id, e.target.value)}
                       onKeyDown={handleKey(item.id)}
                       onFocus={e => e.target.select()}
@@ -177,22 +174,13 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', 
   )
 }
 
-function fmt(v) {
-  return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function fmtQtd(v) {
-  const n = Number(v || 0)
-  return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
-}
-
+// ─── GastosTab ───────────────────────────────────────────────────────────────
 function GastosTab() {
   const { data: compras, loading, reload } = useData(getCompras)
   const { show, toast } = useToast()
   const [filtro, setFiltro] = useState('todos')
 
-  const hoje = new Date()
-  const mesAtual = hoje.toISOString().slice(0, 7) // YYYY-MM
+  const mesAtual = new Date().toISOString().slice(0, 7)
 
   const filtradas = useMemo(() => {
     if (!compras) return []
@@ -231,26 +219,18 @@ function GastosTab() {
   if (!compras || compras.length === 0) return (
     <div className="empty" style={{ marginTop: 24 }}>
       <span>Nenhuma compra registrada ainda</span>
-      <span style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
-        As compras são detectadas automaticamente quando o estoque sobe na contagem
-      </span>
     </div>
   )
 
   return (
     <>
-      {/* Resumo mês */}
       <div className="card" style={{ background: 'var(--bg-secondary)', marginBottom: 12 }}>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Gasto este mês</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--teal)', marginTop: 2 }}>
-          R$ {fmt(totalMes)}
-        </div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--teal)', marginTop: 2 }}>R$ {fmt(totalMes)}</div>
         <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
           {filtradas.filter(c => c.data?.startsWith(mesAtual)).length} compras registradas
         </div>
       </div>
-
-      {/* Filtro tipo */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         {[['todos', 'Todos'], ['insumo', 'Insumos'], ['embalagem', 'Embalagens']].map(([val, label]) => (
           <button key={val} onClick={() => setFiltro(val)} style={{
@@ -261,8 +241,6 @@ function GastosTab() {
           }}>{label}</button>
         ))}
       </div>
-
-      {/* Lista por mês */}
       {porMes.map(([mes, itens]) => {
         const totalGrupo = itens.reduce((s, c) => s + (c.total || 0), 0)
         return (
@@ -273,15 +251,9 @@ function GastosTab() {
             </div>
             <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
               {itens.map((c, i) => (
-                <div key={c.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '10px 0',
-                  borderBottom: i < itens.length - 1 ? '1px solid #222' : 'none',
-                }}>
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: i < itens.length - 1 ? '1px solid #222' : 'none' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {c.itemNome}
-                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.itemNome}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
                       {fmtQtd(c.quantidade)} {c.unidade}
                       {c.precoUnit > 0 && ` · R$ ${fmt(c.precoUnit)}/${c.unidade || 'un'}`}
@@ -296,9 +268,7 @@ function GastosTab() {
                       {c.data ? new Date(c.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''}
                     </div>
                   </div>
-                  <button onClick={() => handleDelete(c.id)} style={{
-                    background: 'none', border: 'none', color: '#555', fontSize: 16, cursor: 'pointer', padding: '4px 6px', flexShrink: 0,
-                  }} title="Remover">×</button>
+                  <button onClick={() => handleDelete(c.id)} style={{ background: 'none', border: 'none', color: '#555', fontSize: 16, cursor: 'pointer', padding: '4px 6px', flexShrink: 0 }} title="Remover">×</button>
                 </div>
               ))}
             </div>
@@ -310,160 +280,28 @@ function GastosTab() {
   )
 }
 
-function fmtN(v) {
-  const n = Number(v || 0)
-  return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
-}
-
-function normStr(s) {
-  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-}
-
-function NovaCompraModal({ insumos, embalagens, onSalvar, onFechar, saving }) {
-  const [busca, setBusca] = useState('')
-  const [qtds, setQtds] = useState({})
-  const [fornSel, setFornSel] = useState({})
-  const [fornOpts, setFornOpts] = useState({})
-
-  const todos = useMemo(() => [
-    ...(insumos || []).map(i => ({ ...i, _tipo: 'insumo' })),
-    ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem' })),
-  ], [insumos, embalagens])
-
-  const filtered = useMemo(() => {
-    if (!busca) return todos
-    const q = normStr(busca)
-    return todos.filter(i => normStr(i.nome).includes(q) || normStr(i.categoria || '').includes(q))
-  }, [todos, busca])
-
-  async function handleQty(item, val) {
-    setQtds(q => ({ ...q, [item.id]: val }))
-    if (item._tipo === 'insumo' && parseFloat(val) > 0 && !fornOpts[item.id]) {
-      try {
-        const fs = await getInsumoFornecedores(item.id)
-        const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0 }] : [])
-        setFornOpts(o => ({ ...o, [item.id]: opts }))
-        if (opts.length > 0) setFornSel(s => ({ ...s, [item.id]: s[item.id] || opts[0] }))
-      } catch {}
-    }
-  }
-
-  const totalCompra = useMemo(() => todos.reduce((sum, item) => {
-    const qty = parseFloat(qtds[item.id] || '0')
-    if (qty <= 0) return sum
-    const sel = fornSel[item.id]
-    const price = sel?.custoUnit ?? item.custoUnit ?? 0
-    return sum + qty * price
-  }, 0), [todos, qtds, fornSel])
-
-  const temItens = todos.some(i => parseFloat(qtds[i.id] || '0') > 0)
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
-      onClick={e => { if (e.target === e.currentTarget) onFechar() }}>
-      <div style={{ background: 'var(--bg-primary)', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 680, margin: '0 auto', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '20px 20px 0' }}>
-        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>Registrar compra</div>
-        <input
-          value={busca}
-          onChange={e => setBusca(e.target.value)}
-          placeholder="Buscar item..."
-          autoFocus
-          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box', marginBottom: 12 }}
-        />
-        <div style={{ overflowY: 'auto', flex: 1 }}>
-          {filtered.map((item, i) => {
-            const qty = qtds[item.id] || ''
-            const hasQty = parseFloat(qty) > 0
-            const opts = item._tipo === 'insumo' ? (fornOpts[item.id] || []) : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: '', custoUnit: item.custoUnit || 0 }] : [])
-            const sel = fornSel[item.id]
-            return (
-              <div key={item.id} style={{ padding: '10px 0', borderBottom: i < filtered.length - 1 ? '1px solid #222' : 'none' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nome}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>em estoque: {fmtN(item.estoqueAtual ?? 0)} {item.unidade}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                    <input
-                      type="text" inputMode="decimal"
-                      value={qty}
-                      placeholder="0"
-                      onChange={e => handleQty(item, e.target.value)}
-                      onFocus={e => e.target.select()}
-                      style={{ width: 64, padding: '6px 8px', borderRadius: 6, border: hasQty ? '1.5px solid var(--teal)' : '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'right' }}
-                    />
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', width: 28 }}>{item.unidade}</span>
-                  </div>
-                </div>
-                {hasQty && opts.length > 0 && (
-                  <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {opts.map((opt, oi) => {
-                      const isActive = sel?.fornecedor === opt.fornecedor && sel?.marca === opt.marca
-                      return (
-                        <button key={oi} onClick={() => setFornSel(s => ({ ...s, [item.id]: opt }))} style={{
-                          fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
-                          border: isActive ? '1px solid var(--teal)' : '1px solid #333',
-                          background: isActive ? 'var(--teal-light)' : '#1a1a1a',
-                          color: isActive ? 'var(--teal)' : 'var(--text-secondary)',
-                          fontWeight: isActive ? 600 : 400,
-                        }}>
-                          {opt.fornecedor || opt.marca || '—'}
-                          {opt.custoUnit > 0 && ` · R$${fmt(opt.custoUnit * parseFloat(qty))}`}
-                        </button>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-        <div style={{ padding: '14px 0 32px', borderTop: '1px solid #222', marginTop: 8 }}>
-          {totalCompra > 0 && (
-            <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600, marginBottom: 10 }}>
-              Total estimado: R$ {fmt(totalCompra)}
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={onFechar} style={{ flex: 1, padding: 12, borderRadius: 8, border: '1px solid #444', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, cursor: 'pointer' }}>Cancelar</button>
-            <button onClick={() => onSalvar(qtds, fornSel, todos)} disabled={saving || !temItens} style={{ flex: 2, padding: 12, borderRadius: 8, border: 'none', background: temItens ? 'var(--teal)' : '#333', color: temItens ? '#fff' : '#666', fontSize: 14, fontWeight: 600, cursor: temItens ? 'pointer' : 'default' }}>
-              {saving ? 'Registrando...' : 'Registrar compra'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
+// ─── Recibo (contagem) ───────────────────────────────────────────────────────
 function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
   const tabLabel = { insumos: 'Insumos', embalagens: 'Embalagens', produtos: 'Produtos' }[tab]
-  const [fornecedores, setFornecedores] = useState({}) // item.id → [{fornecedor, marca, custoUnit}]
-  const [fornSel, setFornSel] = useState({})           // item.id → {fornecedor, marca, custoUnit}
-  const [openPicker, setOpenPicker] = useState(null)   // item.id | null
+  const [fornecedores, setFornecedores] = useState({})
+  const [fornSel, setFornSel] = useState({})
+  const [openPicker, setOpenPicker] = useState(null)
 
-  const alterados = itens.filter(item =>
-    contagem[item.id] !== undefined && contagem[item.id] !== ''
-  )
-
+  const alterados = itens.filter(item => contagem[item.id] !== undefined && contagem[item.id] !== '')
   const aumentos = alterados.filter(item => parseFloat(contagem[item.id]) - (item.estoqueAtual ?? 0) > 0)
 
   useEffect(() => {
     if (tab !== 'insumos' || aumentos.length === 0) return
-    Promise.all(
-      aumentos.map(item =>
-        getInsumoFornecedores(item.id).then(fs => ({ id: item.id, fs, item }))
-      )
-    ).then(results => {
-      const map = {}
-      results.forEach(({ id, fs, item }) => {
-        const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0 }] : [])
-        map[id] = opts
-        // Pre-select first supplier
-        if (opts.length > 0) setFornSel(s => ({ ...s, [id]: opts[0] }))
-      })
-      setFornecedores(map)
-    }).catch(() => {})
+    Promise.all(aumentos.map(item => getInsumoFornecedores(item.id).then(fs => ({ id: item.id, fs, item }))))
+      .then(results => {
+        const map = {}
+        results.forEach(({ id, fs, item }) => {
+          const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0 }] : [])
+          map[id] = opts
+          if (opts.length > 0) setFornSel(s => ({ ...s, [id]: opts[0] }))
+        })
+        setFornecedores(map)
+      }).catch(() => {})
   }, [])
 
   function getOpts(item) {
@@ -488,7 +326,6 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
           </div>
         </div>
       </div>
-
       <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
           {alterados.map((item, i) => {
@@ -500,10 +337,7 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
             const sel = fornSel[item.id]
             const selLabel = sel ? (sel.fornecedor || sel.marca || 'Fornecedor') : 'Selecionar fornecedor'
             return (
-              <div key={item.id} style={{
-                padding: '11px 0',
-                borderBottom: i < alterados.length - 1 ? '1px solid #222' : 'none',
-              }}>
+              <div key={item.id} style={{ padding: '11px 0', borderBottom: i < alterados.length - 1 ? '1px solid #222' : 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
@@ -548,70 +382,371 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
             )
           })}
         </div>
-
         {totalCompra > 0 && (
           <div className="card" style={{ background: 'var(--teal-light)', border: '1px solid var(--teal-dark)', marginBottom: 16 }}>
             <div style={{ fontSize: 12, color: 'var(--teal)' }}>Gasto estimado nesta contagem</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--teal)', marginTop: 2 }}>R$ {fmt(totalCompra)}</div>
           </div>
         )}
-
         <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
-          <button onClick={onVoltar} disabled={saving} style={{
-            flex: 1, padding: 12, borderRadius: 8, border: '1px solid #444',
-            background: 'transparent', color: 'var(--text-primary)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-          }}>← Editar</button>
-          <button onClick={() => onConfirmar(fornSel)} disabled={saving} style={{
-            flex: 2, padding: 12, borderRadius: 8, border: 'none',
-            background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-          }}>{saving ? 'Salvando...' : 'Confirmar contagem'}</button>
+          <button onClick={onVoltar} disabled={saving} style={{ flex: 1, padding: 12, borderRadius: 8, border: '1px solid #444', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>← Editar</button>
+          <button onClick={() => onConfirmar(fornSel)} disabled={saving} style={{ flex: 2, padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            {saving ? 'Salvando...' : 'Confirmar contagem'}
+          </button>
         </div>
       </div>
     </>
   )
 }
 
+// ─── ReciboCompra ────────────────────────────────────────────────────────────
+function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, onConfirmar, saving }) {
+  const [openPicker, setOpenPicker] = useState(null)
+
+  const selecionados = itens.filter(i => parseFloat(qtds[i.id] || '0') > 0)
+
+  const total = selecionados.reduce((sum, item) => {
+    const qty = parseFloat(qtds[item.id] || '0')
+    const sel = fornSel[item.id]
+    const price = sel?.custoUnit ?? item.custoUnit ?? 0
+    return sum + qty * price
+  }, 0)
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-inner">
+          <div>
+            <div className="topbar-title">Recibo de compra</div>
+            <div className="topbar-sub">{selecionados.length} item(s) selecionado(s)</div>
+          </div>
+        </div>
+      </div>
+      <div className="page-inner" style={{ paddingTop: 16 }}>
+        <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
+          {selecionados.map((item, i) => {
+            const qty = parseFloat(qtds[item.id] || '0')
+            const opts = item._tipo === 'insumo'
+              ? (fornOpts[item.id] || (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0 }] : []))
+              : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: '', custoUnit: item.custoUnit || 0 }] : [])
+            const sel = fornSel[item.id]
+            const selLabel = sel ? (sel.fornecedor || sel.marca || 'Fornecedor') : 'Selecionar fornecedor'
+            return (
+              <div key={item.id} style={{ padding: '11px 0', borderBottom: i < selecionados.length - 1 ? '1px solid #222' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                      em estoque: {fmtN(item.estoqueAtual ?? 0)} {item.unidade}
+                    </div>
+                  </div>
+                  <div style={{ flexShrink: 0, textAlign: 'right' }}>
+                    <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 700 }}>+{fmtN(qty)} {item.unidade}</div>
+                    {sel?.custoUnit > 0 && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>R$ {fmt(sel.custoUnit * qty)}</div>}
+                  </div>
+                </div>
+                {opts.length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <button onClick={() => setOpenPicker(openPicker === item.id ? null : item.id)} style={{
+                      fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                      border: sel ? '1px solid var(--teal)' : '1px dashed #555',
+                      background: sel ? 'var(--teal-light)' : 'transparent',
+                      color: sel ? 'var(--teal)' : 'var(--text-secondary)',
+                      fontWeight: sel ? 600 : 400,
+                    }}>
+                      {selLabel}
+                    </button>
+                    {openPicker === item.id && (
+                      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {opts.map((opt, oi) => (
+                          <button key={oi} onClick={() => { setFornSel(s => ({ ...s, [item.id]: opt })); setOpenPicker(null) }} style={{
+                            textAlign: 'left', fontSize: 12, padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
+                            border: '1px solid #333', background: '#1a1a1a', color: 'var(--text-primary)',
+                          }}>
+                            <span style={{ fontWeight: 600 }}>{opt.fornecedor || opt.marca || '—'}</span>
+                            {opt.marca && opt.fornecedor && <span style={{ color: 'var(--text-secondary)' }}> · {opt.marca}</span>}
+                            {opt.custoUnit > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoUnit)}/{item.unidade}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {total > 0 && (
+          <div className="card" style={{ background: 'var(--teal-light)', border: '1px solid var(--teal-dark)', marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: 'var(--teal)' }}>Total estimado</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--teal)', marginTop: 2 }}>R$ {fmt(total)}</div>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
+          <button onClick={onVoltar} disabled={saving} style={{ flex: 1, padding: 12, borderRadius: 8, border: '1px solid #444', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>← Editar</button>
+          <button onClick={onConfirmar} disabled={saving} style={{ flex: 2, padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            {saving ? 'Registrando...' : 'Confirmar compra'}
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ─── CompraView ──────────────────────────────────────────────────────────────
+function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
+  const [tab, setTab] = useState('insumos')
+  const [busca, setBusca] = useState('')
+  const [qtds, setQtds] = useState({})
+  const [fornSel, setFornSel] = useState({})
+  const [fornOpts, setFornOpts] = useState({})
+  const [showRecibo, setShowRecibo] = useState(false)
+
+  const todos = useMemo(() => [
+    ...(insumos || []).map(i => ({ ...i, _tipo: 'insumo' })),
+    ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem' })),
+  ], [insumos, embalagens])
+
+  const itensTab = useMemo(() => {
+    const base = tab === 'insumos' ? (insumos || []).map(i => ({ ...i, _tipo: 'insumo' })) : (embalagens || []).map(e => ({ ...e, _tipo: 'embalagem' }))
+    if (!busca) return base
+    const q = normStr(busca)
+    return base.filter(i => normStr(i.nome).includes(q) || normStr(i.categoria || '').includes(q))
+  }, [tab, insumos, embalagens, busca])
+
+  const temItens = todos.some(i => parseFloat(qtds[i.id] || '0') > 0)
+  const qtdSelecionados = todos.filter(i => parseFloat(qtds[i.id] || '0') > 0).length
+
+  async function handleQty(item, val) {
+    setQtds(q => ({ ...q, [item.id]: val }))
+    if (item._tipo === 'insumo' && parseFloat(val) > 0 && !fornOpts[item.id]) {
+      try {
+        const fs = await getInsumoFornecedores(item.id)
+        const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0 }] : [])
+        setFornOpts(o => ({ ...o, [item.id]: opts }))
+        if (opts.length > 0) setFornSel(s => ({ ...s, [item.id]: s[item.id] || opts[0] }))
+      } catch {}
+    }
+  }
+
+  function bump(item, delta) {
+    const step = getStep(item.unidade)
+    const cur = parseFloat(qtds[item.id] || '0')
+    const novo = Math.max(0, cur + delta * step)
+    handleQty(item, novo === 0 ? '' : String(novo))
+  }
+
+  if (showRecibo) {
+    return (
+      <>
+        <ReciboCompra
+          itens={todos}
+          qtds={qtds}
+          fornSel={fornSel}
+          setFornSel={setFornSel}
+          fornOpts={fornOpts}
+          onVoltar={() => setShowRecibo(false)}
+          onConfirmar={() => onSalvar(qtds, fornSel, todos)}
+          saving={saving}
+        />
+      </>
+    )
+  }
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-inner">
+          <button onClick={onVoltar} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 22, cursor: 'pointer', padding: '0 8px 0 0', lineHeight: 1 }}>‹</button>
+          <div>
+            <div className="topbar-title">Nova compra</div>
+            <div className="topbar-sub">Registrar insumos ou embalagens comprados</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="page-inner" style={{ paddingTop: 16 }}>
+        <div className="tab-bar" style={{ marginBottom: 12 }}>
+          {[['insumos', 'Insumos'], ['embalagens', 'Embalagens']].map(([key, label]) => (
+            <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => { setTab(key); setBusca('') }}>{label}</button>
+          ))}
+        </div>
+
+        <div style={{ position: 'relative', marginBottom: 12 }}>
+          <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>🔍</span>
+          <input
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar..."
+            style={{ width: '100%', paddingLeft: 32, paddingRight: busca ? 28 : 10, paddingTop: 9, paddingBottom: 9, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
+          />
+          {busca && <button onClick={() => setBusca('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 16, cursor: 'pointer', padding: 0, lineHeight: 1 }}>×</button>}
+        </div>
+
+        <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
+          {itensTab.length === 0 && <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 14 }}>Nenhum item encontrado</div>}
+          {itensTab.map((item, i) => {
+            const qty = qtds[item.id] || ''
+            const hasQty = parseFloat(qty) > 0
+            const step = getStep(item.unidade)
+            return (
+              <div key={item.id} style={{ padding: '12px 0', borderBottom: i < itensTab.length - 1 ? '1px solid #222' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nome}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                      em estoque: {fmtN(item.estoqueAtual ?? 0)} {item.unidade}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    <button onClick={() => bump(item, -1)} style={{
+                      width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border-color)',
+                      background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 18,
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+                    }}>−</button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <input
+                        type="text" inputMode="decimal"
+                        value={qty}
+                        placeholder="0"
+                        onChange={e => handleQty(item, e.target.value)}
+                        onFocus={e => e.target.select()}
+                        style={{ width: 60, padding: '6px 6px', borderRadius: 6, border: hasQty ? '1.5px solid var(--teal)' : '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'center' }}
+                      />
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 20 }}>{item.unidade}</span>
+                    </div>
+                    <button onClick={() => bump(item, 1)} style={{
+                      width: 32, height: 32, borderRadius: 8, border: '1px solid var(--border-color)',
+                      background: hasQty ? 'var(--teal)' : 'var(--bg-secondary)',
+                      color: hasQty ? '#fff' : 'var(--text-primary)', fontSize: 18,
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+                    }}>+</button>
+                  </div>
+                </div>
+                {hasQty && step > 1 && (
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4, textAlign: 'right' }}>
+                    incremento: {step} {item.unidade}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        <button
+          onClick={() => setShowRecibo(true)}
+          disabled={!temItens}
+          style={{ width: '100%', padding: 12, borderRadius: 8, border: 'none', background: temItens ? 'var(--teal)' : '#333', color: temItens ? '#fff' : '#666', fontSize: 14, fontWeight: 600, cursor: temItens ? 'pointer' : 'default', marginBottom: 24 }}
+        >
+          {temItens ? `Ver recibo (${qtdSelecionados} item${qtdSelecionados > 1 ? 's' : ''}) →` : 'Selecione os itens comprados'}
+        </button>
+      </div>
+    </>
+  )
+}
+
+// ─── ConsultarView ───────────────────────────────────────────────────────────
+function ConsultarView({ insumos, embalagens, produtos, onVoltar }) {
+  const [tab, setTab] = useState('insumos')
+
+  const produtosParaConsulta = useMemo(() => (produtos || [])
+    .filter(p => p.tipo !== 'combo')
+    .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' })),
+    [produtos])
+
+  const itens = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : tab === 'produtos' ? produtosParaConsulta : []
+  const grupos = groupBy(itens, 'categoria')
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-inner">
+          <button onClick={onVoltar} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 22, cursor: 'pointer', padding: '0 8px 0 0', lineHeight: 1 }}>‹</button>
+          <div>
+            <div className="topbar-title">Consultar</div>
+            <div className="topbar-sub">Estoque atual e histórico de compras</div>
+          </div>
+        </div>
+      </div>
+      <div className="page-inner" style={{ paddingTop: 16 }}>
+        <div className="tab-bar" style={{ marginBottom: 12 }}>
+          {[['insumos','Insumos'],['embalagens','Embalagens'],['produtos','Produtos'],['compras','Compras']].map(([key, label]) => (
+            <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>{label}</button>
+          ))}
+        </div>
+        {tab === 'compras' ? (
+          <GastosTab />
+        ) : (
+          <>
+            {itens.length === 0 && <div className="empty" style={{ marginTop: 24 }}><span>Nenhum item cadastrado</span></div>}
+            {Object.entries(grupos).map(([cat, items]) => (
+              <div key={cat}>
+                <div className="cat-header">{cat}</div>
+                <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
+                  {items.map((item, i) => (
+                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: i < items.length - 1 ? '1px solid #222' : 'none' }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín. {item.estoqueMin} {item.unidade}</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 700, fontSize: 16, color: (item.estoqueAtual ?? 0) < item.estoqueMin ? 'var(--alert-text)' : 'var(--text-primary)' }}>
+                          {fmtN(item.estoqueAtual ?? 0)}
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{item.unidade}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+// ─── Contagem (main) ─────────────────────────────────────────────────────────
 export default function Contagem() {
   const { data: insumos,    loading: loadIns,  reload: reloadIns  } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb,  reload: reloadEmb  } = useData(getEmbalagens)
   const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
   const { toast, show } = useToast()
 
-  const [tab, setTab] = useState('insumos')
-  const [busca, setBusca] = useState('')
-  const [filtroContagem, setFiltroContagem] = useState('todos') // todos | faltando | naocontados
+  const [vista, setVista]   = useState(null) // null | 'contagem' | 'compra' | 'consultar'
+  const [tab, setTab]       = useState('insumos')
+  const [busca, setBusca]   = useState('')
+  const [filtroContagem, setFiltroContagem] = useState('todos')
   const [contagemIns,  setContagemIns]  = useState({})
   const [contagemEmb,  setContagemEmb]  = useState({})
   const [contagemProd, setContagemProd] = useState({})
   const [minIns,  setMinIns]  = useState({})
   const [minEmb,  setMinEmb]  = useState({})
   const [minProd, setMinProd] = useState({})
-  const [modalMin, setModalMin] = useState(null)  // { type, itens, values, busca }
+  const [modalMin, setModalMin] = useState(null)
   const [savingMin, setSavingMin] = useState(false)
   const [semEstoqueAberto, setSemEstoqueAberto] = useState(false)
-  const [recibo,      setRecibo]      = useState(null)
-  const [saving,      setSaving]      = useState(false)
-  const [modalCompra, setModalCompra] = useState(false)
-  const debounceRef = useRef({})
+  const [recibo, setRecibo] = useState(null)
+  const [saving, setSaving] = useState(false)
 
   const setIns  = (id, val) => setContagemIns(c  => ({ ...c, [id]: val }))
   const setEmb  = (id, val) => setContagemEmb(c  => ({ ...c, [id]: val }))
   const setProd = (id, val) => setContagemProd(c => ({ ...c, [id]: val }))
 
-  const produtosParaContagem = (produtos || [])
+  const produtosParaContagem = useMemo(() => (produtos || [])
     .filter(p => p.tipo !== 'combo')
-    .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' }))
+    .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' })),
+    [produtos])
 
   const itensDoTab = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : produtosParaContagem
   const contagemDoTab = tab === 'insumos' ? contagemIns : tab === 'embalagens' ? contagemEmb : contagemProd
   const minDoTab = tab === 'insumos' ? minIns : tab === 'embalagens' ? minEmb : minProd
 
-  function norm(s) {
-    return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-  }
+  function norm(s) { return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase() }
 
-  const itensComEstoque  = useMemo(() => itensDoTab.filter(i => i.estoqueAtual > 0), [itensDoTab])
-  const itensSemEstoque  = useMemo(() => itensDoTab.filter(i => !(i.estoqueAtual > 0)), [itensDoTab])
+  const itensComEstoque = useMemo(() => itensDoTab.filter(i => i.estoqueAtual > 0), [itensDoTab])
+  const itensSemEstoque = useMemo(() => itensDoTab.filter(i => !(i.estoqueAtual > 0)), [itensDoTab])
 
   const itensFiltrados = useMemo(() => {
     const q = norm(busca)
@@ -619,16 +754,20 @@ export default function Contagem() {
     return itensComEstoque.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
   }, [itensComEstoque, busca])
 
+  // For products: show ALL (including zero stock) filtered by search
+  const produtosFiltrados = useMemo(() => {
+    const q = norm(busca)
+    if (!q) return produtosParaContagem
+    return produtosParaContagem.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
+  }, [produtosParaContagem, busca])
+
   const itensSemEstoqueFiltrados = useMemo(() => {
     const q = norm(busca)
     if (!q) return itensSemEstoque
     return itensSemEstoque.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
   }, [itensSemEstoque, busca])
 
-  function changeTab(key) {
-    setTab(key)
-    setBusca('')
-  }
+  function changeTab(key) { setTab(key); setBusca('') }
 
   function openModalMin() {
     const values = {}
@@ -643,27 +782,14 @@ export default function Contagem() {
     setSavingMin(true)
     try {
       const { type, itens, values } = modalMin
-      const payload = itens.map(item => ({
-        id: item.id,
-        estoqueMin: parseFloat(values[item.id] ?? item.estoqueMin) || 0,
-      }))
-      if (type === 'insumos') {
-        await updateEstoqueMinInsumos(payload)
-        setMinIns(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n })
-      } else if (type === 'embalagens') {
-        await updateEstoqueMinEmbalagens(payload)
-        setMinEmb(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n })
-      } else {
-        await updateEstoqueMinProdutos(payload)
-        setMinProd(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n })
-      }
+      const payload = itens.map(item => ({ id: item.id, estoqueMin: parseFloat(values[item.id] ?? item.estoqueMin) || 0 }))
+      if (type === 'insumos') { await updateEstoqueMinInsumos(payload); setMinIns(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n }) }
+      else if (type === 'embalagens') { await updateEstoqueMinEmbalagens(payload); setMinEmb(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n }) }
+      else { await updateEstoqueMinProdutos(payload); setMinProd(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n }) }
       setModalMin(null)
       show('Mínimos salvos!')
-    } catch (e) {
-      show('Erro: ' + e.message)
-    } finally {
-      setSavingMin(false)
-    }
+    } catch (e) { show('Erro: ' + e.message) }
+    finally { setSavingMin(false) }
   }
 
   const handleEnviar = () => {
@@ -677,60 +803,36 @@ export default function Contagem() {
     try {
       const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : produtosParaContagem
       const contagem = recibo === 'insumos' ? contagemIns : recibo === 'embalagens' ? contagemEmb : contagemProd
-
       const preenchidos = itens.filter(item => contagem[item.id] !== undefined && contagem[item.id] !== '')
       const payload = preenchidos.map(item => ({ id: item.id, estoqueAtual: parseFloat(contagem[item.id]) }))
 
-      if (recibo === 'insumos')        await updateEstoqueInsumos(payload)
+      if (recibo === 'insumos') await updateEstoqueInsumos(payload)
       else if (recibo === 'embalagens') await updateEstoqueEmbalagens(payload)
-      else                              await updateEstoqueProdutos(payload)
+      else await updateEstoqueProdutos(payload)
 
       let comprasRegistradas = 0
       if (recibo !== 'produtos') {
         const tipo = recibo === 'insumos' ? 'insumo' : 'embalagem'
         const hoje = new Date().toISOString().split('T')[0]
-        const diffs = preenchidos.map(item => ({
-          item,
-          novo: parseFloat(contagem[item.id]),
-          old: parseFloat(item.estoqueAtual ?? 0),
-        }))
-        const novasCompras = diffs
+        const novasCompras = preenchidos
+          .map(item => ({ item, novo: parseFloat(contagem[item.id]), old: parseFloat(item.estoqueAtual ?? 0) }))
           .filter(({ novo, old }) => novo > old)
           .map(({ item, novo, old }) => {
             const sel = fornSel[item.id]
             const precoUnit = sel?.custoUnit ?? item.custoUnit ?? 0
-            return {
-              tipo,
-              item_id: item.id,
-              item_nome: item.nome,
-              unidade: item.unidade || '',
-              quantidade: novo - old,
-              preco_unit: precoUnit,
-              total: (novo - old) * precoUnit,
-              data: hoje,
-            }
+            return { tipo, item_id: item.id, item_nome: item.nome, unidade: item.unidade || '', quantidade: novo - old, preco_unit: precoUnit, total: (novo - old) * precoUnit, data: hoje }
           })
         comprasRegistradas = novasCompras.length
         if (novasCompras.length > 0) await registrarCompras(novasCompras)
       }
 
-      if (recibo === 'insumos')        setContagemIns({})
-      else if (recibo === 'embalagens') setContagemEmb({})
-      else                              setContagemProd({})
-
-      if (recibo === 'insumos') reloadIns()
-      else if (recibo === 'embalagens') reloadEmb()
-      else reloadProd()
+      if (recibo === 'insumos') { setContagemIns({}); reloadIns() }
+      else if (recibo === 'embalagens') { setContagemEmb({}); reloadEmb() }
+      else { setContagemProd({}); reloadProd() }
       setRecibo(null)
-      show(comprasRegistradas > 0
-        ? `Contagem salva! ${comprasRegistradas} compra(s) registrada(s)`
-        : 'Contagem salva! Nenhuma compra detectada'
-      )
-    } catch (e) {
-      show('Erro: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
+      show(comprasRegistradas > 0 ? `Contagem salva! ${comprasRegistradas} compra(s) registrada(s)` : 'Contagem salva!')
+    } catch (e) { show('Erro: ' + e.message) }
+    finally { setSaving(false) }
   }
 
   const handleNovaCompra = async (qtds, fornSel, todos) => {
@@ -743,16 +845,7 @@ export default function Contagem() {
       if (qty <= 0) return
       const sel = fornSel[item.id]
       const precoUnit = sel?.custoUnit ?? item.custoUnit ?? 0
-      comprasPayload.push({
-        tipo: item._tipo,
-        item_id: item.id,
-        item_nome: item.nome,
-        unidade: item.unidade || '',
-        quantidade: qty,
-        preco_unit: precoUnit,
-        total: qty * precoUnit,
-        data: hoje,
-      })
+      comprasPayload.push({ tipo: item._tipo, item_id: item.id, item_nome: item.nome, unidade: item.unidade || '', quantidade: qty, preco_unit: precoUnit, total: qty * precoUnit, data: hoje })
       const novoEstoque = (item.estoqueAtual ?? 0) + qty
       if (item._tipo === 'insumo') insumosPayload.push({ id: item.id, estoqueAtual: novoEstoque })
       else embalagensPayload.push({ id: item.id, estoqueAtual: novoEstoque })
@@ -765,17 +858,44 @@ export default function Contagem() {
       if (embalagensPayload.length > 0) await updateEstoqueEmbalagens(embalagensPayload)
       reloadIns()
       reloadEmb()
-      setModalCompra(false)
+      setVista(null)
       show(`${comprasPayload.length} compra(s) registrada(s)!`)
-    } catch (e) {
-      show('Erro: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
+    } catch (e) { show('Erro: ' + e.message) }
+    finally { setSaving(false) }
   }
 
-  const loading = tab === 'insumos' ? loadIns : tab === 'embalagens' ? loadEmb : loadProd
+  // ── Vista: compra ──────────────────────────────────────────────────────────
+  if (vista === 'compra') {
+    return (
+      <>
+        <CompraView
+          insumos={insumos}
+          embalagens={embalagens}
+          onVoltar={() => setVista(null)}
+          onSalvar={handleNovaCompra}
+          saving={saving}
+        />
+        {toast && <div className="toast">{toast}</div>}
+      </>
+    )
+  }
 
+  // ── Vista: consultar ───────────────────────────────────────────────────────
+  if (vista === 'consultar') {
+    return (
+      <>
+        <ConsultarView
+          insumos={insumos}
+          embalagens={embalagens}
+          produtos={produtos}
+          onVoltar={() => setVista(null)}
+        />
+        {toast && <div className="toast">{toast}</div>}
+      </>
+    )
+  }
+
+  // ── Vista: contagem (recibo) ───────────────────────────────────────────────
   if (recibo) {
     const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : produtosParaContagem
     const contagem = recibo === 'insumos' ? contagemIns : recibo === 'embalagens' ? contagemEmb : contagemProd
@@ -787,17 +907,55 @@ export default function Contagem() {
     )
   }
 
+  // ── Vista: null (home) ou 'contagem' ──────────────────────────────────────
+  const loading = tab === 'insumos' ? loadIns : tab === 'embalagens' ? loadEmb : loadProd
+
+  if (vista === null) {
+    return (
+      <>
+        <div className="topbar">
+          <div className="topbar-inner">
+            <div>
+              <div className="topbar-title">Estoque</div>
+              <div className="topbar-sub">O que você deseja fazer?</div>
+            </div>
+          </div>
+        </div>
+        <div className="page-inner" style={{ paddingTop: 24 }}>
+          {[
+            { key: 'contagem', icon: '📦', titulo: 'Contar estoque', sub: 'Fazer a contagem dos seus insumos, embalagens ou produtos' },
+            { key: 'compra',   icon: '🛒', titulo: 'Nova compra',    sub: 'Registrar uma compra de insumos ou embalagens' },
+            { key: 'consultar',icon: '👁', titulo: 'Consultar',      sub: 'Consultar seu estoque atual ou histórico de compras' },
+          ].map(c => (
+            <button key={c.key} onClick={() => setVista(c.key)} className="card" style={{
+              width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 12,
+              display: 'flex', gap: 14, alignItems: 'center', background: 'var(--bg-card)',
+              border: '1px solid var(--border-color)', borderRadius: 12, padding: 16,
+            }}>
+              <span style={{ fontSize: 30, flexShrink: 0 }}>{c.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)' }}>{c.titulo}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 3 }}>{c.sub}</div>
+              </div>
+              <span style={{ color: 'var(--text-tertiary)', fontSize: 20 }}>›</span>
+            </button>
+          ))}
+        </div>
+        {toast && <div className="toast">{toast}</div>}
+      </>
+    )
+  }
+
+  // ── Vista: contagem ────────────────────────────────────────────────────────
   return (
     <>
       <div className="topbar">
         <div className="topbar-inner">
+          <button onClick={() => setVista(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 22, cursor: 'pointer', padding: '0 8px 0 0', lineHeight: 1 }}>‹</button>
           <div>
-            <div className="topbar-title">Contagem semanal</div>
+            <div className="topbar-title">Contagem</div>
             <div className="topbar-sub">Digite o estoque físico atual</div>
           </div>
-          <button onClick={() => setModalCompra(true)} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
-            + Compra
-          </button>
         </div>
       </div>
 
@@ -814,7 +972,6 @@ export default function Contagem() {
           <GastosTab />
         ) : (
           <>
-            {/* Search + Editar Mínimo row */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
               <div style={{ position: 'relative', flex: 1 }}>
                 <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 14, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>🔍</span>
@@ -824,14 +981,9 @@ export default function Contagem() {
                   placeholder="Buscar..."
                   style={{ width: '100%', paddingLeft: 32, paddingRight: busca ? 28 : 10, paddingTop: 9, paddingBottom: 9, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box' }}
                 />
-                {busca && (
-                  <button onClick={() => setBusca('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 16, cursor: 'pointer', padding: 0, lineHeight: 1 }}>×</button>
-                )}
+                {busca && <button onClick={() => setBusca('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 16, cursor: 'pointer', padding: 0, lineHeight: 1 }}>×</button>}
               </div>
-              <button
-                onClick={openModalMin}
-                style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
-              >
+              <button onClick={openModalMin} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
                 Editar Mínimo
               </button>
             </div>
@@ -842,11 +994,9 @@ export default function Contagem() {
               const minVals  = tab === 'insumos' ? minIns : minEmb
               const todosItens = tab === 'insumos' ? (insumos || []) : (embalagens || [])
               const semFiltrados = itensSemEstoqueFiltrados
-              const mostrarSemEstoque = busca ? semFiltrados.length > 0 : semEstoqueAberto
 
               return (
                 <>
-                  {/* Filter chips */}
                   <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto' }}>
                     {[['todos', 'Tudo'], ['faltando', '🔴 Faltando'], ['naocontados', '👁 Não contados']].map(([k, l]) => (
                       <button key={k} onClick={() => setFiltroContagem(k)} style={{
@@ -859,48 +1009,32 @@ export default function Contagem() {
                       }}>{l}</button>
                     ))}
                   </div>
-
                   <StockTab itens={itensFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} filtro={filtroContagem} />
-
-                  {/* Resultados sem estoque na busca */}
                   {busca && semFiltrados.length > 0 && (
                     <>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, margin: '12px 0 6px', textTransform: 'uppercase', letterSpacing: 1 }}>
-                        Sem estoque
-                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, margin: '12px 0 6px', textTransform: 'uppercase', letterSpacing: 1 }}>Sem estoque</div>
                       <StockTab itens={semFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} filtro={filtroContagem} />
                     </>
                   )}
-
-                  {/* Seção colapsável quando sem busca */}
                   {!busca && itensSemEstoque.length > 0 && (
-                    <button
-                      onClick={() => setSemEstoqueAberto(v => !v)}
-                      style={{ width: '100%', textAlign: 'left', padding: '10px 14px', marginBottom: 8, borderRadius: 8, border: '1px dashed var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}
-                    >
+                    <button onClick={() => setSemEstoqueAberto(v => !v)} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', marginBottom: 8, borderRadius: 8, border: '1px dashed var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
                       <span>Não contabilizados ({itensSemEstoque.length})</span>
                       <span>{semEstoqueAberto ? '▲' : '▼'}</span>
                     </button>
                   )}
-                  {!busca && semEstoqueAberto && (
-                    <StockTab itens={itensSemEstoque} contagem={contagem} onChange={onChange} minValues={minVals} />
-                  )}
-
-                  <button onClick={handleEnviar}
-                    style={{ width: '100%', padding: '12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}>
+                  {!busca && semEstoqueAberto && <StockTab itens={itensSemEstoque} contagem={contagem} onChange={onChange} minValues={minVals} />}
+                  <button onClick={handleEnviar} style={{ width: '100%', padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}>
                     Enviar contagem →
                   </button>
                   <ListaCompras contagem={contagem} itens={todosItens} />
                 </>
               )
             })()}
+
             {tab === 'produtos' && (
               <>
-                <StockTab itens={itensFiltrados} contagem={contagemProd} onChange={setProd} minValues={minProd} labelPedir="produzir" />
-                <button
-                  onClick={handleEnviar}
-                  style={{ width: '100%', padding: '12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}
-                >
+                <StockTab itens={produtosFiltrados} contagem={contagemProd} onChange={setProd} minValues={minProd} labelPedir="produzir" />
+                <button onClick={handleEnviar} style={{ width: '100%', padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}>
                   Enviar contagem →
                 </button>
               </>
@@ -908,16 +1042,6 @@ export default function Contagem() {
           </>
         )}
       </div>
-
-      {modalCompra && (
-        <NovaCompraModal
-          insumos={insumos}
-          embalagens={embalagens}
-          onSalvar={handleNovaCompra}
-          onFechar={() => setModalCompra(false)}
-          saving={saving}
-        />
-      )}
 
       {/* Modal Editar Mínimo */}
       {modalMin && (
