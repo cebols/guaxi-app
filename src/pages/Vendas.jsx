@@ -864,7 +864,7 @@ function DreRow({ label, value, sub, bold, border, color, onToggle, open, hasDet
 
 function DrePainel({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNetAvulsa, totalRevNetPed,
   totalCost, totalCustoSacolas, numPedidosPeriodo, custoSacola,
-  lucroBruto, margemBruta, custoFixoPeriodo, cfg, lucroLiquido, margemLiquida, totalComprasPeriodo }) {
+  lucroBruto, margemBruta, custoFixoPeriodo, cfg, lucroLiquido, margemLiquida }) {
   const [openRec, setOpenRec] = useState(false)
   const [openCmv, setOpenCmv] = useState(false)
   const [openFix, setOpenFix] = useState(false)
@@ -921,12 +921,6 @@ function DrePainel({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNe
                 <span style={{ color: 'var(--text-tertiary)' }}>{fmtR(periodo === 'mes' ? parseFloat(item.valor) : parseFloat(item.valor) / 4.33)}</span>
               </div>
             ))}
-            {totalComprasPeriodo > 0 && (
-              <div style={{ marginTop: 4, paddingTop: 4, borderTop: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}><span style={{ color: 'var(--text-tertiary)' }}>↳ Compras reais</span><span style={{ color: 'var(--text-tertiary)' }}>{fmtR(totalComprasPeriodo)}</span></div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}><span style={{ color: 'var(--text-tertiary)' }}>↳ Lucro c/ CMV real</span><span style={{ color: 'var(--text-tertiary)' }}>{fmtR(totalRevNet - totalComprasPeriodo - custoFixoPeriodo)}</span></div>
-              </div>
-            )}
           </div>
         )}
 
@@ -943,17 +937,19 @@ export default function Vendas() {
   const [sheet, setSheet]               = useState(null)
   const [expandedDate, setExpandedDate] = useState(null)
   const [filtroHistPeriodo, setFiltroHistPeriodo] = useState('all')
+  const [customInicio, setCustomInicio] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0] })
+  const [customFim, setCustomFim]       = useState(isoToday)
   const { toast, show }       = useToast()
 
   const { data: produtos,   loading: lProd }               = useData(getProdutos)
   const { data: vendas,     loading: lVend, reload: rVend } = useData(getVendas)
-  const { data: compras }                                   = useData(getCompras)
   const { data: encomendas, loading: lEnc }                 = useData(getEncomendas)
   const { data: embalagens }                                = useData(getEmbalagens)
   const cfg = getConfig()
   const custoSacola = getCustoSacolaDelivery(cfg, embalagens || [])
 
   const inicio = useMemo(() => {
+    if (periodo === 'custom') return customInicio
     if (periodo === 'semana') {
       const d = new Date(); const day = d.getDay() || 7
       d.setDate(d.getDate() - day + 1)
@@ -961,17 +957,19 @@ export default function Vendas() {
     }
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-  }, [periodo])
+  }, [periodo, customInicio])
+
+  const fim = useMemo(() => periodo === 'custom' ? (customFim || isoToday()) : isoToday(), [periodo, customFim])
 
   const feeFor = (plat) => plat === '99Food' ? cfg.taxa99 / 100 : plat === 'iFood' ? cfg.taxaIfood / 100 : 0
 
-  const vendasPeriodo = useMemo(() => (vendas || []).filter(v => v.data >= inicio), [vendas, inicio])
+  const vendasPeriodo = useMemo(() => (vendas || []).filter(v => v.data >= inicio && v.data <= fim), [vendas, inicio, fim])
 
   // Expand pedido items into flat events (period-filtered)
   const pedidoEventos = useMemo(() => {
     const prodMap = Object.fromEntries((produtos || []).map(p => [p.nome, p]))
     return (encomendas || [])
-      .filter(e => e.status !== 'Cancelado' && e.dataEntrega >= inicio)
+      .filter(e => e.status !== 'Cancelado' && e.dataEntrega >= inicio && e.dataEntrega <= fim)
       .flatMap(e => e.itens.map(item => ({
         id: `${e.id}-${item.id || item.produto}`,
         pedidoId: e.id,
@@ -1062,7 +1060,7 @@ export default function Vendas() {
   }, [pedidoEventos])
 
   const numPedidosPeriodo = useMemo(() =>
-    new Set((encomendas || []).filter(e => e.status !== 'Cancelado' && e.dataEntrega >= inicio).map(e => e.id)).size,
+    new Set((encomendas || []).filter(e => e.status !== 'Cancelado' && e.dataEntrega >= inicio && e.dataEntrega <= fim).map(e => e.id)).size,
     [encomendas, inicio]
   )
   const totalCustoSacolas = numPedidosPeriodo * custoSacola
@@ -1075,10 +1073,6 @@ export default function Vendas() {
   const totalRevNetPed   = Object.values(statsPedidos).reduce((s, p) => s + p.revNet, 0)
   const totalRevNetAvulsa = totalRevNet - totalRevNetPed
 
-  const totalComprasPeriodo = useMemo(() =>
-    (compras || []).filter(c => c.data >= inicio).reduce((s, c) => s + (c.total || 0), 0),
-    [compras, inicio]
-  )
   const totalRevBruto      = Object.values(statsPerProd).reduce((s, p) => s + p.revenue, 0)
   const totalTaxas         = totalRevBruto - totalRevNet
   const lucroBruto         = totalRevNet - totalCost
@@ -1086,9 +1080,6 @@ export default function Vendas() {
   const custoFixoPeriodo   = periodo === 'mes' ? (cfg.custoFixoMensal || 0) : (cfg.custoFixoMensal || 0) / 4.33
   const lucroLiquido       = lucroBruto - custoFixoPeriodo
   const margemLiquida      = totalRevNet > 0 ? (lucroLiquido / totalRevNet) * 100 : 0
-  const lucroReal = lucroLiquido
-
-  const unidadesProj = cfg.unidadesProjetadas || 0
   const pctProj      = unidadesProj > 0 ? (totalUnits / unidadesProj) * 100 : null
   const rateioReal   = totalUnits > 0 && periodo === 'mes' ? (cfg.custoFixoMensal || 0) / totalUnits : null
 
@@ -1165,18 +1156,31 @@ export default function Vendas() {
         {/* ── INÍCIO ──────────────────────────────── */}
         {tab === 'inicio' && (
           <>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              {['semana', 'mes'].map(p => (
+            <div style={{ display: 'flex', gap: 8, marginBottom: periodo === 'custom' ? 8 : 12, flexWrap: 'wrap' }}>
+              {[['semana', 'Esta semana'], ['mes', 'Este mês']].map(([p, label]) => (
                 <button key={p} onClick={() => setPeriodo(p)} style={{
                   fontSize: 13, padding: '5px 14px', borderRadius: 20,
                   border: '1px solid var(--border)',
                   background: periodo === p ? 'var(--teal)' : 'transparent',
                   color: periodo === p ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
-                }}>
-                  {p === 'semana' ? 'Esta semana' : 'Este mês'}
-                </button>
+                }}>{label}</button>
               ))}
+              <button onClick={() => setPeriodo('custom')} style={{
+                fontSize: 13, padding: '5px 14px', borderRadius: 20,
+                border: `1px solid ${periodo === 'custom' ? 'var(--teal)' : 'var(--border)'}`,
+                background: periodo === 'custom' ? 'var(--teal)' : 'transparent',
+                color: periodo === 'custom' ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
+              }}>📅 Período</button>
             </div>
+            {periodo === 'custom' && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+                <input type="date" value={customInicio} onChange={e => setCustomInicio(e.target.value)}
+                  style={{ flex: 1, padding: '7px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, colorScheme: 'dark' }} />
+                <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>→</span>
+                <input type="date" value={customFim} onChange={e => setCustomFim(e.target.value)}
+                  style={{ flex: 1, padding: '7px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, colorScheme: 'dark' }} />
+              </div>
+            )}
 
             <div className="metric-grid" style={{ marginBottom: 12 }}>
               <div className="metric-card">
@@ -1212,93 +1216,43 @@ export default function Vendas() {
                 lucroBruto={lucroBruto} margemBruta={margemBruta}
                 custoFixoPeriodo={custoFixoPeriodo} cfg={cfg}
                 lucroLiquido={lucroLiquido} margemLiquida={margemLiquida}
-                totalComprasPeriodo={totalComprasPeriodo}
               />
             )}
 
-            {periodo === 'mes' && unidadesProj > 0 && !loading && (
-              <div className="card" style={{ padding: '10px 14px', marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                  Projeção — {new Date().toLocaleDateString('pt-BR', { month: 'long' })}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3 }}>
-                    <div style={{ width: `${Math.min(100, pctProj || 0)}%`, height: '100%', background: pctProj >= 100 ? 'var(--teal)' : pctProj >= 60 ? '#f59e0b' : 'var(--alert-text)', borderRadius: 3 }} />
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', flexShrink: 0 }}>
-                    {totalUnits}/{unidadesProj} un ({pctProj !== null ? `${fmtN(pctProj)}%` : '—'})
-                  </span>
-                </div>
-                {rateioReal !== null && (
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                    Rateio real: R$ {fmtN(rateioReal, 2)}/un · projetado: R$ {fmtN(unidadesProj > 0 ? (cfg.custoFixoMensal || 0) / unidadesProj : 0, 2)}/un
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="section-label">Venda direta</div>
-            {loading ? <div className="loading">Carregando...</div> : (
-              <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
-                {(produtos || []).filter(prod => (statsPerProdAvulsa[prod.nome]?.units || 0) > 0).map((prod, idx, arr) => {
-                  const s = statsPerProdAvulsa[prod.nome]
-                  const profit = s ? s.revNet - s.cost : 0
-                  const margin = s && s.revNet > 0 ? (profit / s.revNet) * 100 : null
-                  const marginColor = margin === null ? 'var(--text-tertiary)'
-                    : margin >= cfg.margem ? 'var(--teal)'
-                    : margin >= 0 ? '#f59e0b' : 'var(--alert-text)'
-                  return (
-                    <div key={prod.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: idx < arr.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{prod.nome}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                          {fmtN(s.units, 0)} un · {fmtR(s.revNet)}
+            {/* Canal de venda */}
+            {!loading && Object.keys(statsPerPlat).some(k => statsPerPlat[k].revenue > 0) && (() => {
+              const totalCanal = Object.values(statsPerPlat).reduce((s, p) => s + p.revenue, 0)
+              const entries = [['Direta', statsPerPlat['Direta']?.revenue || 0, 'var(--teal)'],
+                               ['iFood',  statsPerPlat['iFood']?.revenue  || 0, '#ef4444'],
+                               ['99Food', statsPerPlat['99Food']?.revenue || 0, '#f59e0b']]
+                .filter(([, v]) => v > 0)
+              return (
+                <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Canal de venda</div>
+                  {entries.map(([plat, val, cor], i) => {
+                    const pct = totalCanal > 0 ? (val / totalCanal) * 100 : 0
+                    return (
+                      <div key={plat} style={{ marginBottom: i < entries.length - 1 ? 10 : 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: cor }}>{plat}</span>
+                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{fmtN(pct, 0)}% · {fmtR(val)}</span>
+                        </div>
+                        <div style={{ height: 4, background: '#252525', borderRadius: 2 }}>
+                          <div style={{ width: `${pct}%`, height: '100%', background: cor, borderRadius: 2 }} />
                         </div>
                       </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: marginColor }}>{margin !== null ? `${fmtN(margin, 0)}%` : '—'}</div>
-                        <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>margem</div>
-                      </div>
-                    </div>
-                  )
-                })}
-                {(produtos || []).filter(prod => (statsPerProdAvulsa[prod.nome]?.units || 0) > 0).length === 0 && (
-                  <div style={{ padding: '16px 0', fontSize: 13, color: 'var(--text-tertiary)', textAlign: 'center' }}>Nenhuma venda avulsa neste período</div>
-                )}
-              </div>
-            )}
+                    )
+                  })}
+                </div>
+              )
+            })()}
 
-            {/* Ranking top/bottom */}
-            {!loading && Object.keys(statsPerProd).length >= 2 && (
-              <div className="metric-grid" style={{ marginBottom: 12 }}>
-                <div className="card" style={{ padding: '12px 14px' }}>
-                  <div className="section-label" style={{ marginTop: 0, marginBottom: 8 }}>🏆 Top 5 margem</div>
-                  <RankingProdutos stats={statsPerProd} mode="top" criterio="margem" />
-                </div>
-                <div className="card" style={{ padding: '12px 14px' }}>
-                  <div className="section-label" style={{ marginTop: 0, marginBottom: 8 }}>⚠️ Pior margem</div>
-                  <RankingProdutos stats={statsPerProd} mode="bottom" criterio="margem" />
-                </div>
+            {/* Heatmap dia da semana */}
+            {!loading && todasVendasAll.length > 0 && (
+              <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Receita por dia da semana</div>
+                <HeatmapDOW vendas={todasVendasAll} />
               </div>
-            )}
-
-            {/* Pedidos section */}
-            {!loading && pedidoEventos.length > 0 && (
-              <>
-                <div className="section-label">Pedidos / Encomendas</div>
-                <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-                  {Object.entries(statsPedidos).map(([canal, s]) => (
-                    <div key={canal} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
-                      <span style={{ color: PLAT_COLOR[CANAL_TO_PLAT[canal] || 'Direta'] || 'var(--teal)' }}>{canal}</span>
-                      <span style={{ color: 'var(--text-secondary)' }}>{fmtN(s.units, 0)} un · {fmtR(s.revNet)}</span>
-                    </div>
-                  ))}
-                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700 }}>
-                    <span>Total pedidos</span>
-                    <span style={{ color: 'var(--teal)' }}>{fmtR(totalRevNetPed)}</span>
-                  </div>
-                </div>
-              </>
             )}
           </>
         )}
@@ -1307,25 +1261,30 @@ export default function Vendas() {
         {tab === 'analise' && (() => {
           const canalData = [
             { label: 'Direta', valor: statsPerPlat['Direta']?.revenue || 0, cor: 'var(--teal)' },
-            { label: 'iFood',  valor: statsPerPlat['iFood']?.revenue  || 0, cor: 'var(--warn-text)' },
-            { label: '99Food', valor: statsPerPlat['99Food']?.revenue || 0, cor: 'var(--text-tertiary)' },
+            { label: 'iFood',  valor: statsPerPlat['iFood']?.revenue  || 0, cor: '#ef4444' },
+            { label: '99Food', valor: statsPerPlat['99Food']?.revenue || 0, cor: '#f59e0b' },
           ]
-          const maxCanal = Math.max(...canalData.map(c => c.valor), 0.01)
           return (
             <>
               <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                {['semana', 'mes'].map(p => (
+                {[['semana', 'Esta semana'], ['mes', 'Este mês']].map(([p, label]) => (
                   <button key={p} onClick={() => setPeriodo(p)} style={{
                     fontSize: 13, padding: '5px 14px', borderRadius: 20, border: '1px solid var(--border)',
                     background: periodo === p ? 'var(--teal)' : 'transparent',
                     color: periodo === p ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
-                  }}>
-                    {p === 'semana' ? 'Esta semana' : 'Este mês'}
-                  </button>
+                  }}>{label}</button>
                 ))}
               </div>
 
-              {!lVend && <GraficoDiario vendas={todasVendasPeriodo} periodo={periodo} />}
+              {!lVend && <GraficoDiario vendas={todasVendasPeriodo} periodo={periodo === 'custom' ? 'mes' : periodo} />}
+
+              {/* Tendência semanal */}
+              {!lVend && todasVendasAll.length > 0 && (
+                <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Tendência semanal</div>
+                  <TendenciaSemanal vendas={todasVendasAll} />
+                </div>
+              )}
 
               {!lVend && canalData.some(c => c.valor > 0) && (() => {
                 const totalCanal = canalData.reduce((s, c) => s + c.valor, 0)
@@ -1337,8 +1296,8 @@ export default function Vendas() {
                       return (
                         <div key={c.label} style={{ marginBottom: i < arr.length - 1 ? 10 : 0 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{c.label}</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: c.cor }}>{fmtN(pct, 0)}%</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: c.cor }}>{c.label}</span>
+                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{fmtN(pct, 0)}% · {fmtR(c.valor)}</span>
                           </div>
                           <div style={{ height: 4, background: '#252525', borderRadius: 2, overflow: 'hidden' }}>
                             <div style={{ width: `${pct}%`, height: '100%', background: c.cor, borderRadius: 2 }} />
