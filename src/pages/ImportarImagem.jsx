@@ -330,10 +330,11 @@ function CropTool({ src, onConfirm, onSkip }) {
     const pos = getPos(e)
     const dx = pos.x - startPos.current.x
     const dy = pos.y - startPos.current.y
+    const t = dragging.current
+    const sb = { ...startBox.current }
     const MIN = 0.1
     setBox(() => {
-      let { x, y, w, h } = startBox.current
-      const t = dragging.current
+      let { x, y, w, h } = sb
       if (t === 'move') {
         x = Math.max(0, Math.min(1 - w, x + dx)); y = Math.max(0, Math.min(1 - h, y + dy))
       } else {
