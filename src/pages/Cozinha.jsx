@@ -243,7 +243,7 @@ export default function Cozinha() {
                           letterSpacing: -1,
                           flexShrink: 0,
                         }}>
-                          {(() => { const v = Math.round(ing.quantidade * fator * 10) / 10; return v % 1 === 0 ? v.toFixed(0) : v.toFixed(1) })()}
+                          {fmtQty(ing.quantidade * fator, ing.unidade)}
                         </span>
                       </div>
                     )
