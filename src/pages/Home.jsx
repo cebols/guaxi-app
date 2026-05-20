@@ -415,40 +415,70 @@ export default function Home() {
       </div>
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
-        {/* Checklist de setup */}
-        {profile?.onboardingDone && !profile?.checklistDismissed && (
-          <div className="card" style={{ background: 'var(--teal-light)', border: '1px solid var(--teal-dark)', marginBottom: 16, position: 'relative' }}>
-            <button
-              onClick={() => updateProfile({ checklistDismissed: true })}
-              style={{ position: 'absolute', top: 10, right: 12, background: 'none', border: 'none', color: 'var(--teal)', fontSize: 18, cursor: 'pointer', padding: 0, lineHeight: 1 }}
-            >×</button>
-            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--teal)', marginBottom: 4 }}>
-              Vamos preparar a {profile?.nomeLoja || 'sua loja'}
+        {/* Checklist de setup — baseado em dados reais */}
+        {(() => {
+          if (!profile?.onboardingDone) return null
+          const steps = [
+            {
+              label: 'Cadastrar insumos',
+              sub: 'Ingredientes e embalagens',
+              path: '/cadastros',
+              done: (insumos || []).length > 0,
+            },
+            {
+              label: 'Montar seu cardápio',
+              sub: 'Produtos que você vende',
+              path: '/produtos',
+              done: (produtos || []).filter(p => p.tipo !== 'combo').length > 0,
+            },
+            {
+              label: 'Registrar primeiro pedido',
+              sub: 'Anote sua primeira encomenda',
+              path: '/pedidos',
+              done: (encomendas || []).length > 0,
+            },
+          ]
+          const allDone = steps.every(s => s.done)
+          if (allDone) return null
+          const doneCt = steps.filter(s => s.done).length
+          return (
+            <div className="card" style={{ background: 'var(--teal-light)', border: '1px solid var(--teal-dark)', marginBottom: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--teal)', marginBottom: 2 }}>
+                Vamos preparar a {profile?.nomeLoja || 'sua loja'}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--teal)', opacity: 0.7, marginBottom: 14 }}>
+                {doneCt} de {steps.length} concluídos · Some quando terminar tudo.
+              </div>
+              {steps.map((step, i) => (
+                <button key={i} onClick={() => !step.done && navigate(step.path)} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, width: '100%',
+                  padding: '10px 12px', borderRadius: 8, marginBottom: 6, textAlign: 'left',
+                  border: '1px solid rgba(34,184,134,0.2)',
+                  background: step.done ? 'rgba(13,51,38,0.3)' : 'rgba(13,51,38,0.6)',
+                  cursor: step.done ? 'default' : 'pointer',
+                  opacity: step.done ? 0.6 : 1,
+                }}>
+                  <div style={{
+                    width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
+                    background: step.done ? 'transparent' : 'var(--teal)',
+                    border: step.done ? '2px solid var(--teal)' : 'none',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 13, fontWeight: 800, color: step.done ? 'var(--teal)' : '#fff',
+                  }}>{step.done ? '✓' : i + 1}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{
+                      fontSize: 14, fontWeight: 500, color: 'var(--teal)',
+                      textDecoration: step.done ? 'line-through' : 'none',
+                      opacity: step.done ? 0.7 : 1,
+                    }}>{step.label}</div>
+                    {!step.done && <div style={{ fontSize: 11, color: 'var(--teal)', opacity: 0.6, marginTop: 1 }}>{step.sub}</div>}
+                  </div>
+                  {!step.done && <span style={{ color: 'var(--teal)', opacity: 0.5, fontSize: 16 }}>›</span>}
+                </button>
+              ))}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--teal)', opacity: 0.8, marginBottom: 14 }}>
-              Alguns passos pra começar a registrar pedidos e vendas.
-            </div>
-            {[
-              { n: 1, label: 'Montar seu cardápio (o que você vende)', path: '/produtos' },
-              { n: 2, label: 'Definir preços e margem', path: '/configuracoes' },
-              { n: 3, label: 'Registrar primeiro pedido', path: '/pedidos' },
-            ].map(item => (
-              <button key={item.n} onClick={() => navigate(item.path)} style={{
-                display: 'flex', alignItems: 'center', gap: 12, width: '100%',
-                padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(34,184,134,0.2)',
-                background: 'rgba(13,51,38,0.6)', cursor: 'pointer', marginBottom: 6, textAlign: 'left',
-              }}>
-                <div style={{
-                  width: 26, height: 26, borderRadius: '50%', background: 'var(--teal)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 12, fontWeight: 800, color: '#fff', flexShrink: 0,
-                }}>{item.n}</div>
-                <span style={{ flex: 1, fontSize: 14, fontWeight: 500, color: 'var(--teal)' }}>{item.label}</span>
-                <span style={{ color: 'var(--teal)', opacity: 0.6, fontSize: 16 }}>›</span>
-              </button>
-            ))}
-          </div>
-        )}
+          )
+        })()}
         {/* 2×2 metric cards with embedded sparklines */}
         <div className="metric-grid" style={{ marginBottom: 16 }}>
           <MetricCard
