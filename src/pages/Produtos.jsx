@@ -498,12 +498,40 @@ export default function Produtos() {
             {/* Mobile */}
             <div className="mobile-only">
               {(produtos || []).length === 0 ? (
-                <div className="empty">
-                  <span>Nenhum produto cadastrado</span>
-                  <button className="btn-outline-teal" style={{ marginTop: 8, maxWidth: 220 }} onClick={() => setSheet({ type: 'produto' })}>
-                    + Novo produto
-                  </button>
-                </div>
+                <>
+                  <div className="empty">
+                    <span>Nenhum produto cadastrado</span>
+                    <button className="btn-outline-teal" style={{ marginTop: 8, maxWidth: 220 }} onClick={() => setSheet({ type: 'produto' })}>
+                      + Novo produto
+                    </button>
+                  </div>
+                  {/* Mock card para hint de onboarding */}
+                  {profile?.onboardingDone && (
+                    <div ref={precosRef} className="card card-flush" style={{ padding: '0 14px', opacity: 0.6, pointerEvents: 'none', marginTop: 8 }}>
+                      {[
+                        { nome: 'Brigadeiro Gourmet', sub: '1 un Massa Brigadeiro · 1× Forminha n°5', d: 'R$ 8,00', p99: 'R$ 10,50', pif: 'R$ 11,90', custo: 'R$ 1,82' },
+                        { nome: 'Caixa 9 Brigadeiros', sub: '9 un Massa Brigadeiro · 1× Caixa Kraft P', d: 'R$ 65,00', p99: 'R$ 84,00', pif: 'R$ 92,00', custo: 'R$ 17,40' },
+                      ].map((p, i) => (
+                        <div key={i} className="list-item">
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="list-item-name">{p.nome}</div>
+                            <div className="list-item-sub">{p.sub}</div>
+                            <div style={{ fontSize: 11, marginTop: 2 }}>
+                              <span style={{ color: 'var(--teal)' }}>D {p.d}</span>
+                              {' · '}
+                              <span style={{ color: '#f59e0b' }}>99 {p.p99}</span>
+                              {' · '}
+                              <span style={{ color: '#ef4444' }}>iF {p.pif}</span>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0, textAlign: 'right' }}>
+                            custo<br />{p.custo}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
                 <div ref={precosRef} className="card card-flush" style={{ padding: '0 14px' }}>
                   {produtosFiltrados.map(prod => {
@@ -559,7 +587,7 @@ export default function Produtos() {
           <SpotlightHint
             targetRef={precosRef}
             stepKey="produtos_precos"
-            show={(produtos || []).filter(p => p.tipo !== 'combo').length > 0}
+            show={!lProd}
             title="Precificação inteligente por plataforma"
             body="O app calcula automaticamente o preço sugerido para venda direta, iFood e 99Food — já incluindo suas margens, custos fixos e taxas de cada canal."
           />

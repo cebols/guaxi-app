@@ -40,9 +40,13 @@ export function SpotlightHint({ targetRef, stepKey, title, body, show: showProp 
   const holeW    = rect.width  + PAD * 2
   const holeH    = rect.height + PAD * 2
 
-  // tooltip below target, clamped to viewport
+  const TOOLTIP_H = 170
   const tipLeft = Math.max(16, Math.min(holeLeft, window.innerWidth - 312))
-  const tipTop  = holeTop + holeH + 14
+  // prefer below, fall back to above if not enough space
+  const spaceBelow = window.innerHeight - (holeTop + holeH)
+  const tipTop = spaceBelow >= TOOLTIP_H + 14
+    ? holeTop + holeH + 14
+    : Math.max(16, holeTop - TOOLTIP_H - 14)
 
   return createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 9000, pointerEvents: 'none' }}>
