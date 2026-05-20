@@ -90,6 +90,7 @@ export default function Cozinha() {
             <div className="topbar-sub">Modo cozinha</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button onClick={() => navigate(`/fichas/${id}/editar`)} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--text-secondary)' }}>✏️ Editar</button>
             <div style={{ position: 'relative' }}>
               <button onClick={() => setMenuOpen(o => !o)} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 11px', fontSize: 16, cursor: 'pointer', color: 'var(--text-secondary)', lineHeight: 1 }}>···</button>
               {menuOpen && (
