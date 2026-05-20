@@ -442,7 +442,10 @@ input, select, textarea { font-family: var(--font); }
 .toast {
   position: fixed;
   bottom: 90px;
-  left: 50%; transform: translateX(-50%);
+  left: 0; right: 0;
+  margin: 0 auto;
+  width: fit-content;
+  max-width: 320px;
   background: #e8e8e8;
   color: #121212;
   padding: 10px 20px;
@@ -454,8 +457,8 @@ input, select, textarea { font-family: var(--font); }
   animation: fadeup .2s ease;
 }
 @keyframes fadeup {
-  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Avatar ──────────────────────────────── */
@@ -478,9 +481,9 @@ input, select, textarea { font-family: var(--font); }
 
 .sheet {
   position: fixed;
-  bottom: 0; left: 50%;
-  transform: translateX(-50%);
-  width: 100%; max-width: 430px;
+  bottom: 0; left: 0; right: 0;
+  margin: 0 auto;
+  max-width: 430px;
   background: var(--bg-card);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   border-top: var(--border);
@@ -491,8 +494,8 @@ input, select, textarea { font-family: var(--font); }
   animation: slideup .2s ease;
 }
 @keyframes slideup {
-  from { transform: translateX(-50%) translateY(30px); opacity: 0 }
-  to   { transform: translateX(-50%) translateY(0);    opacity: 1 }
+  from { transform: translateY(30px); opacity: 0 }
+  to   { transform: translateY(0);    opacity: 1 }
 }
 
 .sheet-title {
@@ -673,13 +676,11 @@ input, select, textarea { font-family: var(--font); }
 
   /* ── Sheet → centered modal ───────────── */
   .sheet {
-    top: 50%;
-    left: 50%;
-    bottom: auto;
-    right: auto;
-    transform: translate(-50%, -50%);
+    top: 0; left: 0; right: 0; bottom: 0;
+    margin: auto;
     width: 540px;
     max-width: calc(100vw - 260px);
+    height: fit-content;
     border-radius: var(--radius-lg);
     max-height: 85dvh;
     animation: fadein .15s ease;
