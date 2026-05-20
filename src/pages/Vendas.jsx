@@ -1240,43 +1240,31 @@ export default function Vendas() {
             <div className="section-label">Venda direta</div>
             {loading ? <div className="loading">Carregando...</div> : (
               <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
-                {(produtos || []).filter(prod => (statsPerProdAvulsa[prod.nome]?.units || 0) > 0).map(prod => {
+                {(produtos || []).filter(prod => (statsPerProdAvulsa[prod.nome]?.units || 0) > 0).map((prod, idx, arr) => {
                   const s = statsPerProdAvulsa[prod.nome]
-                  const profit = s ? s.revNet - s.cost : null
+                  const profit = s ? s.revNet - s.cost : 0
                   const margin = s && s.revNet > 0 ? (profit / s.revNet) * 100 : null
                   const marginColor = margin === null ? 'var(--text-tertiary)'
                     : margin >= cfg.margem ? 'var(--teal)'
                     : margin >= 0 ? '#f59e0b' : 'var(--alert-text)'
                   return (
-                    <div key={prod.id} style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 14 }}>{prod.nome}</div>
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                            Custo: {fmtR(prod.custoTotal)}
-                          </div>
-                          {s ? (
-                            <div style={{ fontSize: 12, marginTop: 4 }}>
-                              <span style={{ color: 'var(--text-secondary)' }}>{fmtN(s.units)} un · {fmtR(s.revNet)} · </span>
-                              <span style={{ color: marginColor, fontWeight: 600 }}>
-                                lucro {fmtR(profit)} ({margin !== null ? `${fmtN(margin)}%` : '—'})
-                              </span>
-                              {margin !== null && margin < cfg.margem && (
-                                <span style={{ color: '#f59e0b', marginLeft: 6, fontSize: 11 }}>⚠ abaixo da meta</span>
-                              )}
-                            </div>
-                          ) : (
-                            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>sem vendas neste período</div>
-                          )}
+                    <div key={prod.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: idx < arr.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{prod.nome}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                          {fmtN(s.units, 0)} un · {fmtR(s.revNet)}
                         </div>
-                        <button onClick={() => setSheet({ type: 'venda', produto: prod })}
-                          style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--teal)', color: 'var(--teal)', background: 'transparent', cursor: 'pointer', flexShrink: 0, marginLeft: 8 }}>
-                          + Venda
-                        </button>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: marginColor }}>{margin !== null ? `${fmtN(margin, 0)}%` : '—'}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>margem</div>
                       </div>
                     </div>
                   )
                 })}
+                {(produtos || []).filter(prod => (statsPerProdAvulsa[prod.nome]?.units || 0) > 0).length === 0 && (
+                  <div style={{ padding: '16px 0', fontSize: 13, color: 'var(--text-tertiary)', textAlign: 'center' }}>Nenhuma venda avulsa neste período</div>
+                )}
               </div>
             )}
 
@@ -1339,20 +1327,28 @@ export default function Vendas() {
 
               {!lVend && <GraficoDiario vendas={todasVendasPeriodo} periodo={periodo} />}
 
-              {!lVend && canalData.some(c => c.valor > 0) && (
-                <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Canal de venda</div>
-                  {canalData.filter(c => c.valor > 0).map(c => (
-                    <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', width: 50, flexShrink: 0 }}>{c.label}</div>
-                      <div style={{ flex: 1, height: 4, background: 'var(--bg-secondary)', borderRadius: 2 }}>
-                        <div style={{ width: `${(c.valor / maxCanal) * 100}%`, height: '100%', background: c.cor, borderRadius: 2 }} />
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', width: 72, textAlign: 'right', flexShrink: 0 }}>{fmtR(c.valor)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {!lVend && canalData.some(c => c.valor > 0) && (() => {
+                const totalCanal = canalData.reduce((s, c) => s + c.valor, 0)
+                return (
+                  <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Canal de venda</div>
+                    {canalData.filter(c => c.valor > 0).map((c, i, arr) => {
+                      const pct = totalCanal > 0 ? (c.valor / totalCanal) * 100 : 0
+                      return (
+                        <div key={c.label} style={{ marginBottom: i < arr.length - 1 ? 10 : 0 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{c.label}</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: c.cor }}>{fmtN(pct, 0)}%</span>
+                          </div>
+                          <div style={{ height: 4, background: '#252525', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: c.cor, borderRadius: 2 }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                 <div style={{ flex: 1, height: 1, background: '#252525' }} />
