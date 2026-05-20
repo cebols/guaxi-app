@@ -1090,8 +1090,8 @@ export default function Vendas() {
       if (!map[v.data]) map[v.data] = []
       map[v.data].push({ ...v, _tipo: 'venda' })
     })
-    ;(encomendas || []).filter(e => e.status !== 'Cancelado').forEach(e => {
-      const d = e.dataEntrega
+    ;(encomendas || []).filter(e => e.pgto === 'Pago' && e.dataPago).forEach(e => {
+      const d = e.dataPago
       if (!map[d]) map[d] = []
       map[d].push({ ...e, _tipo: 'pedido' })
     })

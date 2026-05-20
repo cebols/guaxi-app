@@ -574,6 +574,7 @@ export async function getEncomendas() {
     sinal: r.sinal || 0,
     saldo: r.valor - (r.sinal || 0),
     pgto: r.pgto || 'Aguardando',
+    dataPago: r.data_pago || null,
     status: r.status || 'Pendente',
     obs: r.obs || '',
     tipoEntrega: r.tipo_entrega || 'Retirada',
@@ -656,6 +657,7 @@ export async function deletePedido(id) {
 
 export async function updateStatusEncomenda(id, status, pgto, tipoEntrega, frete, valor) {
   const update = { status, pgto }
+  if (pgto === 'Pago') update.data_pago = new Date().toISOString().split('T')[0]
   if (tipoEntrega !== undefined) update.tipo_entrega = tipoEntrega
   if (frete !== undefined) update.frete = parseFloat(frete) || 0
   if (valor !== undefined) update.valor = valor
