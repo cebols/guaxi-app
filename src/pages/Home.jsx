@@ -394,7 +394,7 @@ export default function Home() {
   const hoje = new Date()
   const diaSemana = hoje.toLocaleDateString('pt-BR', { weekday: 'long' })
   const dataStr = hoje.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
-  const primeiroNome = user?.email?.split('@')[0] || 'Felipe'
+  const primeiroNome = user?.user_metadata?.given_name || user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'você'
 
   return (
     <>
@@ -415,6 +415,40 @@ export default function Home() {
       </div>
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
+        {/* Checklist de setup */}
+        {profile?.onboardingDone && !profile?.checklistDismissed && (
+          <div className="card" style={{ background: 'var(--teal-light)', border: '1px solid var(--teal-dark)', marginBottom: 16, position: 'relative' }}>
+            <button
+              onClick={() => updateProfile({ checklistDismissed: true })}
+              style={{ position: 'absolute', top: 10, right: 12, background: 'none', border: 'none', color: 'var(--teal)', fontSize: 18, cursor: 'pointer', padding: 0, lineHeight: 1 }}
+            >×</button>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--teal)', marginBottom: 4 }}>
+              Vamos preparar a {profile?.nomeLoja || 'sua loja'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--teal)', opacity: 0.8, marginBottom: 14 }}>
+              Alguns passos pra começar a registrar pedidos e vendas.
+            </div>
+            {[
+              { n: 1, label: 'Montar seu cardápio (o que você vende)', path: '/produtos' },
+              { n: 2, label: 'Definir preços e margem', path: '/configuracoes' },
+              { n: 3, label: 'Registrar primeiro pedido', path: '/pedidos' },
+            ].map(item => (
+              <button key={item.n} onClick={() => navigate(item.path)} style={{
+                display: 'flex', alignItems: 'center', gap: 12, width: '100%',
+                padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(34,184,134,0.2)',
+                background: 'rgba(13,51,38,0.6)', cursor: 'pointer', marginBottom: 6, textAlign: 'left',
+              }}>
+                <div style={{
+                  width: 26, height: 26, borderRadius: '50%', background: 'var(--teal)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 12, fontWeight: 800, color: '#fff', flexShrink: 0,
+                }}>{item.n}</div>
+                <span style={{ flex: 1, fontSize: 14, fontWeight: 500, color: 'var(--teal)' }}>{item.label}</span>
+                <span style={{ color: 'var(--teal)', opacity: 0.6, fontSize: 16 }}>›</span>
+              </button>
+            ))}
+          </div>
+        )}
         {/* 2×2 metric cards with embedded sparklines */}
         <div className="metric-grid" style={{ marginBottom: 16 }}>
           <MetricCard

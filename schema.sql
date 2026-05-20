@@ -362,3 +362,20 @@ CREATE POLICY "own_data" ON producao_itens FOR ALL USING (
 
 -- ── Receita porcoes (custo por porção) ───────────────────────
 ALTER TABLE receitas ADD COLUMN IF NOT EXISTS porcoes integer;
+
+-- Profiles table for onboarding and user settings
+CREATE TABLE IF NOT EXISTS profiles (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  nome_loja TEXT DEFAULT '',
+  estado TEXT DEFAULT 'SP',
+  canais TEXT[] DEFAULT '{"direto"}',
+  onboarding_done BOOLEAN DEFAULT FALSE,
+  checklist_dismissed BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY IF NOT EXISTS "profiles_own" ON profiles
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
