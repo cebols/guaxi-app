@@ -134,7 +134,7 @@ function norm(s) {
                 </>
               )}
             </div>
-            <button onClick={() => setImportandoImg(true)} title="Importar por foto" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 11px', fontSize: 16, cursor: 'pointer', lineHeight: 1 }}>📷</button>
+            <button onClick={() => { setExportSel([]); setExportMode(true) }} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--text-secondary)', lineHeight: 1 }}>📄 Criar ficha</button>
             <button onClick={() => setCreateSheet(true)} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Nova receita</button>
           </div>
         </div>

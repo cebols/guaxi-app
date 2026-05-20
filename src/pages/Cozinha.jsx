@@ -371,7 +371,7 @@ export default function Cozinha() {
                       <div key={si} style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '12px 14px', marginBottom: 8, opacity: done ? 0.5 : 1, transition: 'opacity .15s' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: stepIngs.length > 0 || step.descricao ? 8 : 0 }}
                           onClick={() => toggleStep(si)}>
-                          <div style={{ width: 26, height: 26, borderRadius: '50%', background: done ? 'var(--teal)' : 'var(--bg-card)', border: `2px solid ${done ? 'var(--teal)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}>
+                          <div style={{ width: 26, height: 26, borderRadius: '50%', background: done ? 'var(--teal)' : 'none', border: `2.5px solid ${done ? 'var(--teal)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer', transition: 'all 0.15s' }}>
                             {done
                               ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                               : <span style={{ fontSize: 13 }}>{acao.icon}</span>
@@ -402,7 +402,9 @@ export default function Cozinha() {
                                   </div>
                                   <span style={{ fontSize: 12, fontWeight: 500 }}>{ing.nome}</span>
                                   <span style={{ fontSize: 14, fontWeight: 700, color: isChecked ? 'var(--text-tertiary)' : 'var(--teal)' }}>
-                                    {fmtQty(ing.quantidade * fator, ing.unidade)}
+                                    {Math.round(ing.quantidade * fator * 10) / 10 % 1 === 0
+                                      ? Math.round(ing.quantidade * fator * 10) / 10
+                                      : (Math.round(ing.quantidade * fator * 10) / 10).toFixed(1)}
                                   </span>
                                 </div>
                               )
