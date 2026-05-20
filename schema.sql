@@ -376,6 +376,7 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY IF NOT EXISTS "profiles_own" ON profiles
+DROP POLICY IF EXISTS "profiles_own" ON profiles;
+CREATE POLICY "profiles_own" ON profiles FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
