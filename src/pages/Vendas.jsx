@@ -863,7 +863,7 @@ function DreRow({ label, value, sub, bold, border, color, onToggle, open, hasDet
 }
 
 function DrePainel({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNetAvulsa, totalRevNetPed,
-  totalCost, totalCustoSacolas, numPedidosPeriodo, custoSacola,
+  totalCost, totalCustoSacolas, numPedidosPeriodo, custoSacola, totalComprasPeriodo,
   lucroBruto, margemBruta, custoFixoPeriodo, cfg, lucroLiquido, margemLiquida }) {
   const [openRec, setOpenRec] = useState(false)
   const [openCmv, setOpenCmv] = useState(false)
@@ -894,7 +894,7 @@ function DrePainel({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNe
 
         <DreRow label="= Receita líquida" value={fmtR(totalRevNet)} border />
 
-        <DreRow label="− CMV" value={`−${fmtR(totalCost)}`} color="var(--alert-text)"
+        <DreRow label="− CMV (custo receitas)" value={`−${fmtR(totalCost)}`} color="var(--alert-text)"
           hasDetail={hasCmvDetail} open={openCmv} onToggle={() => setOpenCmv(o => !o)} />
         {openCmv && hasCmvDetail && (
           <div style={{ paddingLeft: 10 }}>
@@ -903,6 +903,10 @@ function DrePainel({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNe
               <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalCustoSacolas)}</span>
             </div>
           </div>
+        )}
+
+        {totalComprasPeriodo > 0 && (
+          <DreRow label="− Compras (ingredientes)" value={`−${fmtR(totalComprasPeriodo)}`} color="var(--alert-text)" />
         )}
 
         <DreRow label="= Lucro bruto" value={fmtR(lucroBruto)} sub={`${fmtN(margemBruta)}%`}
@@ -931,6 +935,63 @@ function DrePainel({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNe
   )
 }
 
+function BarraResultado({ totalReceita, totalCMV, totalCompras, totalFixo, periodo }) {
+  const totalSaida = totalCMV + totalCompras + totalFixo
+  const saldo = totalReceita - totalSaida
+  const pct = totalSaida > 0 ? Math.min(100, (totalReceita / totalSaida) * 100) : 0
+  const color = pct >= 100 ? 'var(--teal)' : pct >= 70 ? '#f59e0b' : 'var(--alert-text)'
+  const periodoLabel = periodo === 'mes' ? new Date().toLocaleDateString('pt-BR', { month: 'long' }) : periodo === 'semana' ? 'esta semana' : 'período'
+  const custos = [
+    { label: 'CMV', valor: totalCMV },
+    { label: 'Compras', valor: totalCompras },
+    { label: 'Fixos', valor: totalFixo },
+  ].filter(c => c.valor > 0)
+
+  return (
+    <div className="card" style={{ padding: '14px 14px', marginBottom: 12 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 12 }}>
+        Resultado · {periodoLabel}
+      </div>
+
+      {/* Entrou vs Saiu */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 2 }}>Entrou</div>
+          <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--teal)' }}>{fmtR(totalReceita)}</div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 2 }}>Saiu (total custos)</div>
+          <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--alert-text)' }}>{fmtR(totalSaida)}</div>
+        </div>
+      </div>
+
+      {/* Barra */}
+      <div style={{ height: 8, background: 'var(--border)', borderRadius: 4, marginBottom: 8, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4, transition: 'width 0.5s ease' }} />
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: custos.length > 0 ? 10 : 0 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color }}>{fmtN(pct, 0)}% coberto</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: saldo >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>
+          {saldo >= 0 ? '+' : ''}{fmtR(saldo)}
+        </span>
+      </div>
+
+      {/* Breakdown custos */}
+      {custos.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+          {custos.map(c => (
+            <div key={c.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+              <span style={{ color: 'var(--text-tertiary)' }}>↳ {c.label}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>{fmtR(c.valor)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Vendas() {
   const [periodo, setPeriodo]           = useState('mes')
   const [tab, setTab]                   = useState('inicio')
@@ -945,6 +1006,7 @@ export default function Vendas() {
   const { data: vendas,     loading: lVend, reload: rVend } = useData(getVendas)
   const { data: encomendas, loading: lEnc }                 = useData(getEncomendas)
   const { data: embalagens }                                = useData(getEmbalagens)
+  const { data: compras }                                   = useData(getCompras)
   const cfg = getConfig()
   const custoSacola = getCustoSacolaDelivery(cfg, embalagens || [])
 
@@ -1075,7 +1137,11 @@ export default function Vendas() {
 
   const totalRevBruto      = Object.values(statsPerProd).reduce((s, p) => s + p.revenue, 0)
   const totalTaxas         = totalRevBruto - totalRevNet
-  const lucroBruto         = totalRevNet - totalCost
+  const totalComprasPeriodo = useMemo(() =>
+    (compras || []).filter(c => c.data >= inicio && c.data <= fim).reduce((s, c) => s + (c.total || 0), 0),
+    [compras, inicio, fim]
+  )
+  const lucroBruto         = totalRevNet - totalCost - totalComprasPeriodo
   const margemBruta        = totalRevNet > 0 ? (lucroBruto / totalRevNet) * 100 : 0
   const custoFixoPeriodo   = periodo === 'mes' ? (cfg.custoFixoMensal || 0) : (cfg.custoFixoMensal || 0) / 4.33
   const lucroLiquido       = lucroBruto - custoFixoPeriodo
@@ -1181,27 +1247,28 @@ export default function Vendas() {
             )}
 
             <div className="metric-grid" style={{ marginBottom: 12 }}>
-              <div className="metric-card">
-                <div className="metric-label">Faturamento líq.</div>
-                <div className="metric-value" style={{ fontSize: 14 }}>{loading ? '—' : fmtR(totalRevNet)}</div>
-              </div>
-              <div className="metric-card">
-                <div className="metric-label">Lucro líquido</div>
-                <div className="metric-value" style={{ fontSize: 14, color: lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>
-                  {loading ? '—' : fmtR(lucroLiquido)}
+              {[
+                { label: 'Faturamento líq.', value: fmtR(totalRevNet) },
+                { label: 'Lucro líquido',    value: fmtR(lucroLiquido), color: lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)' },
+                { label: 'Margem líquida',   value: totalRevNet > 0 ? `${fmtN((lucroLiquido/totalRevNet)*100)}%` : '—',
+                  color: totalRevNet > 0 && (lucroLiquido/totalRevNet)*100 >= cfg.margem ? 'var(--teal)' : lucroLiquido > 0 ? '#f59e0b' : 'var(--alert-text)' },
+                { label: 'Unidades',         value: String(totalUnits || 0) },
+              ].map(m => (
+                <div key={m.label} className="card" style={{ marginBottom: 0 }}>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700, marginBottom: 4 }}>{m.label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: m.color || 'var(--text-primary)' }}>{loading ? '—' : m.value}</div>
                 </div>
-              </div>
-              <div className="metric-card">
-                <div className="metric-label">Margem líquida</div>
-                <div className="metric-value" style={{ color: totalRevNet > 0 && (lucroLiquido/totalRevNet)*100 >= cfg.margem ? 'var(--teal)' : lucroLiquido > 0 ? '#f59e0b' : 'var(--alert-text)' }}>
-                  {loading ? '—' : totalRevNet > 0 ? `${fmtN((lucroLiquido/totalRevNet)*100)}%` : '—'}
-                </div>
-              </div>
-              <div className="metric-card">
-                <div className="metric-label">Unidades</div>
-                <div className="metric-value">{loading ? '—' : totalUnits || '0'}</div>
-              </div>
+              ))}
             </div>
+
+            {/* Barra resultado */}
+            {!loading && totalRevNet > 0 && (
+              <BarraResultado
+                totalReceita={totalRevNet} totalCMV={totalCost}
+                totalCompras={totalComprasPeriodo} totalFixo={custoFixoPeriodo}
+                periodo={periodo}
+              />
+            )}
 
             {/* DRE */}
             {!loading && totalRevNet > 0 && (
@@ -1211,6 +1278,7 @@ export default function Vendas() {
                 totalRevNet={totalRevNet} totalRevNetAvulsa={totalRevNetAvulsa} totalRevNetPed={totalRevNetPed}
                 totalCost={totalCost} totalCustoSacolas={totalCustoSacolas}
                 numPedidosPeriodo={numPedidosPeriodo} custoSacola={custoSacola}
+                totalComprasPeriodo={totalComprasPeriodo}
                 lucroBruto={lucroBruto} margemBruta={margemBruta}
                 custoFixoPeriodo={custoFixoPeriodo} cfg={cfg}
                 lucroLiquido={lucroLiquido} margemLiquida={margemLiquida}
