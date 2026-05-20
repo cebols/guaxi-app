@@ -862,24 +862,46 @@ function DreRow({ label, value, sub, bold, border, color, onToggle, open, hasDet
   )
 }
 
-function DrePainel({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNetAvulsa, totalRevNetPed,
+function ResultadoCard({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNetAvulsa, totalRevNetPed,
   totalCost, totalCustoSacolas, numPedidosPeriodo, custoSacola, totalComprasPeriodo,
   lucroBruto, margemBruta, custoFixoPeriodo, cfg, lucroLiquido, margemLiquida }) {
   const [openRec, setOpenRec] = useState(false)
   const [openCmv, setOpenCmv] = useState(false)
   const [openFix, setOpenFix] = useState(false)
-  const mesLabel = periodo === 'mes' ? new Date().toLocaleDateString('pt-BR', { month: 'long' }) : 'Esta semana'
+  const mesLabel = periodo === 'mes' ? new Date().toLocaleDateString('pt-BR', { month: 'long' }) : periodo === 'semana' ? 'esta semana' : 'período'
   const hasRecDetail = totalTaxas > 0 || totalRevNetPed > 0
   const hasCmvDetail = totalCustoSacolas > 0
   const hasFixDetail = custoFixoPeriodo > 0
 
-  return (
-    <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.6 }}>
-        Resultado · {mesLabel}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+  const totalSaida = totalCost + totalComprasPeriodo + custoFixoPeriodo
+  const pct   = totalSaida > 0 ? Math.min(100, (totalRevNet / totalSaida) * 100) : 0
+  const barColor = pct >= 100 ? 'var(--teal)' : pct >= 70 ? '#f59e0b' : 'var(--alert-text)'
 
+  return (
+    <div className="card" style={{ padding: '14px 14px', marginBottom: 12 }}>
+      {/* Header: título + saldo */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
+          Resultado · {mesLabel}
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>
+            {lucroLiquido >= 0 ? '+' : ''}{fmtR(lucroLiquido)}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 5 }}>{fmtN(margemLiquida)}%</span>
+        </div>
+      </div>
+
+      {/* Barra de cobertura */}
+      <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, marginBottom: 4, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 3, transition: 'width 0.5s ease' }} />
+      </div>
+      <div style={{ fontSize: 11, color: barColor, fontWeight: 600, marginBottom: 12 }}>
+        {fmtN(pct, 0)}% dos custos cobertos · {fmtR(totalRevNet)} receita / {fmtR(totalSaida)} custos
+      </div>
+
+      {/* Linhas DRE */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
         <DreRow label="Receita bruta" value={fmtR(totalRevBruto)}
           hasDetail={hasRecDetail} open={openRec} onToggle={() => setOpenRec(o => !o)} />
         {openRec && hasRecDetail && (
@@ -931,63 +953,6 @@ function DrePainel({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNe
         <DreRow label="= Lucro líquido" value={fmtR(lucroLiquido)} sub={`${fmtN(margemLiquida)}%`}
           bold color={lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)'} border />
       </div>
-    </div>
-  )
-}
-
-function BarraResultado({ totalReceita, totalCMV, totalCompras, totalFixo, periodo }) {
-  const totalSaida = totalCMV + totalCompras + totalFixo
-  const saldo = totalReceita - totalSaida
-  const pct = totalSaida > 0 ? Math.min(100, (totalReceita / totalSaida) * 100) : 0
-  const color = pct >= 100 ? 'var(--teal)' : pct >= 70 ? '#f59e0b' : 'var(--alert-text)'
-  const periodoLabel = periodo === 'mes' ? new Date().toLocaleDateString('pt-BR', { month: 'long' }) : periodo === 'semana' ? 'esta semana' : 'período'
-  const custos = [
-    { label: 'CMV', valor: totalCMV },
-    { label: 'Compras', valor: totalCompras },
-    { label: 'Fixos', valor: totalFixo },
-  ].filter(c => c.valor > 0)
-
-  return (
-    <div className="card" style={{ padding: '14px 14px', marginBottom: 12 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 12 }}>
-        Resultado · {periodoLabel}
-      </div>
-
-      {/* Entrou vs Saiu */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 10 }}>
-        <div>
-          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 2 }}>Entrou</div>
-          <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--teal)' }}>{fmtR(totalReceita)}</div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 2 }}>Saiu (total custos)</div>
-          <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', color: 'var(--alert-text)' }}>{fmtR(totalSaida)}</div>
-        </div>
-      </div>
-
-      {/* Barra */}
-      <div style={{ height: 8, background: 'var(--border)', borderRadius: 4, marginBottom: 8, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 4, transition: 'width 0.5s ease' }} />
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: custos.length > 0 ? 10 : 0 }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color }}>{fmtN(pct, 0)}% coberto</span>
-        <span style={{ fontSize: 13, fontWeight: 700, color: saldo >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>
-          {saldo >= 0 ? '+' : ''}{fmtR(saldo)}
-        </span>
-      </div>
-
-      {/* Breakdown custos */}
-      {custos.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-          {custos.map(c => (
-            <div key={c.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-              <span style={{ color: 'var(--text-tertiary)' }}>↳ {c.label}</span>
-              <span style={{ color: 'var(--text-secondary)' }}>{fmtR(c.valor)}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -1261,18 +1226,9 @@ export default function Vendas() {
               ))}
             </div>
 
-            {/* Barra resultado */}
+            {/* Resultado consolidado */}
             {!loading && totalRevNet > 0 && (
-              <BarraResultado
-                totalReceita={totalRevNet} totalCMV={totalCost}
-                totalCompras={totalComprasPeriodo} totalFixo={custoFixoPeriodo}
-                periodo={periodo}
-              />
-            )}
-
-            {/* DRE */}
-            {!loading && totalRevNet > 0 && (
-              <DrePainel
+              <ResultadoCard
                 periodo={periodo}
                 totalRevBruto={totalRevBruto} totalTaxas={totalTaxas}
                 totalRevNet={totalRevNet} totalRevNetAvulsa={totalRevNetAvulsa} totalRevNetPed={totalRevNetPed}
