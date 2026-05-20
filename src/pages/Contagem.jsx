@@ -134,7 +134,7 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', 
   }
 
   if (filtered.length === 0) {
-    return <div className="empty" style={{ marginTop: 24 }}><span>Nenhum item neste filtro</span></div>
+    return <div className="empty" style={{ marginTop: 8 }}><span>Nenhum item neste filtro</span></div>
   }
 
   return (
@@ -315,6 +315,127 @@ function fmtN(v) {
   return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
 }
 
+function normStr(s) {
+  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+}
+
+function NovaCompraModal({ insumos, embalagens, onSalvar, onFechar, saving }) {
+  const [busca, setBusca] = useState('')
+  const [qtds, setQtds] = useState({})
+  const [fornSel, setFornSel] = useState({})
+  const [fornOpts, setFornOpts] = useState({})
+
+  const todos = useMemo(() => [
+    ...(insumos || []).map(i => ({ ...i, _tipo: 'insumo' })),
+    ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem' })),
+  ], [insumos, embalagens])
+
+  const filtered = useMemo(() => {
+    if (!busca) return todos
+    const q = normStr(busca)
+    return todos.filter(i => normStr(i.nome).includes(q) || normStr(i.categoria || '').includes(q))
+  }, [todos, busca])
+
+  async function handleQty(item, val) {
+    setQtds(q => ({ ...q, [item.id]: val }))
+    if (item._tipo === 'insumo' && parseFloat(val) > 0 && !fornOpts[item.id]) {
+      try {
+        const fs = await getInsumoFornecedores(item.id)
+        const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0 }] : [])
+        setFornOpts(o => ({ ...o, [item.id]: opts }))
+        if (opts.length > 0) setFornSel(s => ({ ...s, [item.id]: s[item.id] || opts[0] }))
+      } catch {}
+    }
+  }
+
+  const totalCompra = useMemo(() => todos.reduce((sum, item) => {
+    const qty = parseFloat(qtds[item.id] || '0')
+    if (qty <= 0) return sum
+    const sel = fornSel[item.id]
+    const price = sel?.custoUnit ?? item.custoUnit ?? 0
+    return sum + qty * price
+  }, 0), [todos, qtds, fornSel])
+
+  const temItens = todos.some(i => parseFloat(qtds[i.id] || '0') > 0)
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
+      onClick={e => { if (e.target === e.currentTarget) onFechar() }}>
+      <div style={{ background: 'var(--bg-primary)', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: 680, margin: '0 auto', maxHeight: '85vh', display: 'flex', flexDirection: 'column', padding: '20px 20px 0' }}>
+        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12 }}>Registrar compra</div>
+        <input
+          value={busca}
+          onChange={e => setBusca(e.target.value)}
+          placeholder="Buscar item..."
+          autoFocus
+          style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, boxSizing: 'border-box', marginBottom: 12 }}
+        />
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {filtered.map((item, i) => {
+            const qty = qtds[item.id] || ''
+            const hasQty = parseFloat(qty) > 0
+            const opts = item._tipo === 'insumo' ? (fornOpts[item.id] || []) : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: '', custoUnit: item.custoUnit || 0 }] : [])
+            const sel = fornSel[item.id]
+            return (
+              <div key={item.id} style={{ padding: '10px 0', borderBottom: i < filtered.length - 1 ? '1px solid #222' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nome}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>em estoque: {fmtN(item.estoqueAtual ?? 0)} {item.unidade}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <input
+                      type="text" inputMode="decimal"
+                      value={qty}
+                      placeholder="0"
+                      onChange={e => handleQty(item, e.target.value)}
+                      onFocus={e => e.target.select()}
+                      style={{ width: 64, padding: '6px 8px', borderRadius: 6, border: hasQty ? '1.5px solid var(--teal)' : '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'right' }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', width: 28 }}>{item.unidade}</span>
+                  </div>
+                </div>
+                {hasQty && opts.length > 0 && (
+                  <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {opts.map((opt, oi) => {
+                      const isActive = sel?.fornecedor === opt.fornecedor && sel?.marca === opt.marca
+                      return (
+                        <button key={oi} onClick={() => setFornSel(s => ({ ...s, [item.id]: opt }))} style={{
+                          fontSize: 11, padding: '3px 10px', borderRadius: 20, cursor: 'pointer',
+                          border: isActive ? '1px solid var(--teal)' : '1px solid #333',
+                          background: isActive ? 'var(--teal-light)' : '#1a1a1a',
+                          color: isActive ? 'var(--teal)' : 'var(--text-secondary)',
+                          fontWeight: isActive ? 600 : 400,
+                        }}>
+                          {opt.fornecedor || opt.marca || '—'}
+                          {opt.custoUnit > 0 && ` · R$${fmt(opt.custoUnit * parseFloat(qty))}`}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ padding: '14px 0 32px', borderTop: '1px solid #222', marginTop: 8 }}>
+          {totalCompra > 0 && (
+            <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600, marginBottom: 10 }}>
+              Total estimado: R$ {fmt(totalCompra)}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={onFechar} style={{ flex: 1, padding: 12, borderRadius: 8, border: '1px solid #444', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, cursor: 'pointer' }}>Cancelar</button>
+            <button onClick={() => onSalvar(qtds, fornSel, todos)} disabled={saving || !temItens} style={{ flex: 2, padding: 12, borderRadius: 8, border: 'none', background: temItens ? 'var(--teal)' : '#333', color: temItens ? '#fff' : '#666', fontSize: 14, fontWeight: 600, cursor: temItens ? 'pointer' : 'default' }}>
+              {saving ? 'Registrando...' : 'Registrar compra'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
   const tabLabel = { insumos: 'Insumos', embalagens: 'Embalagens', produtos: 'Produtos' }[tab]
   const [fornecedores, setFornecedores] = useState({}) // item.id → [{fornecedor, marca, custoUnit}]
@@ -391,7 +512,7 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
                     </div>
                   </div>
                   <div style={{ flexShrink: 0, textAlign: 'right' }}>
-                    {diff > 0 && <div style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>+{fmtN(diff)} compra</div>}
+                    {diff > 0 && <div style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>+{fmtN(diff)} {item.unidade}</div>}
                     {diff < 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{fmtN(diff)} {item.unidade}</div>}
                     {diff === 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>sem alteração</div>}
                   </div>
@@ -405,7 +526,7 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
                       color: sel ? 'var(--teal)' : 'var(--text-secondary)',
                       fontWeight: sel ? 600 : 400,
                     }}>
-                      {selLabel}{sel?.custoUnit > 0 ? ` · R$${fmt(sel.custoUnit)}` : ''}
+                      {selLabel}{sel?.custoUnit > 0 ? ` · R$${fmt(sel.custoUnit * diff)}` : ''}
                     </button>
                     {openPicker === item.id && (
                       <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -451,9 +572,9 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
 }
 
 export default function Contagem() {
-  const { data: insumos,    loading: loadIns } = useData(getInsumos)
-  const { data: embalagens, loading: loadEmb } = useData(getEmbalagens)
-  const { data: produtos,   loading: loadProd } = useData(getProdutos)
+  const { data: insumos,    loading: loadIns,  reload: reloadIns  } = useData(getInsumos)
+  const { data: embalagens, loading: loadEmb,  reload: reloadEmb  } = useData(getEmbalagens)
+  const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
   const { toast, show } = useToast()
 
   const [tab, setTab] = useState('insumos')
@@ -468,8 +589,9 @@ export default function Contagem() {
   const [modalMin, setModalMin] = useState(null)  // { type, itens, values, busca }
   const [savingMin, setSavingMin] = useState(false)
   const [semEstoqueAberto, setSemEstoqueAberto] = useState(false)
-  const [recibo,   setRecibo]  = useState(null)
-  const [saving,   setSaving]  = useState(false)
+  const [recibo,      setRecibo]      = useState(null)
+  const [saving,      setSaving]      = useState(false)
+  const [modalCompra, setModalCompra] = useState(false)
   const debounceRef = useRef({})
 
   const setIns  = (id, val) => setContagemIns(c  => ({ ...c, [id]: val }))
@@ -596,11 +718,55 @@ export default function Contagem() {
       else if (recibo === 'embalagens') setContagemEmb({})
       else                              setContagemProd({})
 
+      if (recibo === 'insumos') reloadIns()
+      else if (recibo === 'embalagens') reloadEmb()
+      else reloadProd()
       setRecibo(null)
       show(comprasRegistradas > 0
         ? `Contagem salva! ${comprasRegistradas} compra(s) registrada(s)`
         : 'Contagem salva! Nenhuma compra detectada'
       )
+    } catch (e) {
+      show('Erro: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleNovaCompra = async (qtds, fornSel, todos) => {
+    const hoje = new Date().toISOString().split('T')[0]
+    const comprasPayload = []
+    const insumosPayload = []
+    const embalagensPayload = []
+    todos.forEach(item => {
+      const qty = parseFloat(qtds[item.id] || '0')
+      if (qty <= 0) return
+      const sel = fornSel[item.id]
+      const precoUnit = sel?.custoUnit ?? item.custoUnit ?? 0
+      comprasPayload.push({
+        tipo: item._tipo,
+        item_id: item.id,
+        item_nome: item.nome,
+        unidade: item.unidade || '',
+        quantidade: qty,
+        preco_unit: precoUnit,
+        total: qty * precoUnit,
+        data: hoje,
+      })
+      const novoEstoque = (item.estoqueAtual ?? 0) + qty
+      if (item._tipo === 'insumo') insumosPayload.push({ id: item.id, estoqueAtual: novoEstoque })
+      else embalagensPayload.push({ id: item.id, estoqueAtual: novoEstoque })
+    })
+    if (comprasPayload.length === 0) { show('Nenhuma quantidade preenchida'); return }
+    setSaving(true)
+    try {
+      await registrarCompras(comprasPayload)
+      if (insumosPayload.length > 0) await updateEstoqueInsumos(insumosPayload)
+      if (embalagensPayload.length > 0) await updateEstoqueEmbalagens(embalagensPayload)
+      reloadIns()
+      reloadEmb()
+      setModalCompra(false)
+      show(`${comprasPayload.length} compra(s) registrada(s)!`)
     } catch (e) {
       show('Erro: ' + e.message)
     } finally {
@@ -629,6 +795,9 @@ export default function Contagem() {
             <div className="topbar-title">Contagem semanal</div>
             <div className="topbar-sub">Digite o estoque físico atual</div>
           </div>
+          <button onClick={() => setModalCompra(true)} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+            + Compra
+          </button>
         </div>
       </div>
 
@@ -739,6 +908,16 @@ export default function Contagem() {
           </>
         )}
       </div>
+
+      {modalCompra && (
+        <NovaCompraModal
+          insumos={insumos}
+          embalagens={embalagens}
+          onSalvar={handleNovaCompra}
+          onFechar={() => setModalCompra(false)}
+          saving={saving}
+        />
+      )}
 
       {/* Modal Editar Mínimo */}
       {modalMin && (
