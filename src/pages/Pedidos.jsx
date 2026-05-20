@@ -656,9 +656,10 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
     if (!pedido.dataEntrega) return null
     const today = new Date(); today.setHours(0,0,0,0)
     const diff = Math.round((new Date(pedido.dataEntrega + 'T00:00:00') - today) / 86400000)
-    if (diff < 0)   return { bg: 'var(--alert-bg)', color: 'var(--alert-text)' }
-    if (diff === 0) return { bg: 'var(--warn-bg)',  color: 'var(--warn-text)' }
-    return { bg: 'var(--ok-bg)', color: 'var(--ok-text)' }
+    if (diff < 0)   return { color: 'var(--alert-text)' }
+    if (diff === 0) return { color: 'var(--warn-text)' }
+    if (diff === 1) return { color: '#fbbf24' }
+    return { color: 'var(--text-tertiary)' }
   })()
 
   const pgtoS = PGTO_STYLE[pedido.pgto] || PGTO_STYLE.Aguardando
@@ -737,7 +738,7 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
             </div>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button onClick={onEdit} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>
+            <button onClick={onEdit} style={{ padding: '7px 14px', borderRadius: 8, border: '1.5px solid var(--teal)', background: 'var(--teal-light)', color: 'var(--teal)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               Editar detalhes
             </button>
           </div>
@@ -792,12 +793,25 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
           </button>
           <div style={{ textAlign: 'right' }}>
             <div className="topbar-title">{pedido.cliente}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{pedido.id} · {fmtDate(pedido.dataEntrega)}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{pedido.id}</div>
           </div>
         </div>
       </div>
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
+
+        {/* Data entrega chip */}
+        {pedido.dataEntrega && (() => {
+          const urg = urgency(pedido.dataEntrega)
+          const color = urg?.color || 'var(--text-secondary)'
+          const bg    = urg?.bg    || 'var(--bg-secondary)'
+          return (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: bg, borderRadius: 8, padding: '6px 12px', marginBottom: 12 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color }}>📅 {fmtDate(pedido.dataEntrega)}</span>
+              {urg && <span style={{ fontSize: 11, fontWeight: 700, color, opacity: 0.8 }}>· {urg.label}</span>}
+            </div>
+          )
+        })()}
 
         {/* Status pipeline */}
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
