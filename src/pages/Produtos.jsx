@@ -329,7 +329,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
 }
 
 
-function PlatPrecos({ prod, cfg }) {
+function PlatPrecos({ prod, cfg, custoSacola }) {
   const precos = calcPrecos(prod.custoTotal, cfg, custoSacola)
   return (
     <div style={{ fontSize: 11, marginTop: 2 }}>
@@ -511,7 +511,7 @@ export default function Produtos() {
                             <TipoBadge tipo={prod.tipo} />
                           </div>
                           <div className="list-item-sub">{subtext(prod)}</div>
-                          <PlatPrecos prod={prod} cfg={cfg} />
+                          <PlatPrecos prod={prod} cfg={cfg} custoSacola={custoSacola} />
                         </div>
                         {prod.custoTotal > 0 && (
                           <div style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0, textAlign: 'right' }}>
