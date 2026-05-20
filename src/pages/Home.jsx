@@ -268,7 +268,7 @@ function EncomendaCard({ enc, onUpdateStatus }) {
 }
 
 export default function Home() {
-  const { signOut, user } = useAuth()
+  const { signOut, user, profile, updateProfile } = useAuth()
   const navigate = useNavigate()
   const { toast, show } = useToast()
   const [alertasOpen, setAlertasOpen]   = useState(false)

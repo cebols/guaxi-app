@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from './contexts/AuthContext'
 import { initConfig, syncConfigFromSupabase } from './hooks/useConfig'
 import Login from './pages/Login'
+import Onboarding from './pages/Onboarding'
 import Home from './pages/Home'
 import Pedidos from './pages/Pedidos'
 import Contagem from './pages/Contagem'
@@ -103,7 +104,7 @@ function Sidebar() {
 }
 
 export default function App() {
-  const { isAuthenticated, loading, session, signOut } = useAuth()
+  const { isAuthenticated, loading, session, signOut, profile } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -119,6 +120,7 @@ export default function App() {
 
   if (loading) return <div className="loading" style={{ minHeight: '100dvh' }}>Carregando...</div>
   if (!isAuthenticated) return <Login />
+  if (!profile?.onboardingDone) return <Onboarding onComplete={() => {}} />
 
   const isReceitaForm = location.pathname.match(/^\/fichas\/(nova|\d+\/editar)/)
   const menuActive = MENU_GROUPS.flatMap(g => g.items).some(n => location.pathname.startsWith(n.path))

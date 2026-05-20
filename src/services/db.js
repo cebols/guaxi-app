@@ -921,3 +921,32 @@ export async function saveUserConfig(config) {
     )
   } catch {}
 }
+
+export async function getProfile(userId) {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+  if (error && error.code !== 'PGRST116') throw error
+  if (!data) return null
+  return {
+    nomeLoja: data.nome_loja || '',
+    estado: data.estado || 'SP',
+    canais: data.canais || ['direto'],
+    onboardingDone: data.onboarding_done || false,
+    checklistDismissed: data.checklist_dismissed || false,
+  }
+}
+
+export async function upsertProfile(userId, profile) {
+  const { error } = await supabase.from('profiles').upsert({
+    user_id: userId,
+    nome_loja: profile.nomeLoja || '',
+    estado: profile.estado || 'SP',
+    canais: profile.canais || ['direto'],
+    onboarding_done: profile.onboardingDone || false,
+    checklist_dismissed: profile.checklistDismissed || false,
+  }, { onConflict: 'user_id' })
+  if (error) throw error
+}
