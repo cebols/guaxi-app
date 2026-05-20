@@ -165,33 +165,75 @@ function resolveOvoUnidade(qtd, rawUnit) {
   return null // trust explicit unit (ml, kg, L, un…)
 }
 
+function resolveUnit(rawUnit, fallback = 'g') {
+  const u = (rawUnit || '').toLowerCase()
+  if (u.startsWith('ml')) return 'ml'
+  if (u.startsWith('kg')) return 'kg'
+  if (u === 'l') return 'L'
+  if (u.startsWith('un') || u.startsWith('xíc') || u.startsWith('col')) return 'un'
+  return fallback
+}
+
 function parseIngredientList(rawText) {
   const lines = rawText.split('\n').map(l => l.trim()).filter(Boolean)
   const result = []
   const UNITS = ['g', 'ml', 'kg', 'l', 'un', 'unidade', 'unidades', 'xícara', 'xícaras', 'colher', 'colheres']
   const unitRx = UNITS.join('|')
+  const HEADER_RX = /produto|ingrediente|quantid|item|quanti/i
+
+  // Detect unit from table header like "Quanti. Esp. (g)"
+  let headerUnit = 'g'
+  for (let i = 0; i < Math.min(4, lines.length); i++) {
+    const hm = lines[i].match(/\(\s*(g|ml|kg|l|un)\s*\)/i)
+    if (hm) { headerUnit = hm[1].toLowerCase() === 'l' ? 'L' : hm[1].toLowerCase(); break }
+  }
+
   for (const line of lines) {
-    // "302g de cream cheese" or "302 g de cream cheese"
-    const m = line.match(new RegExp(`^(\\d+[\\.,]?\\d*)\\s*(${unitRx})?s?\\s*(?:de\\s+)?(.+)$`, 'i'))
-    if (m) {
-      const qtd = parseFloat(m[1].replace(',', '.'))
-      const rawUnit = (m[2] || '').toLowerCase()
-      const nome = m[3].trim().replace(/\s{2,}/g, ' ')
+    if (HEADER_RX.test(line)) continue
+
+    // Pattern 1: "302g de cream cheese" or "302 g cream cheese"
+    const m1 = line.match(new RegExp(`^(\\d+[\\.,]?\\d*)\\s*(${unitRx})?s?\\s*(?:de\\s+)?(.+)$`, 'i'))
+    if (m1) {
+      const qtd = parseFloat(m1[1].replace(',', '.'))
+      const rawUnit = m1[2] || ''
+      const nome = m1[3].trim().replace(/\s{2,}/g, ' ')
       if (qtd <= 0 || nome.length < 2) continue
-      let unidade = 'g'
-      if (rawUnit.startsWith('ml')) unidade = 'ml'
-      else if (rawUnit.startsWith('kg')) unidade = 'kg'
-      else if (rawUnit === 'l') unidade = 'L'
-      else if (!rawUnit || rawUnit.startsWith('un') || rawUnit.startsWith('xíc') || rawUnit.startsWith('col')) unidade = 'un'
-      if (isOvo(nome)) unidade = resolveOvoUnidade(qtd, rawUnit) || unidade
+      let unidade = resolveUnit(rawUnit, rawUnit ? 'g' : 'un')
+      if (isOvo(nome)) unidade = resolveOvoUnidade(qtd, rawUnit.toLowerCase()) || unidade
       result.push({ nome, quantidade: qtd, unidade })
       continue
     }
-    // "Raspas de 2 laranjas" — qty embedded
-    const m2 = line.match(/^(.+?)\s+(\d+[\.,]?\d*)\s+(.+)$/)
+
+    // Pattern 2: "Chocolate Meio Amargo 40% de cacau: 165g" (colon format)
+    const m2 = line.match(new RegExp(`^(.+?):\\s*(\\d+[\\.,]?\\d*)\\s*(${unitRx})?s?\\s*$`, 'i'))
     if (m2) {
+      const nome = m2[1].trim()
       const qtd = parseFloat(m2[2].replace(',', '.'))
-      const nome = `${m2[1]} ${m2[3]}`.trim()
+      const rawUnit = m2[3] || ''
+      if (qtd <= 0 || nome.length < 2) continue
+      let unidade = rawUnit ? resolveUnit(rawUnit) : headerUnit
+      if (isOvo(nome)) unidade = resolveOvoUnidade(qtd, rawUnit.toLowerCase()) || unidade
+      result.push({ nome, quantidade: qtd, unidade })
+      continue
+    }
+
+    // Pattern 3: "Canela em pó 270" — name-first, number at end (table format)
+    const m3 = line.match(/^(.+\D)\s+(\d+[\.,]?\d*)\s*$/)
+    if (m3) {
+      const nome = m3[1].trim()
+      const qtd = parseFloat(m3[2].replace(',', '.'))
+      if (qtd <= 0 || nome.length < 2 || /R\$/.test(line)) continue
+      let unidade = headerUnit
+      if (isOvo(nome)) unidade = resolveOvoUnidade(qtd, '') || unidade
+      result.push({ nome, quantidade: qtd, unidade })
+      continue
+    }
+
+    // Pattern 4: "Raspas de 2 laranjas" — qty embedded in middle
+    const m4 = line.match(/^(.+?)\s+(\d+[\.,]?\d*)\s+(.+)$/)
+    if (m4) {
+      const qtd = parseFloat(m4[2].replace(',', '.'))
+      const nome = `${m4[1]} ${m4[3]}`.trim()
       if (qtd > 0 && nome.length >= 3 && !/R\$/.test(line)) {
         const unidade = isOvo(nome) ? (qtd <= 30 ? 'un' : 'g') : 'un'
         result.push({ nome, quantidade: qtd, unidade })
