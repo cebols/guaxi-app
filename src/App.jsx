@@ -175,7 +175,7 @@ export default function App() {
       {menuOpen && (
         <>
           <div className="sheet-overlay" style={{ zIndex: 45 }} onClick={() => setMenuOpen(false)} />
-          <div className="sheet" style={{ zIndex: 55, paddingBottom: 80, paddingLeft: 0, paddingRight: 0 }}>
+          <div className="sheet" style={{ zIndex: 55, paddingBottom: 16, paddingLeft: 0, paddingRight: 0 }}>
             <div style={{ width: 36, height: 4, background: 'var(--bg-secondary)', borderRadius: 2, margin: '4px auto 12px' }} />
             {MENU_GROUPS.map(({ label, items }) => (
               <div key={label} style={{ marginBottom: 18 }}>

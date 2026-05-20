@@ -596,7 +596,7 @@ function NovoView({ produtos, clientes, onBack, onSaved }) {
 
       {/* Total bar */}
       <div style={{
-        position: 'sticky', bottom: 60, background: 'var(--bg-card)',
+        position: 'sticky', bottom: 0, background: 'var(--bg-card)',
         borderTop: '1px solid var(--border)', padding: '8px 16px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>

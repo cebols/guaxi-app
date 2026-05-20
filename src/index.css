@@ -51,17 +51,17 @@ input, select, textarea { font-family: var(--font); }
 .app-shell {
   max-width: 430px;
   margin: 0 auto;
-  min-height: 100dvh;
+  height: 100dvh;
   background: var(--bg-card);
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden;
 }
 
 .page {
   flex: 1;
   overflow-y: auto;
-  padding-bottom: 72px;
 }
 
 .page-inner {
@@ -92,12 +92,8 @@ input, select, textarea { font-family: var(--font); }
 
 /* ── Bottom nav ─────────────────────────── */
 .bottom-nav {
-  position: fixed;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
+  flex-shrink: 0;
   width: 100%;
-  max-width: 430px;
   background: var(--bg-card);
   border-top: var(--border);
   display: flex;
@@ -568,7 +564,6 @@ input, select, textarea { font-family: var(--font); }
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding-bottom: 72px;
 }
 
 /* ── Sidebar (hidden on mobile) ──────────── */
