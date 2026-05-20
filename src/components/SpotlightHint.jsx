@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 
 const PAD = 10
 
-export function SpotlightHint({ targetRef, stepKey, title, body }) {
+export function SpotlightHint({ targetRef, stepKey, title, body, show: showProp = true }) {
   const [rect, setRect] = useState(null)
   const [dismissed, setDismissed] = useState(
     () => sessionStorage.getItem(`hint_${stepKey}`) === '1'
@@ -28,7 +28,7 @@ export function SpotlightHint({ targetRef, stepKey, title, body }) {
     }
   }, [targetRef, dismissed])
 
-  if (dismissed || !rect) return null
+  if (!showProp || dismissed || !rect) return null
 
   const dismiss = () => {
     sessionStorage.setItem(`hint_${stepKey}`, '1')

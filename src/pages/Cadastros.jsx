@@ -1,6 +1,8 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
+import { useAuth } from '../contexts/AuthContext'
+import { SpotlightHint } from '../components/SpotlightHint'
 import ImportarExcel from './ImportarExcel'
 import ImportarImagem from './ImportarImagem'
 import {
@@ -754,6 +756,9 @@ export default function Cadastros() {
   const [bulkConfirm, setBulkConfirm] = useState(false)
   const [bulkBusca, setBulkBusca]   = useState('')
   const { toast, show } = useToast()
+  const { profile } = useAuth()
+  const importRef    = useRef(null)
+  const fornecedorRef = useRef(null)
 
   const { data: insumos,    loading: lIns, reload: rIns } = useData(getInsumos)
   const { data: embalagens, loading: lEmb, reload: rEmb } = useData(getEmbalagens)
@@ -892,14 +897,16 @@ export default function Cadastros() {
         <div className="topbar-inner">
           <div className="topbar-title">Insumos &amp; Embalagens</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setImportandoImg(true)}
-              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              📷 Foto
-            </button>
-            <button onClick={() => setImportando(true)}
-              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              ⬇️ Importar
-            </button>
+            <div ref={importRef} style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setImportandoImg(true)}
+                style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                📷 Foto
+              </button>
+              <button onClick={() => setImportando(true)}
+                style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                ⬇️ Importar
+              </button>
+            </div>
             <button onClick={() => { setBulkSel([]); setBulkBusca(''); setBulkDelete(true) }}
               style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               Excluir
@@ -1033,7 +1040,7 @@ export default function Cadastros() {
 
             {/* Mobile */}
             <div className="mobile-only">
-              <div className="card card-flush" style={{ padding: '0 14px' }}>
+              <div ref={fornecedorRef} className="card card-flush" style={{ padding: '0 14px' }}>
                 {insumosFiltrados.length === 0
                   ? <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>{busca ? 'Nenhum resultado' : 'Nenhum insumo cadastrado'}</div>
                   : insumosFiltrados.map(ins => {
@@ -1266,6 +1273,26 @@ export default function Cadastros() {
       )}
 
       {toast && <div className="toast">{toast}</div>}
+
+      {/* Hints de onboarding */}
+      {profile?.onboardingDone && (
+        <>
+          <SpotlightHint
+            targetRef={importRef}
+            stepKey="import_insumos"
+            show={(insumos || []).length === 0}
+            title="Importe sua lista de insumos"
+            body="Envie uma foto da sua lista ou importe de uma planilha Excel — o app lê automaticamente nome, unidade e fornecedor."
+          />
+          <SpotlightHint
+            targetRef={fornecedorRef}
+            stepKey="fornecedor_links"
+            show={(insumos || []).length > 0}
+            title="Acesso rápido ao fornecedor"
+            body="Cada insumo pode ter o link da loja e o WhatsApp do fornecedor. Toque no insumo para adicionar e faça pedidos em segundos."
+          />
+        </>
+      )}
     </>
   )
 }

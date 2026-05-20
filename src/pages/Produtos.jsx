@@ -1,6 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
+import { useAuth } from '../contexts/AuthContext'
+import { SpotlightHint } from '../components/SpotlightHint'
 import { getConfig, calcPrecos, getCustoSacolaDelivery } from '../hooks/useConfig'
 import {
   getProdutos, saveProduto, deleteProduto,
@@ -355,7 +357,9 @@ export default function Produtos() {
   const [sheet, setSheet]     = useState(null)
   const [filtroTipo, setFiltroTipo] = useState('Todos')
   const { toast, show }       = useToast()
+  const { profile }           = useAuth()
   const cfg                   = getConfig()
+  const precosRef             = useRef(null)
 
   const { data: produtos,   loading: lProd, reload: rProd } = useData(getProdutos)
   const { data: receitas,   loading: lRec  } = useData(getReceitas)
@@ -501,7 +505,7 @@ export default function Produtos() {
                   </button>
                 </div>
               ) : (
-                <div className="card card-flush" style={{ padding: '0 14px' }}>
+                <div ref={precosRef} className="card card-flush" style={{ padding: '0 14px' }}>
                   {produtosFiltrados.map(prod => {
                     return (
                       <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
@@ -548,6 +552,19 @@ export default function Produtos() {
       )}
 
       {toast && <div className="toast">{toast}</div>}
+
+      {/* Hints de onboarding */}
+      {profile?.onboardingDone && (
+        <>
+          <SpotlightHint
+            targetRef={precosRef}
+            stepKey="produtos_precos"
+            show={(produtos || []).filter(p => p.tipo !== 'combo').length > 0}
+            title="Precificação inteligente por plataforma"
+            body="O app calcula automaticamente o preço sugerido para venda direta, iFood e 99Food — já incluindo suas margens, custos fixos e taxas de cada canal."
+          />
+        </>
+      )}
     </>
   )
 }
