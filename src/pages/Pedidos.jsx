@@ -1280,7 +1280,7 @@ export default function Pedidos() {
 
             {pedidosFiltrados.length === 0 ? (
               <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>
-                {filtro === 'todos' ? 'Nenhum pedido ainda' : 'Nenhum pedido neste filtro'}
+                {filtroUrgencia === 'todos' ? 'Nenhum pedido ainda' : 'Nenhum pedido neste filtro'}
               </div>
             ) : (
               pedidosFiltrados.map(p => (
