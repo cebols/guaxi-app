@@ -237,6 +237,7 @@ ALTER TABLE insumo_fornecedores  ADD COLUMN IF NOT EXISTS user_id     uuid defau
 ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS tipo_entrega text default 'Retirada';
 ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS frete        numeric default 0;
 ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS data_pago    date;
 
 ALTER TABLE encomenda_itens      ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE clientes             ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
