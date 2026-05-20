@@ -46,7 +46,7 @@ export default function Cozinha() {
   const [pesoInput, setPesoInput] = useState('')
   const [checked, setChecked] = useState({})
   const [checkedStep, setCheckedStep] = useState({})
-  const [modoSimples, setModoSimples] = useState(false)
+  const [modo, setModo] = useState('compacto')
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmExcluir, setConfirmExcluir] = useState(false)
 
@@ -91,9 +91,18 @@ export default function Cozinha() {
             <div className="topbar-sub">Modo cozinha</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="btn-ghost" onClick={() => setModoSimples(s => !s)} style={{ fontSize: 12, padding: '5px 10px' }}>
-              {modoSimples ? 'Completo' : 'Simples'}
-            </button>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {['compacto', 'detalhado'].map(m => (
+                <button key={m} onClick={() => setModo(m)} style={{
+                  padding: '5px 10px', borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  border: '1px solid',
+                  borderColor: modo === m ? 'var(--teal)' : 'var(--border)',
+                  background: modo === m ? 'var(--teal-light)' : 'transparent',
+                  color: modo === m ? 'var(--teal)' : 'var(--text-secondary)',
+                  textTransform: 'capitalize',
+                }}>{m.charAt(0).toUpperCase() + m.slice(1)}</button>
+              ))}
+            </div>
             <div style={{ position: 'relative' }}>
               <button onClick={() => setMenuOpen(o => !o)} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 11px', fontSize: 16, cursor: 'pointer', color: 'var(--text-secondary)', lineHeight: 1 }}>···</button>
               {menuOpen && (
@@ -206,82 +215,229 @@ export default function Cozinha() {
               )}
             </div>
 
-            {/* INGREDIENTES checklist */}
-            <div style={{ fontSize: 11, letterSpacing: 2, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
-              Ingredientes · {checkedCount} de {ingredientes.length} prontos
-            </div>
-            <div className="card card-flush">
-              {ingredientes.map((ing, i) => {
-                const isChecked = !!checked[i]
+            {/* INGREDIENTES checklist — Compacto mode */}
+            {modo === 'compacto' && (
+              <>
+                <div style={{ fontSize: 11, letterSpacing: 2, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
+                  Ingredientes · {checkedCount} de {ingredientes.length} prontos
+                </div>
+                <div className="card card-flush">
+                  {ingredientes.map((ing, i) => {
+                    const isChecked = !!checked[i]
+                    return (
+                      <div
+                        key={i}
+                        onClick={() => toggleChecked(i)}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 16,
+                          padding: '16px 14px',
+                          borderBottom: i < ingredientes.length - 1 ? '1px solid var(--border)' : 'none',
+                          cursor: 'pointer',
+                          opacity: isChecked ? 0.4 : 1,
+                          transition: 'opacity 0.15s',
+                          userSelect: 'none',
+                          WebkitTapHighlightColor: 'transparent',
+                        }}
+                      >
+                        {/* Circle checkbox */}
+                        <div style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: '50%',
+                          border: `2.5px solid ${isChecked ? 'var(--teal)' : 'var(--border)'}`,
+                          background: isChecked ? 'var(--teal)' : 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                          transition: 'all 0.15s',
+                        }}>
+                          {isChecked && (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </div>
+
+                        {/* Name */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          {ing.subReceitaId && (
+                            <span style={{ fontSize: 10, background: 'var(--teal)', color: '#fff', borderRadius: 4, padding: '1px 4px', marginRight: 6, fontWeight: 700 }}>R</span>
+                          )}
+                          <span style={{
+                            fontSize: 18,
+                            fontWeight: 500,
+                            textDecoration: isChecked ? 'line-through' : 'none',
+                            color: isChecked ? 'var(--text-secondary)' : 'var(--text-primary)',
+                          }}>
+                            {ing.nome}
+                          </span>
+                        </div>
+
+                        {/* Quantity — large */}
+                        <span style={{
+                          fontSize: 44,
+                          fontWeight: 700,
+                          lineHeight: 1,
+                          color: isChecked ? 'var(--text-secondary)' : 'var(--teal)',
+                          letterSpacing: -1,
+                          flexShrink: 0,
+                        }}>
+                          {fmtQty(ing.quantidade * fator, ing.unidade)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
+
+            {/* DETALHADO mode — steps with ingredient chips */}
+            {modo === 'detalhado' && (() => {
+              const steps = receita.instrucoes ? parseInstrucoes(receita.instrucoes) : []
+              if (!Array.isArray(steps) || steps.length === 0) {
+                // fallback to ingredient checklist
                 return (
-                  <div
-                    key={i}
-                    onClick={() => toggleChecked(i)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 16,
-                      padding: '16px 14px',
-                      borderBottom: i < ingredientes.length - 1 ? '1px solid var(--border)' : 'none',
-                      cursor: 'pointer',
-                      opacity: isChecked ? 0.4 : 1,
-                      transition: 'opacity 0.15s',
-                      userSelect: 'none',
-                      WebkitTapHighlightColor: 'transparent',
-                    }}
-                  >
-                    {/* Circle checkbox */}
-                    <div style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: '50%',
-                      border: `2.5px solid ${isChecked ? 'var(--teal)' : 'var(--border)'}`,
-                      background: isChecked ? 'var(--teal)' : 'none',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      transition: 'all 0.15s',
-                    }}>
-                      {isChecked && (
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
+                  <>
+                    <div style={{ fontSize: 11, letterSpacing: 2, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
+                      Ingredientes · {checkedCount} de {ingredientes.length} prontos
                     </div>
-
-                    {/* Name */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      {ing.subReceitaId && (
-                        <span style={{ fontSize: 10, background: 'var(--teal)', color: '#fff', borderRadius: 4, padding: '1px 4px', marginRight: 6, fontWeight: 700 }}>R</span>
-                      )}
-                      <span style={{
-                        fontSize: 18,
-                        fontWeight: 500,
-                        textDecoration: isChecked ? 'line-through' : 'none',
-                        color: isChecked ? 'var(--text-secondary)' : 'var(--text-primary)',
-                      }}>
-                        {ing.nome}
-                      </span>
+                    <div className="card card-flush">
+                      {ingredientes.map((ing, i) => {
+                        const isChecked = !!checked[i]
+                        return (
+                          <div
+                            key={i}
+                            onClick={() => toggleChecked(i)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 16,
+                              padding: '16px 14px',
+                              borderBottom: i < ingredientes.length - 1 ? '1px solid var(--border)' : 'none',
+                              cursor: 'pointer',
+                              opacity: isChecked ? 0.4 : 1,
+                              transition: 'opacity 0.15s',
+                              userSelect: 'none',
+                              WebkitTapHighlightColor: 'transparent',
+                            }}
+                          >
+                            <div style={{
+                              width: 32, height: 32, borderRadius: '50%',
+                              border: `2.5px solid ${isChecked ? 'var(--teal)' : 'var(--border)'}`,
+                              background: isChecked ? 'var(--teal)' : 'none',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              flexShrink: 0, transition: 'all 0.15s',
+                            }}>
+                              {isChecked && (
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              )}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              {ing.subReceitaId && (
+                                <span style={{ fontSize: 10, background: 'var(--teal)', color: '#fff', borderRadius: 4, padding: '1px 4px', marginRight: 6, fontWeight: 700 }}>R</span>
+                              )}
+                              <span style={{ fontSize: 18, fontWeight: 500, textDecoration: isChecked ? 'line-through' : 'none', color: isChecked ? 'var(--text-secondary)' : 'var(--text-primary)' }}>
+                                {ing.nome}
+                              </span>
+                            </div>
+                            <span style={{ fontSize: 44, fontWeight: 700, lineHeight: 1, color: isChecked ? 'var(--text-secondary)' : 'var(--teal)', letterSpacing: -1, flexShrink: 0 }}>
+                              {fmtQty(ing.quantidade * fator, ing.unidade)}
+                            </span>
+                          </div>
+                        )
+                      })}
                     </div>
-
-                    {/* Quantity — large */}
-                    <span style={{
-                      fontSize: 44,
-                      fontWeight: 700,
-                      lineHeight: 1,
-                      color: isChecked ? 'var(--text-secondary)' : 'var(--teal)',
-                      letterSpacing: -1,
-                      flexShrink: 0,
-                    }}>
-                      {fmtQty(ing.quantidade * fator, ing.unidade)}
-                    </span>
-                  </div>
+                  </>
                 )
-              })}
-            </div>
+              }
+              const linkedIdxs = new Set(steps.flatMap(s => s.insumos || []))
+              const orphans = ingredientes.filter((_, i) => !linkedIdxs.has(i))
+              const doneCount = Object.values(checkedStep).filter(Boolean).length
+              return (
+                <>
+                  <div style={{ fontSize: 11, letterSpacing: 2, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
+                    Etapas · {doneCount} de {steps.length}
+                  </div>
+                  {steps.map((step, si) => {
+                    const acao = ACAO_MAP[step.tipo] || ACAO_MAP.misturar
+                    const stepIngs = (step.insumos || []).map(idx => ({ idx, ing: ingredientes[idx] })).filter(x => x.ing)
+                    const done = !!checkedStep[si]
+                    return (
+                      <div key={si} style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '12px 14px', marginBottom: 8, opacity: done ? 0.5 : 1, transition: 'opacity .15s' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: stepIngs.length > 0 || step.descricao ? 8 : 0 }}
+                          onClick={() => toggleStep(si)}>
+                          <div style={{ width: 26, height: 26, borderRadius: '50%', background: done ? 'var(--teal)' : 'var(--bg-card)', border: `2px solid ${done ? 'var(--teal)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}>
+                            {done
+                              ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                              : <span style={{ fontSize: 13 }}>{acao.icon}</span>
+                            }
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', flex: 1 }}>{acao.label}</span>
+                        </div>
+                        {step.descricao && (
+                          <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: stepIngs.length > 0 ? 8 : 0 }}>
+                            {step.descricao}
+                          </div>
+                        )}
+                        {stepIngs.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {stepIngs.map(({ idx, ing }) => {
+                              const isChecked = !!checked[idx]
+                              return (
+                                <div key={idx} onClick={() => toggleChecked(idx)}
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    padding: '7px 10px', borderRadius: 8,
+                                    background: isChecked ? 'var(--teal-light)' : 'var(--bg-card)',
+                                    border: `1px solid ${isChecked ? 'var(--teal)' : 'var(--border)'}`,
+                                    cursor: 'pointer', opacity: isChecked ? 0.6 : 1,
+                                  }}>
+                                  <div style={{ width: 14, height: 14, borderRadius: '50%', border: `1.5px solid ${isChecked ? 'var(--teal)' : '#555'}`, background: isChecked ? 'var(--teal)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                    {isChecked && <span style={{ fontSize: 9, color: '#000', fontWeight: 700 }}>✓</span>}
+                                  </div>
+                                  <span style={{ fontSize: 12, fontWeight: 500 }}>{ing.nome}</span>
+                                  <span style={{ fontSize: 14, fontWeight: 700, color: isChecked ? 'var(--text-tertiary)' : 'var(--teal)' }}>
+                                    {fmtQty(ing.quantidade * fator, ing.unidade)}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {orphans.length > 0 && (
+                    <>
+                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 700, marginBottom: 6, marginTop: 4 }}>Outros ingredientes</div>
+                      <div className="card card-flush">
+                        {orphans.map((ing, i) => {
+                          const realIdx = ingredientes.indexOf(ing)
+                          const isChecked = !!checked[realIdx]
+                          return (
+                            <div key={i} onClick={() => toggleChecked(realIdx)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderBottom: i < orphans.length - 1 ? '1px solid var(--border)' : 'none', cursor: 'pointer', opacity: isChecked ? 0.4 : 1, transition: 'opacity .15s' }}>
+                              <div style={{ width: 24, height: 24, borderRadius: '50%', border: `2px solid ${isChecked ? 'var(--teal)' : 'var(--border)'}`, background: isChecked ? 'var(--teal)' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                {isChecked && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                              </div>
+                              <span style={{ flex: 1, fontSize: 15, fontWeight: 500 }}>{ing.nome}</span>
+                              <span style={{ fontSize: 36, fontWeight: 700, color: isChecked ? 'var(--text-secondary)' : 'var(--teal)', letterSpacing: -1 }}>{fmtQty(ing.quantidade * fator, ing.unidade)}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </>
+                  )}
+                </>
+              )
+            })()}
 
-            {!modoSimples && receita.rendimento > 0 && (
+            {/* Rendimento info — both modes */}
+            {receita.rendimento > 0 && (
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center', marginTop: 12 }}>
                 Rendimento base: {receita.rendimento} {receita.unidadeGera || 'un'}
                 {receita.fatorPerda > 0 && <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>(−{receita.fatorPerda}% perda)</span>}
@@ -290,7 +446,8 @@ export default function Cozinha() {
               </div>
             )}
 
-            {!modoSimples && (receita.tempForno || receita.tempoForno) && (
+            {/* Forno — both modes */}
+            {(receita.tempForno || receita.tempoForno) && (
               <div className="card" style={{ background: '#2a1a00', border: '1px solid #6b3d00', marginTop: 16, display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
                 <span style={{ fontSize: 28 }}>🔥</span>
                 <div>
@@ -303,7 +460,8 @@ export default function Cozinha() {
               </div>
             )}
 
-            {!modoSimples && receita.tipoResfriamento && (
+            {/* Resfriamento — both modes */}
+            {receita.tipoResfriamento && (
               <div className="card" style={{ background: '#001a2a', border: '1px solid #00436b', marginTop: 12, display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
                 <span style={{ fontSize: 28 }}>{receita.tipoResfriamento === 'congelador' ? '🧊' : receita.tipoResfriamento === 'geladeira' ? '❄️' : '🌡️'}</span>
                 <div>
@@ -317,7 +475,8 @@ export default function Cozinha() {
               </div>
             )}
 
-            {!modoSimples && receita.instrucoes && (() => {
+            {/* Instrucoes steps — Compacto mode only */}
+            {modo === 'compacto' && receita.instrucoes && (() => {
               const parsed = parseInstrucoes(receita.instrucoes)
               if (Array.isArray(parsed) && parsed.length > 0) {
                 const doneCount = Object.values(checkedStep).filter(Boolean).length

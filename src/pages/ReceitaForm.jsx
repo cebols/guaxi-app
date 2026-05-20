@@ -198,6 +198,7 @@ export default function ReceitaForm() {
   const [ingDrop, setIngDrop] = useState(null) // { idx, matches[] }
   const ingDropRef = useRef(null)
   const [importandoImg, setImportandoImg] = useState(false)
+  const [showAdv, setShowAdv] = useState(false)
 
   // Pre-fill ingredients from photo import (navigated from Fichas)
   useEffect(() => {
@@ -440,23 +441,6 @@ export default function ReceitaForm() {
             </datalist>
           </div>
           <div>
-            <div className="field-label">
-              Fator de perda (%)
-              <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', marginLeft: 6 }}>1–99</span>
-            </div>
-            <input
-              className="field-input"
-              type="text" inputMode="decimal"
-              min="1" max="99"
-              placeholder={isWeightUnit ? 'ex: 18 → aplica no bruto' : 'opcional'}
-              value={form.fatorPerda}
-              onChange={e => {
-                const v = e.target.value
-                if (v === '' || (parseFloat(v) >= 0 && parseFloat(v) < 100)) setField('fatorPerda', v)
-              }}
-            />
-          </div>
-          <div>
             <div className="field-label">Rendimento</div>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               {!isWeightUnit && (
@@ -646,37 +630,69 @@ export default function ReceitaForm() {
           </div>
         )}
 
-        <div className="section-label" style={{ marginTop: 16 }}>Forno <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', fontSize: 11 }}>(opcional)</span></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}>
-            <div className="field-label">Temperatura (°C)</div>
-            <input className="field-input" type="text" inputMode="numeric" placeholder="ex: 180" value={form.tempForno} onChange={e => setField('tempForno', e.target.value)} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div className="field-label">Tempo (min)</div>
-            <input className="field-input" type="text" inputMode="numeric" placeholder="ex: 35" value={form.tempoForno} onChange={e => setField('tempoForno', e.target.value)} />
-          </div>
-        </div>
-
-        <div className="section-label" style={{ marginTop: 16 }}>Resfriamento / Congelamento <span style={{ fontWeight: 400, color: 'var(--text-tertiary)', fontSize: 11 }}>(opcional)</span></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}>
-            <div className="field-label">Tipo</div>
-            <select className="field-input" value={form.tipoResfriamento} onChange={e => setField('tipoResfriamento', e.target.value)}>
-              <option value="">Nenhum</option>
-              <option value="geladeira">Geladeira</option>
-              <option value="congelador">Congelador</option>
-              <option value="ambiente">Temperatura ambiente</option>
-            </select>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div className="field-label">Tempo mínimo (horas)</div>
-            <input className="field-input" type="text" inputMode="decimal" placeholder="ex: 2" value={form.tempoResfriamento} onChange={e => setField('tempoResfriamento', e.target.value)} disabled={!form.tipoResfriamento} />
-          </div>
-        </div>
-
         <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>
         <StepBuilder steps={steps} onChange={setSteps} ingredientes={ingredientes} />
+
+        {/* Configurações avançadas */}
+        <div style={{ marginTop: 16 }}>
+          <button
+            type="button"
+            onClick={() => setShowAdv(s => !s)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+              background: 'none', border: 'none', cursor: 'pointer', padding: '6px 0',
+              color: 'var(--text-tertiary)',
+            }}
+          >
+            <div style={{ flex: 1, height: 1, background: 'var(--bg-secondary)' }} />
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap' }}>
+              {showAdv ? '▲ Ocultar' : '▼ Configurações avançadas'}
+            </span>
+            <div style={{ flex: 1, height: 1, background: 'var(--bg-secondary)' }} />
+          </button>
+          {showAdv && (
+            <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '14px 14px 8px', marginTop: 8 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="field-label">Fator de perda (%)</div>
+                  <input
+                    className="field-input"
+                    type="text" inputMode="decimal"
+                    placeholder="ex: 18"
+                    value={form.fatorPerda}
+                    onChange={e => {
+                      const v = e.target.value
+                      if (v === '' || (parseFloat(v) >= 0 && parseFloat(v) < 100)) setField('fatorPerda', v)
+                    }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div className="field-label">Temperatura forno (°C)</div>
+                  <input className="field-input" type="text" inputMode="numeric" placeholder="ex: 180" value={form.tempForno} onChange={e => setField('tempForno', e.target.value)} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div className="field-label">Tempo forno (min)</div>
+                  <input className="field-input" type="text" inputMode="numeric" placeholder="ex: 35" value={form.tempoForno} onChange={e => setField('tempoForno', e.target.value)} />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div className="field-label">Tipo resfriamento</div>
+                  <select className="field-input" value={form.tipoResfriamento} onChange={e => setField('tipoResfriamento', e.target.value)}>
+                    <option value="">Nenhum</option>
+                    <option value="geladeira">Geladeira</option>
+                    <option value="congelador">Congelador</option>
+                    <option value="ambiente">Temp. ambiente</option>
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div className="field-label">Tempo mínimo (horas)</div>
+                  <input className="field-input" type="text" inputMode="decimal" placeholder="ex: 2" value={form.tempoResfriamento} onChange={e => setField('tempoResfriamento', e.target.value)} disabled={!form.tipoResfriamento} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
         <button className="btn-primary" onClick={handleSave} disabled={saving}>
           {saving ? 'Salvando...' : isEdit ? 'Atualizar receita' : 'Criar receita'}

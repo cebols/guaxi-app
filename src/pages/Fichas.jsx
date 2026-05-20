@@ -37,6 +37,7 @@ export default function Fichas() {
   const [gerando, setGerando]         = useState(false)
   const [importandoImg, setImportandoImg] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [createSheet, setCreateSheet] = useState(false)
 
   async function handleGerarPDF() {
     const selecionadas = (receitas || []).filter(r => exportSel.includes(r.id))
@@ -120,8 +121,6 @@ function norm(s) {
                   <div style={{ position: 'fixed', inset: 0, zIndex: 98 }} onClick={() => setMenuOpen(false)} />
                   <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 99, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', overflow: 'hidden' }}>
                     {[
-                      { label: '📷 Importar foto', action: () => { setImportandoImg(true); setMenuOpen(false) } },
-                      { label: '⬇️ Importar planilha', action: () => { setImportando(true); setMenuOpen(false) } },
                       { label: '⬆️ Exportar PDF', action: () => { setExportSel([]); setExportMode(true); setMenuOpen(false) } },
                       { label: '🗑️ Excluir receitas', action: () => { setBulkSel([]); setBulkDelete(true); setMenuOpen(false) }, danger: true },
                     ].map(item => (
@@ -135,7 +134,7 @@ function norm(s) {
                 </>
               )}
             </div>
-            <button onClick={() => navigate('/fichas/nova')} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Nova</button>
+            <button onClick={() => setCreateSheet(true)} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Nova receita</button>
           </div>
         </div>
       </div>
@@ -474,6 +473,40 @@ function norm(s) {
                   }}>Excluir</button>
               </div>
             </div>
+          </div>
+        </>
+      )}
+
+      {createSheet && (
+        <>
+          <div className="sheet-overlay" onClick={() => setCreateSheet(false)} />
+          <div className="sheet">
+            <div className="sheet-title">
+              <span>Como quer criar a receita?</span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setCreateSheet(false)}>×</button>
+            </div>
+            {[
+              { icon: '📊', ttl: 'Importar de planilha', sub: 'Excel ou Google Sheets — ingredientes vêm junto', action: () => { setImportando(true); setCreateSheet(false) } },
+              { icon: '📷', ttl: 'Importar de foto ou imagem', sub: 'Foto de caderno, screenshot, imagem digital', action: () => { setImportandoImg(true); setCreateSheet(false) } },
+              { icon: '✏️', ttl: 'Registrar manualmente', sub: 'Digitar nome, ingredientes e etapas', action: () => { navigate('/fichas/nova'); setCreateSheet(false) } },
+            ].map(o => (
+              <button
+                key={o.ttl}
+                onClick={o.action}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  width: '100%', padding: '13px 4px', background: 'none', border: 'none',
+                  borderBottom: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>{o.icon}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{o.ttl}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{o.sub}</div>
+                </div>
+                <span style={{ color: 'var(--text-tertiary)', fontSize: 18, flexShrink: 0 }}>›</span>
+              </button>
+            ))}
           </div>
         </>
       )}
