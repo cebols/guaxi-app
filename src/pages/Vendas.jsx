@@ -1372,7 +1372,7 @@ export default function Vendas() {
                       canDelete: true,
                       id: item.id,
                     }]
-                  })
+                  }).sort((a, b) => a.canal.localeCompare(b.canal) || a.nome.localeCompare(b.nome))
                   const dow = DOW[new Date(data + 'T12:00:00').getDay()]
                   const isOpen = expandedDate === data
                   return (
