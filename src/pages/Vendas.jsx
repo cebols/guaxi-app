@@ -129,6 +129,13 @@ function RankingProdutos({ stats, mode = 'top', criterio = 'margem' }) {
 // ── Day-of-week heatmap ──────────────────────────────────────
 function HeatmapDOW({ vendas }) {
   const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+  const [platFiltro, setPlatFiltro] = useState('Todas')
+
+  const vendasFiltradas = useMemo(() =>
+    platFiltro === 'Todas' ? vendas : vendas.filter(v => v.plataforma === platFiltro),
+    [vendas, platFiltro]
+  )
+
   const data = useMemo(() => {
     const today = new Date()
     const weeks = 6
@@ -140,7 +147,7 @@ function HeatmapDOW({ vendas }) {
       d.setHours(0, 0, 0, 0)
       weekStarts.push(d)
     }
-    for (const v of vendas) {
+    for (const v of vendasFiltradas) {
       if (!v.data) continue
       const d = new Date(v.data + 'T12:00:00')
       for (let w = 0; w < weeks; w++) {
@@ -156,7 +163,7 @@ function HeatmapDOW({ vendas }) {
     const dowTotals = Array(7).fill(0)
     for (const row of grid) row.forEach((v, i) => dowTotals[i] += v)
     return { grid: grid.reverse(), max, dowTotals }
-  }, [vendas])
+  }, [vendasFiltradas])
 
   if (data.max < 0.02) return <div style={{ fontSize: 13, color: 'var(--text-tertiary)', textAlign: 'center' }}>Sem dados suficientes</div>
 
@@ -177,6 +184,20 @@ function HeatmapDOW({ vendas }) {
 
   return (
     <div>
+      {/* Filtro plataforma */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+        {['Todas', ...PLATAFORMAS].map(p => {
+          const a = platFiltro === p
+          return (
+            <button key={p} onClick={() => setPlatFiltro(p)} style={{
+              fontSize: 11, padding: '3px 10px', borderRadius: 14, cursor: 'pointer',
+              border: `1px solid ${a ? (PLAT_COLOR[p] || 'var(--teal)') : 'var(--border)'}`,
+              background: a ? (PLAT_COLOR[p] || 'var(--teal)') : 'transparent',
+              color: a ? '#fff' : 'var(--text-secondary)', fontWeight: a ? 700 : 400,
+            }}>{p}</button>
+          )
+        })}
+      </div>
       <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
         <div style={{ width: 28, flexShrink: 0 }} />
         {DOW_LABELS.map(d => <div key={d} style={{ flex: 1, fontSize: 10, color: 'var(--text-tertiary)', textAlign: 'center' }}>{d}</div>)}
@@ -203,6 +224,7 @@ function HeatmapDOW({ vendas }) {
 
 // ── Weekly stacked bar chart (per product) ───────────────────
 function TendenciaSemanal({ vendas }) {
+  const [hovered, setHovered] = useState(null) // { nome, valor }
   const { semanas, prodNomes, colorMap } = useMemo(() => {
     const nomes = [...new Set(vendas.map(v => v.produtoNome))]
     const colorMap = Object.fromEntries(nomes.map((n, i) => [n, PROD_COLORS[i % PROD_COLORS.length]]))
@@ -287,9 +309,15 @@ function TendenciaSemanal({ vendas }) {
                 {s.total > 0 ? fmtR(s.total).replace('R$ ', '') : ''}
               </div>
               <div style={{ width: '100%', height: barH, borderRadius: '3px 3px 0 0', overflow: 'hidden', display: 'flex', flexDirection: 'column', opacity: isThisWeek ? 1 : 0.65 }}>
-                {s.total > 0 ? segments.map((seg, si) => (
-                  <div key={si} style={{ flex: seg.pct, background: seg.color }} />
-                )) : (
+                {s.total > 0 ? segments.map((seg, si) => {
+                  const nome = prodNomes.filter(p => (s.byProd[p] || 0) > 0)[si]
+                  return (
+                    <div key={si} style={{ flex: seg.pct, background: seg.color, cursor: 'default' }}
+                      onMouseEnter={() => setHovered({ nome, valor: s.byProd[nome] })}
+                      onMouseLeave={() => setHovered(null)}
+                    />
+                  )
+                }) : (
                   <div style={{ height: 2, background: 'var(--border)', marginTop: 'auto', width: '100%' }} />
                 )}
               </div>
@@ -315,9 +343,20 @@ function TendenciaSemanal({ vendas }) {
         })}
       </div>
 
+      {/* ── Tooltip hover ───────────────────────────────── */}
+      <div style={{ height: 18, marginBottom: 2 }}>
+        {hovered && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: colorMap[hovered.nome], flexShrink: 0 }} />
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{hovered.nome}</span>
+            <span style={{ color: 'var(--text-secondary)' }}>{fmtR(hovered.valor)}</span>
+          </div>
+        )}
+      </div>
+
       {/* ── Legenda produtos ─────────────────────────────── */}
       {prodNomes.length > 1 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 8 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 4 }}>
           {prodNomes.map(p => (
             <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-secondary)' }}>
               <div style={{ width: 8, height: 8, borderRadius: 2, background: colorMap[p], flexShrink: 0 }} />
@@ -599,8 +638,6 @@ function weekStarts(n) {
 }
 
 function ComparadorProdutos({ vendas, produtos }) {
-  const [selecionados, setSelecionados] = useState([])
-  const [busca, setBusca] = useState('')
   const [metric, setMetric] = useState('receita') // 'receita' | 'unidades'
 
   const nomesProdutos = useMemo(() => {
@@ -610,6 +647,16 @@ function ComparadorProdutos({ vendas, produtos }) {
     ])
     return [...nomes].sort((a, b) => a.localeCompare(b, 'pt-BR'))
   }, [produtos, vendas])
+
+  const top3 = useMemo(() => {
+    const map = {}
+    vendas.forEach(v => { map[v.produtoNome] = (map[v.produtoNome] || 0) + v.quantidade * v.precoUnit })
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n)
+  }, [vendas])
+
+  const [selecionados, setSelecionados] = useState([])
+  const [initialized, setInitialized] = useState(false)
+  if (!initialized && top3.length > 0) { setSelecionados(top3); setInitialized(true) }
 
   const semanas = useMemo(() => weekStarts(N_WEEKS), [])
 
@@ -634,11 +681,6 @@ function ComparadorProdutos({ vendas, produtos }) {
       setSelecionados(s => [...s, nome])
     }
   }
-
-  const filtered = useMemo(() => {
-    const q = norm(busca)
-    return q ? nomesProdutos.filter(n => norm(n).includes(q)) : nomesProdutos
-  }, [nomesProdutos, busca])
 
   // SVG line chart
   const W = 560, H = 160, PL = 40, PR = 12, PT = 12, PB = 28
@@ -671,48 +713,31 @@ function ComparadorProdutos({ vendas, produtos }) {
         ))}
       </div>
 
-      {/* Product picker */}
-      <div className="card" style={{ marginBottom: 12, padding: '10px 14px' }}>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-          Selecione até 3 produtos {selecionados.length > 0 && `· ${selecionados.length}/3`}
-        </div>
-        <input
-          type="text"
-          placeholder="Buscar produto..."
-          value={busca}
-          onChange={e => setBusca(e.target.value)}
-          style={{ width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box', marginBottom: 8 }}
-        />
-        <div style={{ maxHeight: 200, overflowY: 'auto' }}>
-          {filtered.map(nome => {
-            const idx = selecionados.indexOf(nome)
-            const sel = idx !== -1
-            const disabled = !sel && selecionados.length >= 3
-            const cor = sel ? CMP_COLORS[idx] : null
-            return (
-              <label key={nome} onClick={() => !disabled && toggle(nome)} style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '7px 4px', cursor: disabled ? 'not-allowed' : 'pointer',
-                borderBottom: '1px solid var(--border-color)',
-                opacity: disabled ? 0.4 : 1,
-              }}>
-                <div style={{
-                  width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                  border: `2px solid ${sel ? cor : 'var(--border-color)'}`,
-                  background: sel ? cor : 'transparent',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'all 0.1s',
-                }}>
-                  {sel && <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                    <polyline points="1.5,5 4,7.5 8.5,2" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>}
-                </div>
-                <span style={{ fontSize: 13, color: sel ? cor : 'var(--text-primary)', fontWeight: sel ? 600 : 400, flex: 1 }}>
-                  {nome}
-                </span>
-              </label>
-            )
-          })}
+      {/* Product picker — chips + dropdown */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          {selecionados.map((nome, idx) => (
+            <div key={nome} style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: CMP_COLORS[idx] + '22', border: `1.5px solid ${CMP_COLORS[idx]}`,
+              borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: CMP_COLORS[idx],
+            }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: CMP_COLORS[idx] }} />
+              {nome}
+              <button onClick={() => setSelecionados(s => s.filter(n => n !== nome))}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: CMP_COLORS[idx], fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 2 }}>×</button>
+            </div>
+          ))}
+          {selecionados.length < 3 && (
+            <select
+              value=""
+              onChange={e => { const n = e.target.value; if (n) setSelecionados(s => [...s, n]) }}
+              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 20, border: '1px dashed var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer' }}
+            >
+              <option value="">+ Adicionar produto</option>
+              {nomesProdutos.filter(n => !selecionados.includes(n)).map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          )}
         </div>
       </div>
 
@@ -1327,6 +1352,34 @@ export default function Vendas() {
                         </div>
                       )
                     })}
+                  </div>
+                )
+              })()}
+
+              {/* Lista produtos da semana */}
+              {!lVend && (() => {
+                const hoje = new Date()
+                const seg = new Date(hoje); seg.setDate(hoje.getDate() - ((hoje.getDay() || 7) - 1)); seg.setHours(0,0,0,0)
+                const iSeg = seg.toISOString().split('T')[0]
+                const iDom = new Date(seg); iDom.setDate(seg.getDate() + 6)
+                const iFim = iDom.toISOString().split('T')[0]
+                const byProd = {}
+                todasVendasAll.filter(v => v.data >= iSeg && v.data <= iFim).forEach(v => {
+                  if (!byProd[v.produtoNome]) byProd[v.produtoNome] = { receita: 0, un: 0 }
+                  byProd[v.produtoNome].receita += v.quantidade * v.precoUnit
+                  byProd[v.produtoNome].un += v.quantidade
+                })
+                const list = Object.entries(byProd).sort((a, b) => b[1].receita - a[1].receita)
+                if (list.length === 0) return null
+                return (
+                  <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Esta semana · produtos</div>
+                    {list.map(([nome, d], i, arr) => (
+                      <div key={nome} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                        <span style={{ fontSize: 13, fontWeight: 500 }}>{nome}</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{fmtN(d.un, 0)} un · <span style={{ color: 'var(--teal)', fontWeight: 600 }}>{fmtR(d.receita)}</span></span>
+                      </div>
+                    ))}
                   </div>
                 )
               })()}
