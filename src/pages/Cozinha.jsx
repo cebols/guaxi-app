@@ -45,6 +45,7 @@ export default function Cozinha() {
   const [fator, setFator] = useState(1)
   const [pesoInput, setPesoInput] = useState('')
   const [checked, setChecked] = useState({})
+  const [checkedStep, setCheckedStep] = useState({})
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmExcluir, setConfirmExcluir] = useState(false)
 
@@ -73,6 +74,11 @@ export default function Cozinha() {
     setChecked(prev => ({ ...prev, [i]: !prev[i] }))
     if (navigator.vibrate) navigator.vibrate(30)
   }
+  const toggleStep = (i) => {
+    setCheckedStep(prev => ({ ...prev, [i]: !prev[i] }))
+    if (navigator.vibrate) navigator.vibrate(30)
+  }
+
   const checkedCount = Object.values(checked).filter(Boolean).length
 
   return (
@@ -425,7 +431,7 @@ export default function Cozinha() {
             )}
 
             {/* Instrucoes steps — Compacto mode only */}
-            {modo === 'compacto' && receita.instrucoes && (() => {
+            {receita.instrucoes && (() => {
               const parsed = parseInstrucoes(receita.instrucoes)
               if (Array.isArray(parsed) && parsed.length > 0) {
                 const doneCount = Object.values(checkedStep).filter(Boolean).length
