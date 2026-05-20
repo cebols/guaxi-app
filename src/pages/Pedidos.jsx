@@ -120,6 +120,7 @@ function Pipeline({ status, onStepClick, height = 26, fontSize = 9 }) {
             style={{
               flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize, fontWeight: current ? 800 : 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+              transition: 'background 0.3s, color 0.3s, border-color 0.3s',
               cursor: onStepClick ? 'pointer' : 'default',
               borderRadius: i === 0 ? '7px 0 0 7px' : i === 2 ? '0 7px 7px 0' : 0,
               background: done ? 'rgba(34,184,134,.15)' : current ? 'var(--teal)' : 'transparent',
@@ -618,6 +619,34 @@ function NovoView({ produtos, clientes, onBack, onSaved }) {
   )
 }
 
+// ── Pgto bar (like pipeline but 3 independent states) ─────────
+function PgtoBar({ pgto, onChange, height = 36, fontSize = 11 }) {
+  const opts = [
+    { key: 'Aguardando', label: 'Aguardando', activeBg: '#713f12', activeColor: '#fbbf24' },
+    { key: 'Pago',       label: 'Pago',       activeBg: '#14532d', activeColor: '#4ade80' },
+    { key: 'Atrasado',   label: 'Atrasado',   activeBg: '#3b1f1f', activeColor: '#ef4444' },
+  ]
+  return (
+    <div style={{ display: 'flex', gap: 2, height }}>
+      {opts.map((o, i) => {
+        const active = pgto === o.key
+        return (
+          <div key={o.key} onClick={() => onChange(o.key)} style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize, fontWeight: active ? 800 : 700, letterSpacing: '0.04em', textTransform: 'uppercase',
+            cursor: 'pointer',
+            borderRadius: i === 0 ? '7px 0 0 7px' : i === 2 ? '0 7px 7px 0' : 0,
+            background: active ? o.activeBg : 'transparent',
+            border: active ? 'none' : '1.5px dashed #333',
+            color: active ? o.activeColor : 'var(--text-tertiary)',
+            transition: 'background 0.3s, color 0.3s',
+          }}>{o.label}</div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Order card ────────────────────────────────────────────────
 function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatus, onTogglePgto }) {
   const urg      = urgency(pedido.dataEntrega)
@@ -655,13 +684,14 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
                 {urg.label}
               </span>
             )}
-            {pedido.dataEntrega && (
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{fmtDate(pedido.dataEntrega)}</span>
-            )}
             {hasAlert && <span style={{ fontSize: 10, color: '#f59e0b' }}>⚠️</span>}
             <span style={{ fontSize: 15, fontWeight: 700 }}>{pedido.cliente}</span>
           </div>
-          <span style={{ fontSize: 15, fontWeight: 700, flexShrink: 0, marginLeft: 10 }}>R$ {fmtR(pedido.valor)}</span>
+          {pedido.dataEntrega && dateChipStyle && (
+            <span style={{ fontSize: 12, fontWeight: 700, color: dateChipStyle.color, flexShrink: 0, marginLeft: 10 }}>
+              {fmtDate(pedido.dataEntrega)}
+            </span>
+          )}
         </div>
 
         {/* Items summary */}
@@ -706,17 +736,7 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
               ⚠️ Insumo crítico: {(pedido.itens || []).filter(it => alertMap[it.produto]).map(it => it.produto).join(', ')} com estoque abaixo do mínimo
             </div>
           )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-            {pedido.status === 'Pendente' && (
-              <button onClick={() => onQuickStatus('Pronto')} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#14532d', color: '#4ade80', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-                ✓ Marcar pronto
-              </button>
-            )}
-            {pedido.status === 'Pronto' && (
-              <button onClick={() => onQuickStatus('Entregue')} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#000', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-                🚀 Registrar entrega
-              </button>
-            )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button onClick={onEdit} style={{ padding: '7px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>
               Editar detalhes
             </button>
@@ -785,27 +805,14 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
             Status da produção — toque para avançar
           </div>
           <Pipeline status={status} height={36} fontSize={11} onStepClick={(s) => cycleStatus(s)} />
-          {status !== 'Entregue' && status !== 'Cancelado' && (
-            <button
-              onClick={() => cycleStatus(PIPE_STEPS[PIPE_STEPS.indexOf(status) + 1])}
-              style={{
-                marginTop: 10, width: '100%', padding: 9,
-                background: 'rgba(34,184,134,.12)', border: '1.5px solid var(--teal)',
-                borderRadius: 8, color: 'var(--teal)', fontWeight: 700, fontSize: 13,
-                cursor: 'pointer',
-              }}
-            >
-              Marcar como {PIPE_STEPS[PIPE_STEPS.indexOf(status) + 1]} →
-            </button>
-          )}
         </div>
 
-        {/* Pgto toggle */}
+        {/* Pgto bar */}
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 10 }}>
             Pagamento — toque para alterar
           </div>
-          <PgtoToggle pgto={pgto} valor={totalAtual} onClick={cyclePgto} />
+          <PgtoBar pgto={pgto} onChange={setPgto} height={36} fontSize={11} />
         </div>
 
         {/* Itens */}
@@ -1221,16 +1228,17 @@ export default function Pedidos() {
               const abertos   = todos.filter(p => p.status !== 'Cancelado' && p.pgto !== 'Pago').length
               const aReceber  = todos.filter(p => p.status !== 'Cancelado' && p.pgto !== 'Pago').reduce((s, p) => s + (p.saldo || 0), 0)
               const stats = [
-                { label: 'Em aberto', value: pendentes, unit: pendentes === 1 ? 'pedido' : 'pedidos' },
-                { label: 'Pgto pendente', value: abertos, unit: abertos === 1 ? 'pedido' : 'pedidos' },
-                { label: 'A receber', value: `R$ ${Number(aReceber).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`, unit: '' },
+                { label: 'Em aberto', value: String(pendentes), sub: pendentes === 1 ? 'pedido' : 'pedidos' },
+                { label: 'Pgto pendente', value: String(abertos), sub: abertos === 1 ? 'pedido' : 'pedidos' },
+                { label: 'A receber', value: `R$ ${Number(aReceber).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`, sub: '' },
               ]
               return (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
                   {stats.map(s => (
-                    <div key={s.label} style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '10px 12px' }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{s.value}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>{s.unit && `${s.unit} · `}{s.label}</div>
+                    <div key={s.label} className="card" style={{ padding: '12px 14px' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700, marginBottom: 4 }}>{s.label}</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>{s.value}</div>
+                      {s.sub && <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>{s.sub}</div>}
                     </div>
                   ))}
                 </div>
