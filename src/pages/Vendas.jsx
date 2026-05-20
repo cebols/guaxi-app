@@ -1080,8 +1080,6 @@ export default function Vendas() {
   const custoFixoPeriodo   = periodo === 'mes' ? (cfg.custoFixoMensal || 0) : (cfg.custoFixoMensal || 0) / 4.33
   const lucroLiquido       = lucroBruto - custoFixoPeriodo
   const margemLiquida      = totalRevNet > 0 ? (lucroLiquido / totalRevNet) * 100 : 0
-  const pctProj      = unidadesProj > 0 ? (totalUnits / unidadesProj) * 100 : null
-  const rateioReal   = totalUnits > 0 && periodo === 'mes' ? (cfg.custoFixoMensal || 0) / totalUnits : null
 
   const handleSave   = async (v) => { await saveVenda(v); rVend(); show('Venda registrada!') }
   const handleDelete = async (id) => { await deleteVenda(id); rVend(); show('Removido!') }
