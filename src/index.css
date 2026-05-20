@@ -56,7 +56,6 @@ input, select, textarea { font-family: var(--font); }
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow: hidden;
 }
 
 .page {
