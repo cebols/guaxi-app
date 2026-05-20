@@ -184,7 +184,15 @@ function GastosTab() {
   const { show, toast } = useToast()
   const [filtro, setFiltro] = useState('todos')
 
-  const mesAtual = new Date().toISOString().slice(0, 7)
+  const hoje = new Date()
+  const mesAtual = hoje.toISOString().slice(0, 7)
+
+  // Início da semana (segunda-feira)
+  const dow = hoje.getDay()
+  const diffToMon = dow === 0 ? -6 : 1 - dow
+  const inicioSemana = new Date(hoje)
+  inicioSemana.setDate(hoje.getDate() + diffToMon)
+  const inicioSemanaStr = inicioSemana.toISOString().split('T')[0]
 
   const filtradas = useMemo(() => {
     if (!compras) return []
@@ -196,14 +204,28 @@ function GastosTab() {
     [filtradas, mesAtual]
   )
 
+  const totalSemana = useMemo(() =>
+    filtradas.filter(c => c.data >= inicioSemanaStr).reduce((s, c) => s + (c.total || 0), 0),
+    [filtradas, inicioSemanaStr]
+  )
+
+  // Agrupa por mês → por data (batch)
   const porMes = useMemo(() => {
     const map = {}
     filtradas.forEach(c => {
       const mes = c.data?.slice(0, 7) || 'sem data'
-      if (!map[mes]) map[mes] = []
-      map[mes].push(c)
+      const dia = c.data || 'sem data'
+      if (!map[mes]) map[mes] = {}
+      if (!map[mes][dia]) map[mes][dia] = []
+      map[mes][dia].push(c)
     })
-    return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]))
+    return Object.entries(map)
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([mes, batches]) => ({
+        mes,
+        totalMes: Object.values(batches).flat().reduce((s, c) => s + (c.total || 0), 0),
+        batches: Object.entries(batches).sort((a, b) => b[0].localeCompare(a[0])),
+      }))
   }, [filtradas])
 
   function fmtMes(ym) {
@@ -211,6 +233,11 @@ function GastosTab() {
     const [y, m] = ym.split('-')
     const nomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
     return `${nomes[parseInt(m) - 1]} ${y}`
+  }
+
+  function fmtDia(d) {
+    if (!d || d === 'sem data') return 'Sem data'
+    return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })
   }
 
   async function handleDelete(id) {
@@ -228,13 +255,19 @@ function GastosTab() {
 
   return (
     <>
-      <div className="card" style={{ background: 'var(--bg-secondary)', marginBottom: 12 }}>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Gasto este mês</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--teal)', marginTop: 2 }}>R$ {fmt(totalMes)}</div>
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
-          {filtradas.filter(c => c.data?.startsWith(mesAtual)).length} compras registradas
+      {/* Cards de resumo */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+        <div className="card" style={{ flex: 1, background: 'var(--bg-secondary)', padding: '12px 14px' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Esta semana</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--teal)', marginTop: 2 }}>R$ {fmt(totalSemana)}</div>
+        </div>
+        <div className="card" style={{ flex: 1, background: 'var(--bg-secondary)', padding: '12px 14px' }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Este mês</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--teal)', marginTop: 2 }}>R$ {fmt(totalMes)}</div>
         </div>
       </div>
+
+      {/* Filtro tipo */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
         {[['todos', 'Todos'], ['insumo', 'Insumos'], ['embalagem', 'Embalagens']].map(([val, label]) => (
           <button key={val} onClick={() => setFiltro(val)} style={{
@@ -245,40 +278,47 @@ function GastosTab() {
           }}>{label}</button>
         ))}
       </div>
-      {porMes.map(([mes, itens]) => {
-        const totalGrupo = itens.reduce((s, c) => s + (c.total || 0), 0)
-        return (
-          <div key={mes}>
-            <div className="cat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>{fmtMes(mes)}</span>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>R$ {fmt(totalGrupo)}</span>
-            </div>
-            <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
-              {itens.map((c, i) => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: i < itens.length - 1 ? '1px solid #222' : 'none' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.itemNome}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-                      {fmtQtd(c.quantidade)} {c.unidade}
-                      {c.precoUnit > 0 && ` · R$ ${fmt(c.precoUnit)}/${c.unidade || 'un'}`}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    {c.total > 0
-                      ? <div style={{ fontWeight: 600, fontSize: 14 }}>R$ {fmt(c.total)}</div>
-                      : <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>sem preço</div>
-                    }
-                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                      {c.data ? new Date(c.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''}
-                    </div>
-                  </div>
-                  <button onClick={() => handleDelete(c.id)} style={{ background: 'none', border: 'none', color: '#555', fontSize: 16, cursor: 'pointer', padding: '4px 6px', flexShrink: 0 }} title="Remover">×</button>
-                </div>
-              ))}
-            </div>
+
+      {/* Lista por mês → por batch (dia) */}
+      {porMes.map(({ mes, totalMes: totalGrupo, batches }) => (
+        <div key={mes}>
+          <div className="cat-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>{fmtMes(mes)}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>R$ {fmt(totalGrupo)}</span>
           </div>
-        )
-      })}
+          {batches.map(([dia, itens]) => {
+            const totalBatch = itens.reduce((s, c) => s + (c.total || 0), 0)
+            return (
+              <div key={dia} style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 14px', background: 'var(--bg-secondary)', borderRadius: '8px 8px 0 0', borderBottom: '1px solid #1e1e1e' }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{fmtDia(dia)}</span>
+                  {totalBatch > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)' }}>R$ {fmt(totalBatch)}</span>}
+                </div>
+                <div className="card card-flush" style={{ padding: '0 14px', borderRadius: '0 0 8px 8px', marginBottom: 0 }}>
+                  {itens.map((c, i) => (
+                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: i < itens.length - 1 ? '1px solid #222' : 'none' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.itemNome}</div>
+                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                          {fmtQtd(c.quantidade)} {c.unidade}
+                          {c.precoUnit > 0 && ` · R$ ${fmt(c.precoUnit)}/${c.unidade || 'un'}`}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        {c.total > 0
+                          ? <div style={{ fontWeight: 600, fontSize: 14 }}>R$ {fmt(c.total)}</div>
+                          : <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>sem preço</div>
+                        }
+                      </div>
+                      <button onClick={() => handleDelete(c.id)} style={{ background: 'none', border: 'none', color: '#555', fontSize: 16, cursor: 'pointer', padding: '4px 6px', flexShrink: 0 }} title="Remover">×</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ))}
       {toast && <div className="toast">{toast}</div>}
     </>
   )
