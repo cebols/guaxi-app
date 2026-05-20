@@ -615,8 +615,8 @@ function GraficoDiario({ vendas, periodo }) {
 }
 
 // ── Comparador de produtos ───────────────────────────────────
-const CMP_COLORS = ['#14b8a6', '#f59e0b', '#6366f1']
-const N_WEEKS = 8
+const CMP_COLORS = ['#14b8a6', '#f59e0b', '#6366f1', '#ec4899', '#10b981']
+const N_WEEKS = 5
 
 function norm(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -728,7 +728,7 @@ function ComparadorProdutos({ vendas, produtos }) {
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: CMP_COLORS[idx], fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 2 }}>×</button>
             </div>
           ))}
-          {selecionados.length < 3 && (
+          {selecionados.length < 5 && (
             <select
               value=""
               onChange={e => { const n = e.target.value; if (n) setSelecionados(s => [...s, n]) }}
@@ -792,66 +792,68 @@ function ComparadorProdutos({ vendas, produtos }) {
             ))}
           </div>
 
-          {/* Weekly values table */}
+          {/* Tabela: produtos × semanas */}
           <div style={{ overflowX: 'auto', marginTop: 16 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                  <th style={{ textAlign: 'left', padding: '4px 8px', color: 'var(--text-tertiary)', fontWeight: 600, fontSize: 11, whiteSpace: 'nowrap' }}>Semana</th>
-                  {selecionados.map((nome, ci) => (
-                    <th key={nome} colSpan={3} style={{ textAlign: 'center', padding: '4px 8px', color: CMP_COLORS[ci], fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap' }}>
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', display: 'block', maxWidth: 140 }}>{nome}</span>
-                    </th>
-                  ))}
-                </tr>
-                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
-                  <th />
-                  {selecionados.map((_, ci) => (
-                    <>
-                      <th key={`r${ci}`} style={{ padding: '2px 8px', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 10, textAlign: 'right', whiteSpace: 'nowrap' }}>R$</th>
-                      <th key={`u${ci}`} style={{ padding: '2px 8px', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 10, textAlign: 'right', whiteSpace: 'nowrap' }}>un</th>
-                      <th key={`d${ci}`} style={{ padding: '2px 8px', color: 'var(--text-tertiary)', fontWeight: 500, fontSize: 10, textAlign: 'right', whiteSpace: 'nowrap' }}>vs ant.</th>
-                    </>
-                  ))}
+                <tr>
+                  <th style={{ width: 90, minWidth: 80 }} />
+                  {semanas.map((s, wi) => {
+                    const isLast = wi === semanas.length - 1
+                    return (
+                      <th key={wi} style={{
+                        padding: '4px 8px', textAlign: 'right', fontSize: 10, fontWeight: 700,
+                        color: isLast ? 'var(--teal)' : 'var(--text-tertiary)',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {isLast ? 'atual' : s.label}
+                      </th>
+                    )
+                  })}
                 </tr>
               </thead>
               <tbody>
-                {semanas.map((s, wi) => {
-                  const isLast = wi === semanas.length - 1
-                  return (
-                    <tr key={wi} style={{ background: isLast ? 'var(--teal-light)' : 'transparent' }}>
-                      <td style={{ padding: '5px 8px', color: isLast ? 'var(--teal)' : 'var(--text-secondary)', fontWeight: isLast ? 700 : 400, fontSize: 11, whiteSpace: 'nowrap' }}>
-                        {s.label}
-                      </td>
-                      {selecionados.map((nome, ci) => {
-                        const d    = (dadosPorProd[nome] || [])[wi]    || { receita: 0, unidades: 0 }
-                        const prev = (dadosPorProd[nome] || [])[wi - 1] || { receita: 0, unidades: 0 }
-                        const val  = metric === 'receita' ? d.receita : d.unidades
-                        const pval = metric === 'receita' ? prev.receita : prev.unidades
-                        const pct  = pval > 0 && val > 0 ? ((val - pval) / pval) * 100 : null
-                        const up   = pct !== null && pct >= 0
-                        return (
-                          <>
-                            <td key={`r${ci}`} style={{ padding: '5px 8px', textAlign: 'right', color: d.receita > 0 ? CMP_COLORS[ci] : 'var(--text-tertiary)', fontWeight: d.receita > 0 ? 600 : 400, fontSize: 12, whiteSpace: 'nowrap' }}>
-                              {d.receita > 0 ? fmtR(d.receita) : '—'}
-                            </td>
-                            <td key={`u${ci}`} style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text-secondary)', fontSize: 12 }}>
-                              {d.unidades > 0 ? fmtN(d.unidades, 0) : '—'}
-                            </td>
-                            <td key={`d${ci}`} style={{ padding: '5px 8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                              {pct !== null
-                                ? <span style={{ fontSize: 11, fontWeight: 700, color: up ? '#22c55e' : '#ef4444' }}>
-                                    {up ? '↑' : '↓'}{Math.abs(pct).toFixed(0)}%
-                                  </span>
-                                : <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>—</span>
-                              }
-                            </td>
-                          </>
-                        )
-                      })}
-                    </tr>
-                  )
-                })}
+                {selecionados.map((nome, ci) => (
+                  <tr key={nome} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 8px 10px 0', verticalAlign: 'middle' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: CMP_COLORS[ci], flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, fontWeight: 600, color: CMP_COLORS[ci], overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 74 }}>{nome.split(' ')[0]}</span>
+                      </div>
+                    </td>
+                    {(dadosPorProd[nome] || []).map((d, wi) => {
+                      const isLast = wi === semanas.length - 1
+                      const prev = (dadosPorProd[nome] || [])[wi - 1]
+                      const val  = metric === 'receita' ? d.receita : d.unidades
+                      const pval = prev ? (metric === 'receita' ? prev.receita : prev.unidades) : 0
+                      const pct  = pval > 0 && val > 0 ? ((val - pval) / pval) * 100 : null
+                      const up   = pct !== null && pct >= 0
+                      return (
+                        <td key={wi} style={{
+                          padding: '10px 8px', textAlign: 'right', verticalAlign: 'middle',
+                          background: isLast ? 'var(--teal-light)' : 'transparent',
+                        }}>
+                          {val > 0 ? (
+                            <>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: isLast ? 'var(--teal)' : 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+                                {metric === 'receita'
+                                  ? (val >= 1000 ? `${(val/1000).toFixed(1)}k` : String(Math.round(val)))
+                                  : fmtN(val, 0)}
+                              </div>
+                              {pct !== null && (
+                                <div style={{ fontSize: 10, fontWeight: 700, color: up ? '#22c55e' : '#ef4444' }}>
+                                  {up ? '↑' : '↓'}{Math.abs(pct).toFixed(0)}%
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>—</div>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
