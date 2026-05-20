@@ -632,7 +632,7 @@ function weekStarts(n) {
     return {
       inicio: seg.toISOString().split('T')[0],
       fim: dom.toISOString().split('T')[0],
-      label: seg.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }),
+      label: seg.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
     }
   })
 }
@@ -792,19 +792,22 @@ function ComparadorProdutos({ vendas, produtos }) {
             ))}
           </div>
 
-          {/* Tabela: produtos × semanas */}
-          <div style={{ overflowX: 'auto', marginTop: 16 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          {/* Tabela: produtos × semanas — sem scroll, responsiva */}
+          <div style={{ marginTop: 16 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '22%' }} />
+                {semanas.map((_, wi) => <col key={wi} style={{ width: `${78 / semanas.length}%` }} />)}
+              </colgroup>
               <thead>
                 <tr>
-                  <th style={{ width: 90, minWidth: 80 }} />
+                  <th />
                   {semanas.map((s, wi) => {
                     const isLast = wi === semanas.length - 1
                     return (
                       <th key={wi} style={{
-                        padding: '4px 8px', textAlign: 'right', fontSize: 10, fontWeight: 700,
+                        padding: '4px 4px', textAlign: 'right', fontSize: 10, fontWeight: 700,
                         color: isLast ? 'var(--teal)' : 'var(--text-tertiary)',
-                        whiteSpace: 'nowrap',
                       }}>
                         {isLast ? 'atual' : s.label}
                       </th>
@@ -815,10 +818,10 @@ function ComparadorProdutos({ vendas, produtos }) {
               <tbody>
                 {selecionados.map((nome, ci) => (
                   <tr key={nome} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={{ padding: '10px 8px 10px 0', verticalAlign: 'middle' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: CMP_COLORS[ci], flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, fontWeight: 600, color: CMP_COLORS[ci], overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 74 }}>{nome.split(' ')[0]}</span>
+                    <td style={{ padding: '10px 4px 10px 0', verticalAlign: 'middle', overflow: 'hidden' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <div style={{ width: 7, height: 7, borderRadius: '50%', background: CMP_COLORS[ci], flexShrink: 0 }} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: CMP_COLORS[ci], overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome.split(' ')[0]}</span>
                       </div>
                     </td>
                     {(dadosPorProd[nome] || []).map((d, wi) => {
@@ -828,17 +831,18 @@ function ComparadorProdutos({ vendas, produtos }) {
                       const pval = prev ? (metric === 'receita' ? prev.receita : prev.unidades) : 0
                       const pct  = pval > 0 && val > 0 ? ((val - pval) / pval) * 100 : null
                       const up   = pct !== null && pct >= 0
+                      const valStr = metric === 'receita'
+                        ? (val >= 1000 ? `R$${(Math.ceil(val)/1000).toFixed(1)}k` : `R$${Math.ceil(val)}`)
+                        : fmtN(val, 0)
                       return (
                         <td key={wi} style={{
-                          padding: '10px 8px', textAlign: 'right', verticalAlign: 'middle',
+                          padding: '10px 4px', textAlign: 'right', verticalAlign: 'middle',
                           background: isLast ? 'var(--teal-light)' : 'transparent',
                         }}>
                           {val > 0 ? (
                             <>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: isLast ? 'var(--teal)' : 'var(--text-primary)', whiteSpace: 'nowrap' }}>
-                                {metric === 'receita'
-                                  ? (val >= 1000 ? `${(val/1000).toFixed(1)}k` : String(Math.round(val)))
-                                  : fmtN(val, 0)}
+                              <div style={{ fontSize: 12, fontWeight: 700, color: isLast ? 'var(--teal)' : 'var(--text-primary)' }}>
+                                {valStr}
                               </div>
                               {pct !== null && (
                                 <div style={{ fontSize: 10, fontWeight: 700, color: up ? '#22c55e' : '#ef4444' }}>
@@ -847,7 +851,7 @@ function ComparadorProdutos({ vendas, produtos }) {
                               )}
                             </>
                           ) : (
-                            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>—</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>—</div>
                           )}
                         </td>
                       )
