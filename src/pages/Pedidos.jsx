@@ -5,7 +5,7 @@ import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveC
 
 const STATUS_OPTS = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
 const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
-const CANAL_OPTS  = ['WhatsApp', 'iFood', '99Food', 'Keeta', 'Presencial']
+const CANAL_OPTS  = ['WhatsApp', 'Instagram']
 const PIPE_STEPS  = ['Pendente', 'Pronto', 'Entregue']
 
 // Urgency/temporal filters (row 1)
@@ -541,7 +541,7 @@ function NovoView({ produtos, clientes, onBack, onSaved }) {
   const [form, setFormState] = useState({
     cliente: '', contato: '', canal: 'WhatsApp',
     dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
-    tipoEntrega: 'Retirada', frete: '',
+    tipoEntrega: 'Entrega', frete: '10',
   })
   const [itens, setItens]       = useState([])
   const [saving, setSaving]     = useState(false)
@@ -655,6 +655,9 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
                 {urg.label}
               </span>
             )}
+            {pedido.dataEntrega && (
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{fmtDate(pedido.dataEntrega)}</span>
+            )}
             {hasAlert && <span style={{ fontSize: 10, color: '#f59e0b' }}>⚠️</span>}
             <span style={{ fontSize: 15, fontWeight: 700 }}>{pedido.cliente}</span>
           </div>
@@ -686,11 +689,6 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
           >
             {pgtoS.label}
           </button>
-          {dateChipStyle && pedido.dataEntrega && (
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: dateChipStyle.bg, color: dateChipStyle.color, whiteSpace: 'nowrap', flexShrink: 0 }}>
-              {fmtDate(pedido.dataEntrega)}
-            </span>
-          )}
         </div>
       </div>
 
@@ -703,6 +701,11 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
             </div>
           ))}
           {pedido.canal && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>Canal: {pedido.canal}</div>}
+          {hasAlert && (
+            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 6, background: '#3b2700', padding: '5px 8px', borderRadius: 6 }}>
+              ⚠️ Insumo crítico: {(pedido.itens || []).filter(it => alertMap[it.produto]).map(it => it.produto).join(', ')} com estoque abaixo do mínimo
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
             {pedido.status === 'Pendente' && (
               <button onClick={() => onQuickStatus('Pronto')} style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#14532d', color: '#4ade80', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
@@ -917,7 +920,7 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
   const [form, setFormState] = useState({
     cliente: '', contato: '', canal: 'WhatsApp',
     dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
-    tipoEntrega: 'Retirada', frete: '',
+    tipoEntrega: 'Entrega', frete: '10',
   })
   const [itens, setItens]       = useState([])
   const [saving, setSaving]     = useState(false)
@@ -1211,6 +1214,29 @@ export default function Pedidos() {
           <ProducaoView pedidos={pedidos} produtos={produtos} receitas={receitas} onEstoqueUpdated={reloadProdutos} />
         ) : (
           <>
+            {/* Mini dashboard */}
+            {(() => {
+              const todos = pedidos || []
+              const pendentes = todos.filter(p => p.status !== 'Entregue' && p.status !== 'Cancelado').length
+              const abertos   = todos.filter(p => p.status !== 'Cancelado' && p.pgto !== 'Pago').length
+              const aReceber  = todos.filter(p => p.status !== 'Cancelado' && p.pgto !== 'Pago').reduce((s, p) => s + (p.saldo || 0), 0)
+              const stats = [
+                { label: 'Em aberto', value: pendentes, unit: pendentes === 1 ? 'pedido' : 'pedidos' },
+                { label: 'Pgto pendente', value: abertos, unit: abertos === 1 ? 'pedido' : 'pedidos' },
+                { label: 'A receber', value: `R$ ${Number(aReceber).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`, unit: '' },
+              ]
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
+                  {stats.map(s => (
+                    <div key={s.label} style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.02em' }}>{s.value}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>{s.unit && `${s.unit} · `}{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+
             {/* Filter row 1: urgência/temporal — wraps se não couber */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
               {FILTROS_URGENCIA.map(f => {

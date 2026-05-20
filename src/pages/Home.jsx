@@ -237,7 +237,7 @@ function EncomendaCard({ enc, onUpdateStatus }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <span style={{ fontWeight: 600, fontSize: 15 }}>{enc.cliente}</span>
         <span style={{ fontSize: 12, color: isToday(enc.dataEntrega) ? 'var(--warn-text)' : 'var(--text-secondary)' }}>
-          {isToday(enc.dataEntrega) ? 'hoje' : formatDate(enc.dataEntrega)}
+          {formatDate(enc.dataEntrega)}{isToday(enc.dataEntrega) ? ' · hoje' : ''}
         </span>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: enc.obs ? 4 : 8 }}>{itemStr}</div>

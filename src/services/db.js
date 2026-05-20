@@ -663,8 +663,8 @@ export async function updateStatusEncomenda(id, status, pgto, tipoEntrega, frete
   if (valor !== undefined) update.valor = valor
   const { error } = await supabase.from('encomendas').update(update).eq('id', id)
   if (error) {
-    if (error.message?.includes('tipo_entrega') || error.message?.includes('frete')) {
-      const { tipo_entrega: _t, frete: _f, ...reduced } = update
+    if (error.message?.includes('tipo_entrega') || error.message?.includes('frete') || error.message?.includes('data_pago')) {
+      const { tipo_entrega: _t, frete: _f, data_pago: _dp, ...reduced } = update
       const { error: e2 } = await supabase.from('encomendas').update(reduced).eq('id', id)
       if (e2) throw e2
     } else {
