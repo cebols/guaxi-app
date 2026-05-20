@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
 import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda, getCompras, getVendas } from '../services/db'
+import { getConfig, CONFIG_DEFAULTS } from '../hooks/useConfig'
 import { NovoPedidoSheet } from './Pedidos'
 import { useToast } from '../hooks/useToast'
 import { useNavigate } from 'react-router-dom'
@@ -418,6 +419,7 @@ export default function Home() {
         {/* Checklist de setup — baseado em dados reais */}
         {(() => {
           if (!profile?.onboardingDone) return null
+          const cfg = getConfig()
           const steps = [
             {
               label: 'Cadastrar insumos',
@@ -432,8 +434,14 @@ export default function Home() {
               done: (produtos || []).filter(p => p.tipo !== 'combo').length > 0,
             },
             {
-              label: 'Registrar primeiro pedido',
-              sub: 'Anote sua primeira encomenda',
+              label: 'Definir margens & custos',
+              sub: 'Margem de lucro e custos fixos',
+              path: '/configuracoes',
+              done: cfg.custoFixoMensal > 0 || cfg.margem !== CONFIG_DEFAULTS.margem,
+            },
+            {
+              label: 'Registrar primeiras vendas',
+              sub: 'Anote seus pedidos e encomendas',
               path: '/pedidos',
               done: (encomendas || []).length > 0,
             },

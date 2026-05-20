@@ -3,6 +3,8 @@ import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getConfig, saveConfig, calcPrecos, getCustoSacolaDelivery, CONFIG_DEFAULTS } from '../hooks/useConfig'
 import { getVendas, getEncomendas, getEmbalagens } from '../services/db'
+import { useAuth } from '../contexts/AuthContext'
+import { SpotlightHint } from '../components/SpotlightHint'
 
 function fmtPct(v) { return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) }
 function fmtR(v) {
@@ -73,7 +75,11 @@ function MultiSelectDropdown({ embalagens, selectedIds, onChange, placeholder = 
 
 export default function Configuracoes() {
   const { toast, show } = useToast()
+  const { profile } = useAuth()
   const [cfg, setCfg] = useState(getConfig)
+  const margemRef = useRef(null)
+  const step3Done = cfg.custoFixoMensal > 0 || cfg.margem !== CONFIG_DEFAULTS.margem
+  const showMargemHint = profile?.onboardingDone && !step3Done
   const [exemplo, setExemplo] = useState(10)
   const [novoNome, setNovoNome] = useState('')
   const [adicionando, setAdicionando] = useState(false)
@@ -265,15 +271,25 @@ export default function Configuracoes() {
         />
 
         {/* ── Margem ──────────────────────────────────────── */}
-        <div className="section-label" style={{ marginTop: 8 }}>Margem de lucro</div>
-        <div className="field-label">Margem desejada (%)</div>
-        <input
-          className="field-input"
-          type="text" inputMode="decimal" min="0" max="99" step="1"
-          value={cfg.margem}
-          onChange={e => set('margem', e.target.value)}
-          style={{ maxWidth: 160 }}
-        />
+        <div ref={margemRef} style={{ marginTop: 8 }}>
+          <div className="section-label">Margem de lucro</div>
+          <div className="field-label">Margem desejada (%)</div>
+          <input
+            className="field-input"
+            type="text" inputMode="decimal" min="0" max="99" step="1"
+            value={cfg.margem}
+            onChange={e => set('margem', e.target.value)}
+            style={{ maxWidth: 160 }}
+          />
+        </div>
+        {showMargemHint && (
+          <SpotlightHint
+            targetRef={margemRef}
+            stepKey="margem"
+            title="Defina sua margem de lucro"
+            body="Essa margem é usada para calcular o preço sugerido de todos os seus produtos. Ajuste para o valor que você precisa ganhar."
+          />
+        )}
 
         {/* ── Taxas ───────────────────────────────────────── */}
         <div className="section-label" style={{ marginTop: 8 }}>Taxas de plataforma</div>
