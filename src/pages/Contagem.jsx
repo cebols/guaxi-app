@@ -43,9 +43,13 @@ function normStr(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 }
 
-function getStep(unidade) {
-  const u = (unidade || '').toLowerCase()
-  if (u === 'g' || u === 'ml') return 100
+function getStep(item) {
+  if (item._tipo === 'insumo' || item.pesoEmb != null) {
+    if (item.pesoEmb > 0) return item.pesoEmb
+  }
+  if (item._tipo === 'embalagem' || item.qtdCompra != null) {
+    if (item.qtdCompra > 0) return item.qtdCompra
+  }
   return 1
 }
 
@@ -371,7 +375,8 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
                           }}>
                             <span style={{ fontWeight: 600 }}>{opt.fornecedor || opt.marca || '—'}</span>
                             {opt.marca && opt.fornecedor && <span style={{ color: 'var(--text-secondary)' }}> · {opt.marca}</span>}
-                            {opt.custoUnit > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoUnit)}</span>}
+                            {opt.custoEmb > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoEmb)} / {fmtN(opt.pesoEmb)}{' '}</span>}
+                            {!opt.custoEmb && opt.custoUnit > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoUnit)}</span>}
                           </button>
                         ))}
                       </div>
@@ -427,8 +432,8 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
           {selecionados.map((item, i) => {
             const qty = parseFloat(qtds[item.id] || '0')
             const opts = item._tipo === 'insumo'
-              ? (fornOpts[item.id] || (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0 }] : []))
-              : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: '', custoUnit: item.custoUnit || 0 }] : [])
+              ? (fornOpts[item.id] || (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0, pesoEmb: item.pesoEmb || 0, custoEmb: item.custoEmb || 0 }] : []))
+              : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: '', custoUnit: item.custoUnit || 0, custoCompra: item.custoCompra || 0, qtdCompra: item.qtdCompra || 0 }] : [])
             const sel = fornSel[item.id]
             const selLabel = sel ? (sel.fornecedor || sel.marca || 'Fornecedor') : 'Selecionar fornecedor'
             return (
@@ -465,7 +470,8 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
                           }}>
                             <span style={{ fontWeight: 600 }}>{opt.fornecedor || opt.marca || '—'}</span>
                             {opt.marca && opt.fornecedor && <span style={{ color: 'var(--text-secondary)' }}> · {opt.marca}</span>}
-                            {opt.custoUnit > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoUnit)}/{item.unidade}</span>}
+                            {item._tipo === 'insumo' && opt.custoEmb > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoEmb)} / {fmtN(opt.pesoEmb)}{item.unidade}</span>}
+                            {item._tipo === 'embalagem' && opt.custoCompra > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoCompra)} / {fmtN(opt.qtdCompra || 1)}{item.unidade}</span>}
                           </button>
                         ))}
                       </div>
@@ -522,7 +528,7 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
     if (item._tipo === 'insumo' && parseFloat(val) > 0 && !fornOpts[item.id]) {
       try {
         const fs = await getInsumoFornecedores(item.id)
-        const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0 }] : [])
+        const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0, pesoEmb: item.pesoEmb || 0, custoEmb: item.custoEmb || 0 }] : [])
         setFornOpts(o => ({ ...o, [item.id]: opts }))
         if (opts.length > 0) setFornSel(s => ({ ...s, [item.id]: s[item.id] || opts[0] }))
       } catch {}
@@ -530,7 +536,7 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
   }
 
   function bump(item, delta) {
-    const step = getStep(item.unidade)
+    const step = getStep(item)
     const cur = parseFloat(qtds[item.id] || '0')
     const novo = Math.max(0, cur + delta * step)
     handleQty(item, novo === 0 ? '' : String(novo))
@@ -588,7 +594,7 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
           {itensTab.map((item, i) => {
             const qty = qtds[item.id] || ''
             const hasQty = parseFloat(qty) > 0
-            const step = getStep(item.unidade)
+            const step = getStep(item)
             return (
               <div key={item.id} style={{ padding: '12px 0', borderBottom: i < itensTab.length - 1 ? '1px solid #222' : 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -683,20 +689,27 @@ function ConsultarView({ insumos, embalagens, produtos, onVoltar }) {
               <div key={cat}>
                 <div className="cat-header">{cat}</div>
                 <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
-                  {items.map((item, i) => (
+                  {items.map((item, i) => {
+                    const pct = item.estoqueMin > 0 ? Math.min(100, Math.max(0, (item.estoqueAtual ?? 0) / item.estoqueMin * 100)) : 100
+                    const barColor = pct < 50 ? '#ef4444' : pct < 100 ? '#f59e0b' : 'var(--teal)'
+                    return (
                     <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: i < items.length - 1 ? '1px solid #222' : 'none' }}>
-                      <div>
+                      <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
                         <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
                         <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín. {item.estoqueMin} {item.unidade}</div>
+                        <div style={{ marginTop: 5, height: 4, borderRadius: 2, background: '#2a2a2a', overflow: 'hidden' }}>
+                          <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 2 }} />
+                        </div>
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontWeight: 700, fontSize: 16, color: (item.estoqueAtual ?? 0) < item.estoqueMin ? 'var(--alert-text)' : 'var(--text-primary)' }}>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 16, color: pct < 100 ? barColor : 'var(--text-primary)' }}>
                           {fmtN(item.estoqueAtual ?? 0)}
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{item.unidade}</div>
                       </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             ))}
