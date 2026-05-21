@@ -15,6 +15,7 @@ export function SpotlightHint({ targetRef, stepKey, title, body, show: showProp 
       const el = targetRef?.current
       if (!el) return
       const r = el.getBoundingClientRect()
+      if (r.width < 4 || r.height < 4) return // element hidden or not yet in layout
       setRect({ top: r.top, left: r.left, width: r.width, height: r.height })
     }
     // slight delay so layout is stable
@@ -26,7 +27,7 @@ export function SpotlightHint({ targetRef, stepKey, title, body, show: showProp 
       window.removeEventListener('resize', update)
       window.removeEventListener('scroll', update, true)
     }
-  }, [targetRef, dismissed])
+  }, [targetRef, dismissed, showProp])
 
   if (!showProp || dismissed || !rect) return null
 

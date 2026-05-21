@@ -451,7 +451,7 @@ export default function Produtos() {
           ))}
         </div>
         {loading ? <div className="loading">Carregando...</div> : (
-          <>
+          <div ref={precosRef}>
             {/* Desktop */}
             <div className="desktop-only">
               <div className="card card-flush">
@@ -507,7 +507,7 @@ export default function Produtos() {
                   </div>
                   {/* Mock card para hint de onboarding */}
                   {profile?.onboardingDone && (
-                    <div ref={precosRef} className="card card-flush" style={{ padding: '0 14px', opacity: 0.6, pointerEvents: 'none', marginTop: 8 }}>
+                    <div className="card card-flush" style={{ padding: '0 14px', opacity: 0.6, pointerEvents: 'none', marginTop: 8 }}>
                       {[
                         { nome: 'Brigadeiro Gourmet', sub: '1 un Massa Brigadeiro · 1× Forminha n°5', d: 'R$ 8,00', p99: 'R$ 10,50', pif: 'R$ 11,90', custo: 'R$ 1,82' },
                         { nome: 'Caixa 9 Brigadeiros', sub: '9 un Massa Brigadeiro · 1× Caixa Kraft P', d: 'R$ 65,00', p99: 'R$ 84,00', pif: 'R$ 92,00', custo: 'R$ 17,40' },
@@ -533,7 +533,7 @@ export default function Produtos() {
                   )}
                 </>
               ) : (
-                <div ref={precosRef} className="card card-flush" style={{ padding: '0 14px' }}>
+                <div className="card card-flush" style={{ padding: '0 14px' }}>
                   {produtosFiltrados.map(prod => {
                     return (
                       <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
@@ -560,7 +560,7 @@ export default function Produtos() {
                 </div>
               )}
             </div>
-          </>
+          </div>
         )}
       </div>
 
