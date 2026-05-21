@@ -266,26 +266,14 @@ export default function Configuracoes() {
           )}
         </div>
 
-        {/* ── Volume + Margem ──────────────────────────────── */}
+        {/* ── Volume de produção ───────────────────────────── */}
         <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
-          <div style={{ display: 'flex' }}>
-            <div style={{ flex: 1, paddingRight: 16, borderRight: '1px solid #2a2a2a' }}>
-              <div className="cfg-label">Produção / mês</div>
-              <NumPill
-                value={cfg.unidadesProjetadas}
-                onChange={e => set('unidadesProjetadas', e.target.value)}
-                suffix="un"
-              />
-            </div>
-            <div ref={margemRef} style={{ flex: 1, paddingLeft: 16 }}>
-              <div className="cfg-label">Margem desejada</div>
-              <NumPill
-                value={cfg.margem}
-                onChange={e => set('margem', e.target.value)}
-                suffix="%"
-              />
-            </div>
-          </div>
+          <div className="cfg-label">Produção / mês</div>
+          <NumPill
+            value={cfg.unidadesProjetadas}
+            onChange={e => set('unidadesProjetadas', e.target.value)}
+            suffix="un"
+          />
           {rateio > 0 && (
             <div style={{ marginTop: 13, paddingTop: 11, borderTop: '1px solid #2a2a2a', display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12.5, color: 'var(--text-secondary)' }}>
               <span>Rateio por unidade</span>
@@ -294,14 +282,6 @@ export default function Configuracoes() {
             </div>
           )}
         </div>
-        {showMargemHint && (
-          <SpotlightHint
-            targetRef={margemRef}
-            stepKey="margem"
-            title="Defina sua margem de lucro"
-            body="Essa margem é usada para calcular o preço sugerido de todos os seus produtos. Ajuste para o valor que você precisa ganhar."
-          />
-        )}
 
         {/* ── Taxas de plataforma ──────────────────────────── */}
         <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
@@ -357,14 +337,25 @@ export default function Configuracoes() {
         {/* ── Simulador de precificação ────────────────────── */}
         <div className="card" style={{ padding: '16px', marginBottom: 10 }}>
           <div className="cfg-label" style={{ marginBottom: 14 }}>Simulador de precificação</div>
-          <div style={{ textAlign: 'center', marginBottom: 16 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Custo do produto</div>
-            <NumPill
-              prefix="R$"
-              value={exemplo}
-              onChange={e => setExemplo(parseFloat(e.target.value) || 0)}
-              size={22}
-            />
+          <div style={{ display: 'flex', marginBottom: 16 }}>
+            <div ref={margemRef} style={{ flex: 1, paddingRight: 16, borderRight: '1px solid #2a2a2a', textAlign: 'center' }}>
+              <div className="cfg-label" style={{ marginBottom: 8 }}>Margem desejada</div>
+              <NumPill
+                value={cfg.margem}
+                onChange={e => set('margem', e.target.value)}
+                suffix="%"
+                size={22}
+              />
+            </div>
+            <div style={{ flex: 1, paddingLeft: 16, textAlign: 'center' }}>
+              <div className="cfg-label" style={{ marginBottom: 8 }}>Custo do produto</div>
+              <NumPill
+                prefix="R$"
+                value={exemplo}
+                onChange={e => setExemplo(parseFloat(e.target.value) || 0)}
+                size={22}
+              />
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <PriceCol label="Direta" price={fmtR(base)}   sub={`margem ${fmtPct(cfg.margem)}%`} color="var(--teal)" bg="rgba(34,184,134,0.10)" />
@@ -375,6 +366,14 @@ export default function Configuracoes() {
             custo R$ {fmtR(exemplo)} + rateio R$ {fmtR(rateio)} · margem {fmtPct(cfg.margem)}%
           </div>
         </div>
+        {showMargemHint && (
+          <SpotlightHint
+            targetRef={margemRef}
+            stepKey="margem"
+            title="Defina sua margem de lucro"
+            body="Essa margem é usada para calcular o preço sugerido de todos os seus produtos. Ajuste para o valor que você precisa ganhar."
+          />
+        )}
 
         {/* ── Ponto de equilíbrio ─────────────────────────── */}
         <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
