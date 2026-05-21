@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { getReceitas, deleteReceitas, saveReceita, getInsumos } from '../services/db'
-import ImportarExcel from './ImportarExcel'
-import ImportarImagem from './ImportarImagem'
+
+const ImportarExcel = lazy(() => import('./ImportarExcel'))
+const ImportarImagem = lazy(() => import('./ImportarImagem'))
 
 const TIPO_COLOR = {
   'Bolo':          'badge-warn',
@@ -513,22 +514,26 @@ function norm(s) {
       )}
 
       {importando && (
-        <ImportarExcel mode="receitas"
-          onClose={() => setImportando(false)}
-          onImported={() => { reload(); setImportando(false) }}
-        />
+        <Suspense fallback={null}>
+          <ImportarExcel mode="receitas"
+            onClose={() => setImportando(false)}
+            onImported={() => { reload(); setImportando(false) }}
+          />
+        </Suspense>
       )}
 
       {importandoImg && (
-        <ImportarImagem
-          mode="receita"
-          insumosList={insumos || []}
-          onClose={() => setImportandoImg(false)}
-          onIngredientesImportados={ings => {
-            setImportandoImg(false)
-            navigate('/fichas/nova', { state: { ingredientes: ings } })
-          }}
-        />
+        <Suspense fallback={null}>
+          <ImportarImagem
+            mode="receita"
+            insumosList={insumos || []}
+            onClose={() => setImportandoImg(false)}
+            onIngredientesImportados={ings => {
+              setImportandoImg(false)
+              navigate('/fichas/nova', { state: { ingredientes: ings } })
+            }}
+          />
+        </Suspense>
       )}
     </>
   )

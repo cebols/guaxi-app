@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { getProfile, upsertProfile } from '../services/db'
+import { clearDataCache } from '../hooks/useData'
 
 const AuthContext = createContext(null)
 
@@ -34,6 +35,7 @@ export function AuthProvider({ children }) {
 
   const signOut = () => {
     setProfile(null)
+    clearDataCache()
     return supabase.auth.signOut()
   }
 

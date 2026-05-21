@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getReceitas, saveReceita, deleteReceita, getInsumos, saveInsumo } from '../services/db'
-import ImportarImagem from './ImportarImagem'
+
+const ImportarImagem = lazy(() => import('./ImportarImagem'))
 
 function norm(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -712,18 +713,20 @@ export default function ReceitaForm() {
       {toast && <div className="toast">{toast}</div>}
 
       {importandoImg && (
-        <ImportarImagem
-          mode="receita"
-          insumosList={insumos || []}
-          onClose={() => setImportandoImg(false)}
-          onIngredientesImportados={ings => {
-            setIngredientes(prev => {
-              const base = prev.filter(i => i.nome?.trim())
-              return [...base, ...ings, { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' }]
-            })
-            setImportandoImg(false)
-          }}
-        />
+        <Suspense fallback={null}>
+          <ImportarImagem
+            mode="receita"
+            insumosList={insumos || []}
+            onClose={() => setImportandoImg(false)}
+            onIngredientesImportados={ings => {
+              setIngredientes(prev => {
+                const base = prev.filter(i => i.nome?.trim())
+                return [...base, ...ings, { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' }]
+              })
+              setImportandoImg(false)
+            }}
+          />
+        </Suspense>
       )}
 
       {insumoRapido && (

@@ -1,10 +1,11 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
 import { SpotlightHint } from '../components/SpotlightHint'
-import ImportarExcel from './ImportarExcel'
-import ImportarImagem from './ImportarImagem'
+
+const ImportarExcel = lazy(() => import('./ImportarExcel'))
+const ImportarImagem = lazy(() => import('./ImportarImagem'))
 import {
   getInsumos, saveInsumo, deleteInsumo, deleteInsumos,
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
@@ -1266,10 +1267,14 @@ export default function Cadastros() {
       )}
 
       {importando && (
-        <ImportarExcel mode="insumos" onClose={() => setImportando(false)} onImported={() => { rIns(); rEmb(); setImportando(false) }} />
+        <Suspense fallback={null}>
+          <ImportarExcel mode="insumos" onClose={() => setImportando(false)} onImported={() => { rIns(); rEmb(); setImportando(false) }} />
+        </Suspense>
       )}
       {importandoImg && (
-        <ImportarImagem categorias={catsInsumo} fornecedoresList={fornecedores} onClose={() => setImportandoImg(false)} onImported={() => { rIns(); setImportandoImg(false) }} />
+        <Suspense fallback={null}>
+          <ImportarImagem categorias={catsInsumo} fornecedoresList={fornecedores} onClose={() => setImportandoImg(false)} onImported={() => { rIns(); setImportandoImg(false) }} />
+        </Suspense>
       )}
 
       {toast && <div className="toast">{toast}</div>}
