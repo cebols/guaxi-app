@@ -1187,6 +1187,8 @@ export default function Vendas() {
   const totalProfit      = totalRevNet - totalCost
   const totalMargin      = totalRevNet > 0 ? (totalProfit / totalRevNet) * 100 : 0
   const totalUnits       = Object.values(statsPerProd).reduce((s, p) => s + p.units, 0)
+  const numTransacoes    = vendasPeriodo.length + numPedidosPeriodo
+  const ticketMedio      = numTransacoes > 0 ? totalRevBruto / numTransacoes : 0
   const totalRevNetPed   = Object.values(statsPedidos).reduce((s, p) => s + p.revNet, 0)
   const totalRevNetAvulsa = totalRevNet - totalRevNetPed
 
@@ -1312,11 +1314,13 @@ export default function Vendas() {
                 { label: 'Lucro líquido',    value: fmtR(lucroLiquido), color: lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)' },
                 { label: 'Margem líquida',   value: totalRevNet > 0 ? `${fmtN((lucroLiquido/totalRevNet)*100)}%` : '—',
                   color: totalRevNet > 0 && (lucroLiquido/totalRevNet)*100 >= cfg.margem ? 'var(--teal)' : lucroLiquido > 0 ? '#f59e0b' : 'var(--alert-text)' },
-                { label: 'Unidades',         value: String(totalUnits || 0) },
+                { label: 'Ticket médio',     value: ticketMedio > 0 ? fmtR(ticketMedio) : '—',
+                  sub: `${totalUnits} un · ${numTransacoes} pedido${numTransacoes !== 1 ? 's' : ''}` },
               ].map(m => (
                 <div key={m.label} className="card" style={{ marginBottom: 0 }}>
                   <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700, marginBottom: 4 }}>{m.label}</div>
                   <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: m.color || 'var(--text-primary)' }}>{loading ? '—' : m.value}</div>
+                  {m.sub && !loading && <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 3 }}>{m.sub}</div>}
                 </div>
               ))}
             </div>
