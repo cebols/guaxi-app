@@ -73,6 +73,41 @@ function MultiSelectDropdown({ embalagens, selectedIds, onChange, placeholder = 
   )
 }
 
+// Big editable number with tight prefix/suffix and a clear field affordance
+function NumPill({ value, onChange, prefix, suffix, size = 26 }) {
+  const str = String(value ?? '')
+  const len = Math.max(1.5, str.length)
+  const aff = Math.round(size * 0.5)
+  return (
+    <label className="cfg-pill">
+      {prefix && <span style={{ fontSize: aff, fontWeight: 700, color: 'var(--text-tertiary)' }}>{prefix}</span>}
+      <input
+        type="text" inputMode="decimal"
+        value={value}
+        onChange={onChange}
+        style={{
+          fontSize: size, fontWeight: 700, letterSpacing: '-0.02em',
+          color: 'var(--text-primary)',
+          width: `calc(${len}ch + 2px)`,
+          textAlign: 'center',
+        }}
+      />
+      {suffix && <span style={{ fontSize: aff, fontWeight: 700, color: 'var(--text-tertiary)' }}>{suffix}</span>}
+    </label>
+  )
+}
+
+// One of the 3 equal-weight price columns in the simulator
+function PriceCol({ label, price, sub, color, bg }) {
+  return (
+    <div style={{ flex: 1, background: bg, borderRadius: 10, padding: '11px 6px', textAlign: 'center' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color, marginBottom: 5 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, color, letterSpacing: '-0.03em' }}>R$ {price}</div>
+      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 3 }}>{sub}</div>
+    </div>
+  )
+}
+
 export default function Configuracoes() {
   const { toast, show } = useToast()
   const { profile } = useAuth()
@@ -179,34 +214,33 @@ export default function Configuracoes() {
 
         {/* ── Custos fixos ─────────────────────────────────── */}
         <div className="card card-flush" style={{ marginBottom: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: .5 }}>Custos fixos mensais</span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--teal)' }}>R$ {fmtR(custoFixoMensal)}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 14px', borderBottom: '1px solid #2a2a2a' }}>
+            <span className="cfg-label" style={{ marginBottom: 0 }}>Custos fixos mensais</span>
+            <span style={{ fontSize: 17, fontWeight: 800, color: 'var(--teal)', letterSpacing: '-0.02em' }}>R$ {fmtR(custoFixoMensal)}</span>
           </div>
 
           {(cfg.custoItens || []).map((item, idx, arr) => (
             <div key={item.id} style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px',
-              borderBottom: idx < arr.length - 1 ? '1px solid var(--border)' : 'none',
+              display: 'flex', alignItems: 'center', gap: 10, padding: '4px 14px',
+              borderBottom: idx < arr.length - 1 ? '1px solid #242424' : 'none',
             }}>
               <div style={{ flex: 1, fontSize: 13 }}>{item.nome}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                 <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>R$</span>
                 <input
-                  className="item-qty"
+                  className="cfg-cost-input"
                   type="text" inputMode="decimal" min="0" step="10"
                   value={item.valor || ''} placeholder="0"
                   onChange={e => updateItem(item.id, e.target.value)}
-                  style={{ width: 80, textAlign: 'right' }}
                 />
               </div>
               <button onClick={() => removeItem(item.id)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
+                style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: '0 0 0 2px', lineHeight: 1 }}>×</button>
             </div>
           ))}
 
           {adicionando && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', borderTop: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px', borderTop: '1px solid #242424' }}>
               <input
                 style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 13, color: 'var(--text-primary)' }}
                 placeholder="Nome do custo (ex: Internet)"
@@ -216,7 +250,7 @@ export default function Configuracoes() {
                 autoFocus
               />
               <button onClick={addItem}
-                style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid var(--teal)', color: 'var(--teal)', background: 'transparent', cursor: 'pointer' }}>
+                style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 7, border: '1px solid var(--teal)', color: 'var(--teal)', background: 'transparent', cursor: 'pointer' }}>
                 OK
               </button>
               <button onClick={() => { setAdicionando(false); setNovoNome('') }}
@@ -226,45 +260,37 @@ export default function Configuracoes() {
 
           {!adicionando && (
             <button onClick={() => setAdicionando(true)}
-              style={{ width: '100%', padding: '8px 14px', background: 'transparent', border: 'none', borderTop: '1px solid var(--border)', color: 'var(--teal)', fontSize: 13, cursor: 'pointer', textAlign: 'left' }}>
+              style={{ width: '100%', padding: '9px 14px', background: 'transparent', border: 'none', borderTop: '1px solid #2a2a2a', color: 'var(--teal)', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
               + Adicionar custo
             </button>
           )}
         </div>
 
         {/* ── Volume + Margem ──────────────────────────────── */}
-        <div ref={margemRef} className="card" style={{ padding: '14px 16px', marginBottom: 10 }}>
-          <div style={{ display: 'flex', gap: 0 }}>
-            <div style={{ flex: 1, paddingRight: 16, borderRight: '1px solid var(--border)' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 4 }}>Produção / mês</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-                <input
-                  type="text" inputMode="decimal" min="1" step="1"
-                  value={cfg.unidadesProjetadas}
-                  onChange={e => set('unidadesProjetadas', e.target.value)}
-                  style={{ fontSize: 28, fontWeight: 700, letterSpacing: -1, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', width: 90 }}
-                />
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>un</span>
-              </div>
+        <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
+          <div style={{ display: 'flex' }}>
+            <div style={{ flex: 1, paddingRight: 16, borderRight: '1px solid #2a2a2a' }}>
+              <div className="cfg-label">Produção / mês</div>
+              <NumPill
+                value={cfg.unidadesProjetadas}
+                onChange={e => set('unidadesProjetadas', e.target.value)}
+                suffix="un"
+              />
             </div>
-            <div style={{ flex: 1, paddingLeft: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 4 }}>Margem desejada</div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
-                <input
-                  type="text" inputMode="decimal" min="0" max="99" step="1"
-                  value={cfg.margem}
-                  onChange={e => set('margem', e.target.value)}
-                  style={{ fontSize: 28, fontWeight: 700, letterSpacing: -1, color: 'var(--teal)', background: 'transparent', border: 'none', outline: 'none', width: 70 }}
-                />
-                <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--teal)' }}>%</span>
-              </div>
+            <div ref={margemRef} style={{ flex: 1, paddingLeft: 16 }}>
+              <div className="cfg-label">Margem desejada</div>
+              <NumPill
+                value={cfg.margem}
+                onChange={e => set('margem', e.target.value)}
+                suffix="%"
+              />
             </div>
           </div>
           {rateio > 0 && (
-            <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            <div style={{ marginTop: 13, paddingTop: 11, borderTop: '1px solid #2a2a2a', display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12.5, color: 'var(--text-secondary)' }}>
               <span>Rateio por unidade</span>
-              <span style={{ fontWeight: 700, color: 'var(--teal)' }}>R$ {fmtR(rateio)}</span>
-              <span style={{ color: 'var(--text-tertiary)' }}>({cfg.unidadesProjetadas} un/mês)</span>
+              <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--teal)' }}>R$ {fmtR(rateio)}</span>
+              <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>· {cfg.unidadesProjetadas} un/mês</span>
             </div>
           )}
         </div>
@@ -278,34 +304,34 @@ export default function Configuracoes() {
         )}
 
         {/* ── Taxas de plataforma ──────────────────────────── */}
-        <div className="card" style={{ padding: '12px 16px', marginBottom: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Taxas de plataforma</div>
-          <div style={{ display: 'flex', gap: 10 }}>
+        <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
+          <div className="cfg-label" style={{ marginBottom: 12 }}>Taxas de plataforma</div>
+          <div style={{ display: 'flex' }}>
             {[
-              { label: '99Food', key: 'taxa99', color: '#f59e0b', bg: 'rgba(245,158,11,0.08)' },
-              { label: 'iFood',  key: 'taxaIfood', color: '#ef4444', bg: 'rgba(239,68,68,0.08)' },
-            ].map(({ label, key, color, bg }) => (
-              <div key={key} style={{ flex: 1, background: bg, borderRadius: 8, padding: '8px 12px' }}>
-                <div style={{ fontSize: 11, color, fontWeight: 700, marginBottom: 4 }}>{label}</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 2 }}>
-                  <input
-                    type="text" inputMode="decimal" min="0" max="99" step="0.5"
-                    value={cfg[key]}
-                    onChange={e => set(key, e.target.value)}
-                    style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', width: 52 }}
-                  />
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>%</span>
-                </div>
+              { label: '99Food', key: 'taxa99',    color: '#f59e0b', border: true },
+              { label: 'iFood',  key: 'taxaIfood', color: '#ef4444', border: false },
+            ].map(({ label, key, color, border }) => (
+              <div key={key} style={{ flex: 1, paddingRight: border ? 16 : 0, paddingLeft: border ? 0 : 16, borderRight: border ? '1px solid #2a2a2a' : 'none' }}>
+                <div className="cfg-label" style={{ color }}>{label}</div>
+                <NumPill
+                  value={cfg[key]}
+                  onChange={e => set(key, e.target.value)}
+                  suffix="%"
+                  size={24}
+                />
               </div>
             ))}
           </div>
         </div>
 
         {/* ── Embalagens ───────────────────────────────────── */}
-        <div className="card" style={{ padding: '12px 16px', marginBottom: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 12 }}>Embalagens</div>
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>Delivery <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>· sacola por pedido</span></div>
+        <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
+          <div className="cfg-label" style={{ marginBottom: 12 }}>Embalagens</div>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Delivery</span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>sacola por pedido</span>
+            </div>
             <MultiSelectDropdown
               embalagens={embalagens || []}
               selectedIds={cfg.embalagemDeliveryIds || []}
@@ -313,8 +339,12 @@ export default function Configuracoes() {
               placeholder="Selecionar sacolas de delivery…"
             />
           </div>
+          <div style={{ borderTop: '1px solid #2a2a2a', margin: '14px 0' }} />
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>Encomenda <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>· embalagem padrão</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Encomenda</span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>embalagem padrão</span>
+            </div>
             <MultiSelectDropdown
               embalagens={embalagens || []}
               selectedIds={cfg.embalagemEncomendaIds || []}
@@ -325,65 +355,50 @@ export default function Configuracoes() {
         </div>
 
         {/* ── Simulador de precificação ────────────────────── */}
-        <div className="card" style={{ padding: '14px 16px', marginBottom: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 12 }}>Simulador de precificação</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-secondary)', borderRadius: 8, padding: '8px 12px', flexShrink: 0 }}>
-              <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>R$</span>
-              <input
-                type="text" inputMode="decimal" min="0" step="0.50"
-                value={exemplo}
-                onChange={e => setExemplo(parseFloat(e.target.value) || 0)}
-                style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', width: 64 }}
-              />
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>custo</span>
-            </div>
-            <span style={{ color: 'var(--text-tertiary)', fontSize: 18 }}>→</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 24, fontWeight: 700, color: 'var(--teal)', letterSpacing: -0.5 }}>R$ {fmtR(base)}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Direta · {fmtPct(cfg.margem)}% margem</div>
-            </div>
+        <div className="card" style={{ padding: '16px', marginBottom: 10 }}>
+          <div className="cfg-label" style={{ marginBottom: 14 }}>Simulador de precificação</div>
+          <div style={{ textAlign: 'center', marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>Custo do produto</div>
+            <NumPill
+              prefix="R$"
+              value={exemplo}
+              onChange={e => setExemplo(parseFloat(e.target.value) || 0)}
+              size={22}
+            />
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <div style={{ flex: 1, background: 'rgba(245,158,11,0.08)', borderRadius: 8, padding: '8px 12px' }}>
-              <div style={{ fontSize: 11, color: '#f59e0b', fontWeight: 600, marginBottom: 2 }}>99Food <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>−{fmtPct(cfg.taxa99)}%</span></div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#f59e0b' }}>R$ {fmtR(p99)}</div>
-            </div>
-            <div style={{ flex: 1, background: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: '8px 12px' }}>
-              <div style={{ fontSize: 11, color: '#ef4444', fontWeight: 600, marginBottom: 2 }}>iFood <span style={{ fontWeight: 400, color: 'var(--text-tertiary)' }}>−{fmtPct(cfg.taxaIfood)}%</span></div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#ef4444' }}>R$ {fmtR(pIfood)}</div>
-            </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <PriceCol label="Direta" price={fmtR(base)}   sub={`margem ${fmtPct(cfg.margem)}%`} color="var(--teal)" bg="rgba(34,184,134,0.10)" />
+            <PriceCol label="99Food" price={fmtR(p99)}    sub={`−${fmtPct(cfg.taxa99)}% taxa`}  color="#f59e0b"     bg="rgba(245,158,11,0.10)" />
+            <PriceCol label="iFood"  price={fmtR(pIfood)} sub={`−${fmtPct(cfg.taxaIfood)}% taxa`} color="#ef4444"   bg="rgba(239,68,68,0.10)" />
           </div>
-          {(rateio > 0 || exemplo > 0) && (
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>
-              custo R$ {fmtR(exemplo)} + rateio R$ {fmtR(rateio)} com margem {fmtPct(cfg.margem)}%
-            </div>
-          )}
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 11, textAlign: 'center' }}>
+            custo R$ {fmtR(exemplo)} + rateio R$ {fmtR(rateio)} · margem {fmtPct(cfg.margem)}%
+          </div>
         </div>
 
         {/* ── Ponto de equilíbrio ─────────────────────────── */}
-        <div className="card" style={{ padding: '14px 16px', marginBottom: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Ponto de equilíbrio</div>
+        <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
+          <div className="cfg-label" style={{ marginBottom: 10 }}>Ponto de equilíbrio</div>
           {pontoEquilibrio !== null ? (
             <>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 28, fontWeight: 700, color: 'var(--teal)', letterSpacing: -1 }}>{pontoEquilibrio}</span>
+                <span style={{ fontSize: 30, fontWeight: 800, color: 'var(--teal)', letterSpacing: '-0.03em' }}>{pontoEquilibrio}</span>
                 <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>un/mês pra zerar</span>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 3 }}>
                 R$ {fmtR(custoFixoMensal)} fixo ÷ R$ {fmtR(margemUnit)}/un (a R$ {fmtR(base)} direta)
               </div>
               {realStats.unidades > 0 && (
-                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3 }}>
-                      <div style={{ width: `${Math.min(100, (realStats.unidades / pontoEquilibrio) * 100)}%`, height: '100%', background: realStats.unidades >= pontoEquilibrio ? 'var(--teal)' : '#f59e0b', borderRadius: 3 }} />
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #2a2a2a' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
+                    <div style={{ flex: 1, height: 7, background: '#2a2a2a', borderRadius: 4 }}>
+                      <div style={{ width: `${Math.min(100, (realStats.unidades / pontoEquilibrio) * 100)}%`, height: '100%', background: realStats.unidades >= pontoEquilibrio ? 'var(--teal)' : '#f59e0b', borderRadius: 4 }} />
                     </div>
-                    <span style={{ fontSize: 12, fontWeight: 600, flexShrink: 0 }}>
-                      {realStats.unidades}/{pontoEquilibrio} ({Math.round((realStats.unidades / pontoEquilibrio) * 100)}%)
+                    <span style={{ fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                      {realStats.unidades}/{pontoEquilibrio} <span style={{ color: 'var(--text-tertiary)', fontWeight: 600 }}>({Math.round((realStats.unidades / pontoEquilibrio) * 100)}%)</span>
                     </span>
                   </div>
-                  <div style={{ fontSize: 11, color: realStats.unidades >= pontoEquilibrio ? 'var(--teal)' : '#f59e0b' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: realStats.unidades >= pontoEquilibrio ? 'var(--teal)' : '#f59e0b' }}>
                     {realStats.unidades >= pontoEquilibrio
                       ? '✓ Você já cobriu os custos fixos do mês'
                       : `Faltam ${pontoEquilibrio - realStats.unidades} un pra equilíbrio`}
@@ -397,23 +412,23 @@ export default function Configuracoes() {
         </div>
 
         {/* ── Calculadora de promoção ─────────────────────── */}
-        <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Calculadora de promoção</div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Desconto</span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--teal)' }}>{descontoPromo}%</span>
+        <div className="card" style={{ padding: '15px 16px', marginBottom: 16 }}>
+          <div className="cfg-label" style={{ marginBottom: 12 }}>Calculadora de promoção</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Desconto aplicado</span>
+            <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--teal)' }}>{descontoPromo}%</span>
           </div>
           <input
             type="range" min="0" max="60" step="5"
             value={descontoPromo}
             onChange={e => setDescontoPromo(parseInt(e.target.value))}
-            style={{ width: '100%', accentColor: 'var(--teal)', marginBottom: 12 }}
+            style={{ width: '100%', accentColor: 'var(--teal)', marginBottom: 14 }}
           />
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Preço promo</span>
-            <span style={{ fontSize: 14, fontWeight: 600 }}>R$ {fmtR(precoPromo)} <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textDecoration: 'line-through' }}>R$ {fmtR(base)}</span></span>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>R$ {fmtR(precoPromo)} <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)', textDecoration: 'line-through' }}>R$ {fmtR(base)}</span></span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
             <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Lucro por unidade</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: promoColor }}>R$ {fmtR(lucroPromoUnit)}</span>
           </div>
@@ -422,12 +437,12 @@ export default function Configuracoes() {
             <span style={{ fontSize: 14, fontWeight: 700, color: promoColor }}>{fmtPct(margemPromo)}%</span>
           </div>
           {lucroPromoUnit < 0 && (
-            <div style={{ fontSize: 11, color: 'var(--alert-text)', marginTop: 8, padding: '6px 10px', background: '#3b1f1f', borderRadius: 6 }}>
+            <div style={{ fontSize: 11, color: 'var(--alert-text)', marginTop: 10, padding: '7px 10px', background: '#3b1f1f', borderRadius: 7 }}>
               ⚠ Você está vendendo no prejuízo. Cada un perde R$ {fmtR(Math.abs(lucroPromoUnit))}
             </div>
           )}
           {lucroPromoUnit >= 0 && margemPromo < 15 && (
-            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 8, padding: '6px 10px', background: '#3b2700', borderRadius: 6 }}>
+            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 10, padding: '7px 10px', background: '#3b2700', borderRadius: 7 }}>
               ⚠ Margem apertada — só vale se compensar em volume
             </div>
           )}
