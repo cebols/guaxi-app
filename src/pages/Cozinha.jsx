@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
-import { getReceitas, deleteReceitas, saveReceita } from '../services/db'
+import { getReceitas, deleteReceitas, saveReceita, getInsumos } from '../services/db'
 
 const ACAO_MAP = {
   misturar:     { icon: '🥣', label: 'Misturar' },
@@ -39,6 +39,7 @@ export default function Cozinha() {
   const navigate = useNavigate()
   const { data: receitas, loading } = useData(getReceitas)
 
+  const { data: insumos } = useData(getInsumos)
   const receita = (receitas || []).find(r => String(r.id) === String(id))
   const ingredientes = receita?.ingredientes || []
 
@@ -50,7 +51,12 @@ export default function Cozinha() {
   const [confirmExcluir, setConfirmExcluir] = useState(false)
 
   const pesoBase = ingredientes.reduce((s, i) => {
-    if (['g', 'ml'].includes(i.unidade)) return s + i.quantidade
+    if (i.unidade === 'g' || i.unidade === 'ml') return s + i.quantidade
+    if (i.unidade === 'kg' || i.unidade === 'L') return s + i.quantidade * 1000
+    if (i.unidade === 'un') {
+      const insumo = (insumos || []).find(ins => ins.id === i.insumoId || ins.nome === i.nome)
+      if (insumo?.pesoUn > 0) return s + i.quantidade * insumo.pesoUn
+    }
     return s
   }, 0)
 
