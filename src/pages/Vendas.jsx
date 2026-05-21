@@ -1187,12 +1187,12 @@ export default function Vendas() {
   const totalProfit      = totalRevNet - totalCost
   const totalMargin      = totalRevNet > 0 ? (totalProfit / totalRevNet) * 100 : 0
   const totalUnits       = Object.values(statsPerProd).reduce((s, p) => s + p.units, 0)
-  const numTransacoes    = vendasPeriodo.length + numPedidosPeriodo
-  const ticketMedio      = numTransacoes > 0 ? totalRevBruto / numTransacoes : 0
   const totalRevNetPed   = Object.values(statsPedidos).reduce((s, p) => s + p.revNet, 0)
   const totalRevNetAvulsa = totalRevNet - totalRevNetPed
 
   const totalRevBruto      = Object.values(statsPerProd).reduce((s, p) => s + p.revenue, 0)
+  const numTransacoes    = vendasPeriodo.length + numPedidosPeriodo
+  const ticketMedio      = numTransacoes > 0 ? totalRevBruto / numTransacoes : 0
   const totalTaxas         = totalRevBruto - totalRevNet
   const totalComprasPeriodo = useMemo(() =>
     (compras || []).filter(c => c.data >= inicio && c.data <= fim).reduce((s, c) => s + (c.total || 0), 0),
