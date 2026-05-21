@@ -419,6 +419,7 @@ export default function Home() {
         {/* Checklist de setup — baseado em dados reais */}
         {(() => {
           if (!profile?.onboardingDone) return null
+          if (loadEnc || loadIns || loadProd) return null
           const cfg = getConfig()
           const steps = [
             {
