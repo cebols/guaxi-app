@@ -312,10 +312,14 @@ export default function ReceitaForm() {
         case 'ml': return s + qty
         case 'kg': return s + qty * 1000
         case 'L':  return s + qty * 1000
+        case 'un': {
+          const insumo = insumos?.find(ins => ins.id === ing.insumoId || ins.nome === ing.nome)
+          return insumo?.pesoUn > 0 ? s + qty * insumo.pesoUn : s
+        }
         default:   return s
       }
     }, 0),
-    [ingredientes]
+    [ingredientes, insumos]
   )
 
   const fatorPerdaNum  = Math.min(99, Math.max(0, parseFloat(form.fatorPerda) || 0))
