@@ -3,11 +3,13 @@ import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
 import { SpotlightHint } from '../components/SpotlightHint'
+import { ItemThumb } from '../components/ItemThumb'
 import { getConfig, calcPrecos, getCustoSacolaDelivery } from '../hooks/useConfig'
 import {
   getProdutos, saveProduto, deleteProduto,
   getReceitas, getEmbalagens, getInsumos,
 } from '../services/db'
+import { uploadImage } from '../services/storage'
 
 const PLAT_COLOR  = { Direta: 'var(--teal)', '99Food': '#f59e0b', iFood: '#ef4444' }
 const TIPO_LABELS = { produto: 'Produzido', avulso: 'Avulso', combo: 'Combo' }
@@ -40,7 +42,7 @@ function TipoBadge({ tipo }) {
   return <span style={{ marginLeft: 6, fontSize: 10, background: b.bg, color: b.color, borderRadius: 4, padding: '1px 5px', verticalAlign: 'middle' }}>{b.label}</span>
 }
 
-const FORM_EMPTY = { nome: '', tipo: 'produto', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '' }
+const FORM_EMPTY = { nome: '', tipo: 'produto', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '', imagemUrl: '' }
 
 function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item
@@ -55,9 +57,11 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
         preco99:     item.preco99     ?? '',
         precoIfood:  item.precoIfood  ?? '',
         estoqueMin:  item.estoqueMin  ?? '',
+        imagemUrl:   item.imagemUrl   || '',
       }
     : { ...FORM_EMPTY }
   )
+  const [uploadingImg, setUploadingImg] = useState(false)
 
   const [recRows, setRecRows] = useState(
     item?.receitas?.length > 0
@@ -76,6 +80,21 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
   )
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleImgUpload = async (file) => {
+    if (!file) return
+    setUploadingImg(true)
+    try {
+      const ext = file.name.split('.').pop()
+      const path = `produtos/${Date.now()}.${ext}`
+      const url = await uploadImage(path, file)
+      set('imagemUrl', url)
+    } catch (e) {
+      alert('Erro ao enviar imagem: ' + e.message)
+    } finally {
+      setUploadingImg(false)
+    }
+  }
 
   const isAvulso = form.tipo === 'avulso'
   const isCombo  = form.tipo === 'combo'
@@ -140,8 +159,24 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
 
   return (
     <Sheet title={item ? 'Editar produto' : 'Novo produto'} onClose={onClose}>
-      <div className="field-label">Nome *</div>
-      <input className="field-input" placeholder="ex: Choux Craquelin" value={form.nome} onChange={e => set('nome', e.target.value)} />
+      {/* ── Foto ─────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <ItemThumb url={form.imagemUrl} nome={form.nome || '?'} size={64} radius={10} />
+          <label style={{
+            position: 'absolute', inset: 0, borderRadius: 10, cursor: 'pointer',
+            background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 18,
+          }}>
+            {uploadingImg ? '⏳' : '📷'}
+            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleImgUpload(e.target.files[0])} />
+          </label>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div className="field-label">Nome *</div>
+          <input className="field-input" style={{ marginBottom: 0 }} placeholder="ex: Choux Craquelin" value={form.nome} onChange={e => set('nome', e.target.value)} />
+        </div>
+      </div>
 
       {/* ── Tipo toggle ───────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
@@ -473,7 +508,10 @@ export default function Produtos() {
                           return (
                             <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })}>
                               <td style={{ fontWeight: 600 }}>
-                                {prod.nome}<TipoBadge tipo={prod.tipo} />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <ItemThumb url={prod.imagemUrl} nome={prod.nome} size={32} radius={6} />
+                                  {prod.nome}<TipoBadge tipo={prod.tipo} />
+                                </div>
                               </td>
                               <td className="muted" style={{ fontSize: 12 }}>{subtext(prod)}</td>
                               <td className="muted">{prod.custoTotal > 0 ? fmtR(prod.custoTotal) : '—'}</td>
@@ -537,6 +575,7 @@ export default function Produtos() {
                   {produtosFiltrados.map(prod => {
                     return (
                       <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
+                        <ItemThumb url={prod.imagemUrl} nome={prod.nome} size={48} radius={8} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div className="list-item-name" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
                             <span>{prod.nome}</span>

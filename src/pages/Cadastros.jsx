@@ -3,6 +3,8 @@ import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
 import { SpotlightHint } from '../components/SpotlightHint'
+import { ItemThumb } from '../components/ItemThumb'
+import { ImportarTexto } from '../components/ImportarTexto'
 
 const ImportarExcel = lazy(() => import('./ImportarExcel'))
 const ImportarImagem = lazy(() => import('./ImportarImagem'))
@@ -11,8 +13,9 @@ import {
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
   getInsumoFornecedores, saveInsumoFornecedores, getAllInsumoFornecedores,
   getEmbalagemFornecedores, saveEmbalagemFornecedores, getAllEmbalagemFornecedores,
-  getInsumoCostHistory,
+  getInsumoCostHistory, updateInsumoImagem,
 } from '../services/db'
+import { pexelsSearch } from '../services/pexels'
 
 const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
 
@@ -752,6 +755,7 @@ export default function Cadastros() {
   const [filtroCat, setFiltroCat] = useState('')
   const [importando, setImportando] = useState(false)
   const [importandoImg, setImportandoImg] = useState(false)
+  const [importandoTexto, setImportandoTexto] = useState(false)
   const [bulkDelete, setBulkDelete] = useState(false)
   const [bulkSel, setBulkSel]       = useState([])
   const [bulkConfirm, setBulkConfirm] = useState(false)
@@ -834,6 +838,12 @@ export default function Cadastros() {
       if (fontes?.length > 0 || (form.id && fontes)) {
         await saveInsumoFornecedores(data.id, fontes || [], calcCustoUnitInsumo(form) || 0)
       }
+      // Auto-fetch image from Pexels if none yet
+      if (!form.imagemUrl) {
+        pexelsSearch(form.nome, 1).then(photos => {
+          if (photos[0]) updateInsumoImagem(data.id, photos[0].url).then(rIns).catch(() => {})
+        }).catch(() => {})
+      }
       rIns(); rFontes(); show('Salvo!')
     },
     del: withReload(deleteInsumo, rIns),
@@ -901,6 +911,10 @@ export default function Cadastros() {
               <button onClick={() => setImportandoImg(true)}
                 style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                 📷 Foto
+              </button>
+              <button onClick={() => setImportandoTexto(true)}
+                style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                📋 Colar
               </button>
               <button onClick={() => setImportando(true)}
                 style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
@@ -987,7 +1001,12 @@ export default function Cadastros() {
                           ]
                           return (
                             <tr key={ins.id} onClick={() => setSheet({ type: 'insumo', item: ins })}>
-                              <td style={{ fontWeight: 600 }}>{ins.nome}</td>
+                              <td style={{ fontWeight: 600 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <ItemThumb url={ins.imagemUrl} nome={ins.nome} size={32} radius={6} />
+                                  {ins.nome}
+                                </div>
+                              </td>
                               <td className="muted">{marcaLabel}</td>
                               <td className="muted">{ins.categoria || '—'}</td>
                               <td className="muted">{ins.pesoEmb > 0 ? `${ins.pesoEmb} ${ins.unidade}` : '—'}</td>
@@ -1052,6 +1071,7 @@ export default function Cadastros() {
                     const hasMany = allOpts.length > 1
                     return (
                       <div key={ins.id} className="list-item" onClick={() => setSheet({ type: 'insumo', item: ins })}>
+                        <ItemThumb url={ins.imagemUrl} nome={ins.nome} size={40} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div className="list-item-name">{ins.nome}</div>
                           <div className="list-item-sub">
@@ -1274,6 +1294,18 @@ export default function Cadastros() {
         <Suspense fallback={null}>
           <ImportarImagem categorias={catsInsumo} fornecedoresList={fornecedores} onClose={() => setImportandoImg(false)} onImported={() => { rIns(); setImportandoImg(false) }} />
         </Suspense>
+      )}
+      {importandoTexto && (
+        <ImportarTexto
+          mode="insumos"
+          onClose={() => setImportandoTexto(false)}
+          onImport={async (items) => {
+            await Promise.all(items.map(item =>
+              saveInsumo({ nome: item.nome, marca: '', categoria: '', unidade: item.unidade || 'g', pesoEmb: '', custoEmb: '', linkCompra: '', estoqueAtual: '', estoqueMin: '', fornecedor: '', whatsapp: '' })
+            ))
+            rIns(); show(`${items.length} insumo(s) importado(s)!`)
+          }}
+        />
       )}
 
       {toast && <div className="toast">{toast}</div>}

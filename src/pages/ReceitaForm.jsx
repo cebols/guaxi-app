@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getReceitas, saveReceita, deleteReceita, getInsumos, saveInsumo } from '../services/db'
+import { getReceitas, saveReceita, deleteReceita, getInsumos, saveInsumo, updateReceitaImagem } from '../services/db'
+import { PexelsPicker } from '../components/PexelsPicker'
+import { ImportarTexto } from '../components/ImportarTexto'
 
 const ImportarImagem = lazy(() => import('./ImportarImagem'))
 
@@ -213,6 +215,8 @@ export default function ReceitaForm() {
   const [insumoRapido, setInsumoRapido] = useState(null) // [{nome,unidade,custoEmb,pesoEmb}] | null
   const [salvandoInsumos, setSalvandoInsumos] = useState(false)
   const [savedRecId, setSavedRecId] = useState(null)
+  const [pexelsPicker, setPexelsPicker] = useState(null) // { recId, nome }
+  const [importandoTexto, setImportandoTexto] = useState(false)
 
   useEffect(() => {
     if (!isEdit || !receitas) return
@@ -368,6 +372,12 @@ export default function ReceitaForm() {
       if (faltantes.length > 0) {
         setSavedRecId(recId)
         setInsumoRapido(faltantes.map(ing => ({ nome: ing.nome, unidade: ing.unidade || 'g', custoEmb: '', pesoEmb: '' })))
+        return
+      }
+      // Show Pexels picker if no image yet
+      const existingImg = isEdit ? receitas?.find(r => r.id === parseInt(id))?.imagemUrl : null
+      if (!existingImg && import.meta.env.VITE_PEXELS_KEY) {
+        setPexelsPicker({ recId, nome: form.nome })
         return
       }
       navigate(`/fichas/${recId}`)
@@ -528,9 +538,14 @@ export default function ReceitaForm() {
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4, marginBottom: 4 }}>
           <div className="section-label" style={{ margin: 0 }}>Ingredientes</div>
-          <button type="button" onClick={() => setImportandoImg(true)} style={{ fontSize: 12, color: 'var(--teal)', background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
-            📷 Importar foto
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button type="button" onClick={() => setImportandoTexto(true)} style={{ fontSize: 12, color: 'var(--teal)', background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
+              📋 Colar
+            </button>
+            <button type="button" onClick={() => setImportandoImg(true)} style={{ fontSize: 12, color: 'var(--teal)', background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
+              📷 Foto
+            </button>
+          </div>
         </div>
         <div className="card card-flush" style={{ padding: '0 14px' }}>
           {ingredientes.map((ing, i) => {
@@ -788,6 +803,40 @@ export default function ReceitaForm() {
             </div>
           </div>
         </>
+      )}
+
+      {pexelsPicker && (
+        <PexelsPicker
+          query={pexelsPicker.nome}
+          onPick={async url => {
+            await updateReceitaImagem(pexelsPicker.recId, url).catch(() => {})
+            setPexelsPicker(null)
+            navigate(`/fichas/${pexelsPicker.recId}`)
+          }}
+          onSkip={() => {
+            setPexelsPicker(null)
+            navigate(`/fichas/${pexelsPicker.recId}`)
+          }}
+        />
+      )}
+
+      {importandoTexto && (
+        <ImportarTexto
+          mode="ingredientes"
+          onClose={() => setImportandoTexto(false)}
+          onImport={ings => {
+            const novos = ings.map(i => ({
+              insumoId: null, subReceitaId: null,
+              nome: i.nome,
+              quantidade: i.quantidade != null ? String(i.quantidade) : '',
+              unidade: i.unidade || 'g',
+            }))
+            setIngredientes(prev => {
+              const base = prev.filter(i => i.nome?.trim())
+              return [...base, ...novos, { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' }]
+            })
+          }}
+        />
       )}
     </>
   )

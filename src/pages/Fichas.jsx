@@ -2,6 +2,7 @@ import { useState, useMemo, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { getReceitas, deleteReceitas, saveReceita, getInsumos } from '../services/db'
+import { ItemThumb } from '../components/ItemThumb'
 
 const ImportarExcel = lazy(() => import('./ImportarExcel'))
 const ImportarImagem = lazy(() => import('./ImportarImagem'))
@@ -196,7 +197,12 @@ function norm(s) {
                   <tbody>
                     {filtradas.map(r => (
                       <tr key={r.id} onClick={() => navigate(`/fichas/${r.id}`)}>
-                        <td style={{ fontWeight: 600 }}>{r.nome}</td>
+                        <td style={{ fontWeight: 600 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <ItemThumb url={r.imagemUrl} nome={r.nome} size={32} radius={6} />
+                            {r.nome}
+                          </div>
+                        </td>
                         <td>
                           {r.tipo && <span className={`badge ${TIPO_COLOR[r.tipo] || ''}`}>{r.tipo}</span>}
                         </td>
@@ -225,6 +231,7 @@ function norm(s) {
               {filtradas.map(r => (
                 <div key={r.id} className="card" style={{ cursor: 'pointer', marginBottom: 8 }} onClick={() => navigate(`/fichas/${r.id}`)}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                    <ItemThumb url={r.imagemUrl} nome={r.nome} size={48} radius={8} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{r.nome}</div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

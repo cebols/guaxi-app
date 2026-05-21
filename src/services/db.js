@@ -47,6 +47,7 @@ export async function getInsumos() {
     fornecedor: r.fornecedor || '',
     telefone: r.telefone || '',
     whatsapp: r.whatsapp || '',
+    imagemUrl: r.imagem_url || null,
   }))
 }
 
@@ -79,8 +80,9 @@ export async function saveInsumo(insumo) {
     fornecedor: insumo.fornecedor || '',
     telefone: insumo.telefone || '',
     whatsapp: insumo.whatsapp || '',
+    imagem_url: insumo.imagemUrl ?? undefined,
   }
-  const data = await upsert('insumos', row, insumo.id || null, ['link_compra', 'marca'])
+  const data = await upsert('insumos', row, insumo.id || null, ['link_compra', 'marca', 'imagem_url'])
   if (data?.id && custoUnit > 0) {
     snapshotInsumoCost(data.id, custoUnit).catch(() => {})
   }
@@ -370,6 +372,7 @@ export async function getProdutos() {
       precoIfood:  r.preco_ifood  ?? r.composicao?.precoIfood  ?? null,
       estoqueAtual: r.estoque_atual ?? null,
       estoqueMin:   r.estoque_min  ?? 0,
+      imagemUrl:   r.imagem_url || null,
       receitas:    (r.composicao?.receitas    || []),
       embalagens:  (r.composicao?.embalagens  || []),
       componentes: (r.composicao?.componentes || []),
@@ -392,6 +395,7 @@ export async function getProdutos() {
     precoIfood:  r.preco_ifood  ?? null,
     estoqueAtual: r.estoque_atual ?? null,
     estoqueMin:   r.estoque_min  ?? 0,
+    imagemUrl:   r.imagem_url || null,
     componentes: (r.composicao?.componentes || []),
     receitas: (r.produto_receitas || []).map(pr => ({
       id: pr.id,
@@ -438,10 +442,11 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     preco_99:       toNum(prod.preco99),
     preco_ifood:    toNum(prod.precoIfood),
     estoque_min:    parseFloat(prod.estoqueMin) || 0,
+    imagem_url:     prod.imagemUrl ?? undefined,
   }
 
   const saved = await upsert('produtos', row, prod.id || null,
-    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min'])
+    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'imagem_url'])
   const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)
@@ -709,6 +714,7 @@ export async function getReceitas() {
       tempForno: r.temp_forno ?? null,
       tempoResfriamento: r.tempo_resfriamento ?? null,
       tipoResfriamento: r.tipo_resfriamento ?? null,
+      imagemUrl: r.imagem_url || null,
       ingredientes: (ingsByReceita[r.id] || []).map(i => ({
         id: i.id,
         insumoId: i.insumo_id || null,
@@ -741,6 +747,7 @@ export async function saveReceita(receita, ingredientes) {
     custo_total: parseFloat(receita.custoTotal) || 0,
     custo_unid: parseFloat(receita.custoUnid) || 0,
     porcoes: receita.porcoes ? parseInt(receita.porcoes) : null,
+    imagem_url: receita.imagemUrl ?? undefined,
   }
 
   const buildIngRow = (receitaId, i) => ({
@@ -774,7 +781,7 @@ export async function saveReceita(receita, ingredientes) {
     }
   }
 
-  const OPTIONAL = ['unidade_gera', 'peso_liquido', 'fator_perda', 'instrucoes', 'tempo_forno', 'temp_forno', 'tempo_resfriamento', 'tipo_resfriamento']
+  const OPTIONAL = ['unidade_gera', 'peso_liquido', 'fator_perda', 'instrucoes', 'tempo_forno', 'temp_forno', 'tempo_resfriamento', 'tipo_resfriamento', 'imagem_url']
 
   if (receita.id) {
     await upsert('receitas', row, receita.id, OPTIONAL)
@@ -949,4 +956,16 @@ export async function upsertProfile(userId, profile) {
     checklist_dismissed: profile.checklistDismissed || false,
   }, { onConflict: 'user_id' })
   if (error) throw error
+}
+
+export async function updateInsumoImagem(id, url) {
+  await supabase.from('insumos').update({ imagem_url: url }).eq('id', id)
+}
+
+export async function updateReceitaImagem(id, url) {
+  await supabase.from('receitas').update({ imagem_url: url }).eq('id', id)
+}
+
+export async function updateProdutoImagem(id, url) {
+  await supabase.from('produtos').update({ imagem_url: url }).eq('id', id)
 }
