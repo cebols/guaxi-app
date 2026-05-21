@@ -116,6 +116,8 @@ export default function Configuracoes() {
   const step3Done = cfg.custoFixoMensal > 0 || cfg.margem !== CONFIG_DEFAULTS.margem
   const showMargemHint = profile?.onboardingDone && !step3Done
   const [exemplo, setExemplo] = useState(10)
+  const [modoMeta, setModoMeta] = useState(false)
+  const [metaLucro, setMetaLucro] = useState(1000)
   const [novoNome, setNovoNome] = useState('')
   const [adicionando, setAdicionando] = useState(false)
   const [descontoPromo, setDescontoPromo] = useState(20)
@@ -184,6 +186,7 @@ export default function Configuracoes() {
   // Ponto de equilíbrio: unidades/mês necessárias pra cobrir custos fixos
   const margemUnit = exemplo > 0 ? base - exemplo : 0
   const pontoEquilibrio = margemUnit > 0 ? Math.ceil(custoFixoMensal / margemUnit) : null
+  const unidadesMeta = (base - exemplo) > 0 ? Math.ceil((custoFixoMensal + metaLucro) / (base - exemplo)) : null
 
   // Promo
   const precoPromo = base * (1 - descontoPromo / 100)
@@ -364,6 +367,56 @@ export default function Configuracoes() {
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 11, textAlign: 'center' }}>
             custo R$ {fmtR(exemplo)} + rateio R$ {fmtR(rateio)} · margem {fmtPct(cfg.margem)}%
+          </div>
+
+          {/* ── Meta / equilíbrio ── */}
+          <div style={{ marginTop: 14, paddingTop: 13, borderTop: '1px solid #2a2a2a' }}>
+            <div style={{ display: 'flex', background: '#1a1a1a', borderRadius: 8, padding: 3, marginBottom: 13 }}>
+              {[{ label: 'Pra zerar custos', val: false }, { label: 'Meta de lucro', val: true }].map(({ label, val }) => (
+                <button key={label} onClick={() => setModoMeta(val)}
+                  style={{ flex: 1, padding: '5px 0', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 6,
+                    background: modoMeta === val ? 'var(--bg-card)' : 'transparent',
+                    color: modoMeta === val ? 'var(--text-primary)' : 'var(--text-tertiary)',
+                    transition: 'all .15s ease' }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {!modoMeta ? (
+              pontoEquilibrio !== null ? (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                  <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--teal)', letterSpacing: '-0.03em' }}>{pontoEquilibrio}</span>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>un/mês pra cobrir os custos fixos</span>
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Preencha o custo acima</div>
+              )
+            ) : (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 11 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', flexShrink: 0 }}>Quero lucrar</span>
+                  <label className="cfg-pill">
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)' }}>R$</span>
+                    <input type="text" inputMode="decimal" value={metaLucro}
+                      onChange={e => setMetaLucro(parseFloat(e.target.value) || 0)}
+                      style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', textAlign: 'center',
+                        width: `calc(${Math.max(2, String(metaLucro).length)}ch + 2px)`,
+                        background: 'transparent', border: 'none', outline: 'none',
+                        color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)' }}>/mês</span>
+                  </label>
+                </div>
+                {unidadesMeta !== null ? (
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
+                    <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--teal)', letterSpacing: '-0.03em' }}>{unidadesMeta}</span>
+                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>un/mês a R$ {fmtR(base)}</span>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Preencha o custo acima</div>
+                )}
+              </div>
+            )}
           </div>
         </div>
         {showMargemHint && (
