@@ -756,6 +756,7 @@ export default function Cadastros() {
   const [importando, setImportando] = useState(false)
   const [importandoImg, setImportandoImg] = useState(false)
   const [importandoTexto, setImportandoTexto] = useState(false)
+  const [pexelsBatch, setPexelsBatch] = useState(null) // { total, done, cancelled }
   const [bulkDelete, setBulkDelete] = useState(false)
   const [bulkSel, setBulkSel]       = useState([])
   const [bulkConfirm, setBulkConfirm] = useState(false)
@@ -893,6 +894,30 @@ export default function Cadastros() {
     },
   }
 
+  const cancelRef = useRef(false)
+
+  const handlePexelsBatch = async () => {
+    const semImagem = (insumos || []).filter(i => !i.imagemUrl)
+    if (semImagem.length === 0) { show('Todos os insumos já têm imagem!'); return }
+    cancelRef.current = false
+    setPexelsBatch({ total: semImagem.length, done: 0, errors: 0 })
+    let done = 0; let errors = 0
+    for (const ins of semImagem) {
+      if (cancelRef.current) break
+      try {
+        const photos = await pexelsSearch(ins.nome, 1)
+        if (photos[0]) await updateInsumoImagem(ins.id, photos[0].url)
+        else errors++
+      } catch { errors++ }
+      done++
+      setPexelsBatch({ total: semImagem.length, done, errors })
+      if (done < semImagem.length && !cancelRef.current) await new Promise(r => setTimeout(r, 350))
+    }
+    rIns()
+    setPexelsBatch(null)
+    show(cancelRef.current ? 'Cancelado.' : `Imagens atualizadas: ${done - errors}/${semImagem.length}`)
+  }
+
   const loading = tab === 'insumos' ? lIns : lEmb
   const openNew = () => setSheet({ type: tab === 'embalagens' ? 'embalagem' : 'insumo' })
 
@@ -908,6 +933,12 @@ export default function Cadastros() {
           <div className="topbar-title">Insumos &amp; Embalagens</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ display: 'flex', gap: 8 }}>
+              {import.meta.env.VITE_PEXELS_KEY && tab === 'insumos' && (
+                <button onClick={handlePexelsBatch}
+                  style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  🖼 Imagens
+                </button>
+              )}
               <button onClick={() => setImportandoImg(true)}
                 style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                 📷 Foto
@@ -1306,6 +1337,24 @@ export default function Cadastros() {
             rIns(); show(`${items.length} insumo(s) importado(s)!`)
           }}
         />
+      )}
+
+      {pexelsBatch && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 16, padding: '24px 28px', width: '100%', maxWidth: 360 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Buscando imagens no Pexels…</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+              {pexelsBatch.done} / {pexelsBatch.total}
+              {pexelsBatch.errors > 0 && ` · ${pexelsBatch.errors} sem resultado`}
+            </div>
+            <div style={{ height: 6, background: 'var(--border)', borderRadius: 4, overflow: 'hidden', marginBottom: 16 }}>
+              <div style={{ height: '100%', background: 'var(--teal)', borderRadius: 4, width: `${(pexelsBatch.done / pexelsBatch.total) * 100}%`, transition: 'width 0.3s' }} />
+            </div>
+            <button onClick={() => { cancelRef.current = true }} style={{ width: '100%', padding: '10px 0', borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 14, cursor: 'pointer' }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
       )}
 
       {toast && <div className="toast">{toast}</div>}
