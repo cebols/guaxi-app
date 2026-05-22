@@ -167,6 +167,7 @@ function resolveOvoUnidade(qtd, rawUnit) {
 
 function resolveUnit(rawUnit, fallback = 'g') {
   const u = (rawUnit || '').toLowerCase()
+  if (u === 'g')  return 'g'
   if (u.startsWith('ml')) return 'ml'
   if (u.startsWith('kg')) return 'kg'
   if (u === 'l') return 'L'
@@ -217,14 +218,15 @@ function parseIngredientList(rawText) {
       continue
     }
 
-    // Pattern 3: "Canela em pó 270" — name-first, number at end (table format)
-    const m3 = line.match(/^(.+\D)\s+(\d+[\.,]?\d*)\s*$/)
+    // Pattern 3: "Canela em pó 270" or "Açúcar refinado 450,0g" — name first, number (+ optional unit) at end
+    const m3 = line.match(/^(.+\D)\s+(\d+[\.,]?\d*)\s*(g|ml|kg|l|L|un)?\s*$/i)
     if (m3) {
       const nome = m3[1].trim()
       const qtd = parseFloat(m3[2].replace(',', '.'))
+      const rawUnit = m3[3] || ''
       if (qtd <= 0 || nome.length < 2 || /R\$/.test(line)) continue
-      let unidade = headerUnit
-      if (isOvo(nome)) unidade = resolveOvoUnidade(qtd, '') || unidade
+      let unidade = rawUnit ? resolveUnit(rawUnit, headerUnit) : headerUnit
+      if (isOvo(nome)) unidade = resolveOvoUnidade(qtd, rawUnit.toLowerCase()) || unidade
       result.push({ nome, quantidade: qtd, unidade })
       continue
     }
