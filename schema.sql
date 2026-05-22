@@ -380,3 +380,30 @@ DROP POLICY IF EXISTS "profiles_own" ON profiles;
 CREATE POLICY "profiles_own" ON profiles FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
+
+-- ── Imagens (insumos, receitas, produtos) ───────────────────
+ALTER TABLE insumos  ADD COLUMN IF NOT EXISTS imagem_url text;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS imagem_url text;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS imagem_url text;
+
+-- ── Cardápio público ─────────────────────────────────────────
+-- Um link fixo por loja; gerar de novo atualiza o mesmo link.
+CREATE TABLE IF NOT EXISTS cardapios (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL UNIQUE,
+  nome_loja  TEXT,
+  dados      JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE cardapios ENABLE ROW LEVEL SECURITY;
+
+-- Leitura pública (clientes acessam sem login).
+DROP POLICY IF EXISTS "cardapios public read" ON cardapios;
+CREATE POLICY "cardapios public read" ON cardapios
+  FOR SELECT USING (true);
+
+-- Apenas o dono escreve/atualiza.
+DROP POLICY IF EXISTS "cardapios owner write" ON cardapios;
+CREATE POLICY "cardapios owner write" ON cardapios
+  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
