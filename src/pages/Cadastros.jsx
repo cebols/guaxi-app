@@ -754,8 +754,9 @@ export default function Cadastros() {
   const [busca, setBusca] = useState('')
   const [filtroCat, setFiltroCat] = useState('')
   const [importando, setImportando] = useState(false)
-  const [importandoImg, setImportandoImg] = useState(false)
+  const [importandoImg, setImportandoImg] = useState(null) // null | 'environment' | 'upload'
   const [importandoTexto, setImportandoTexto] = useState(false)
+  const [importChooser, setImportChooser] = useState(false)
   const [pexelsBatch, setPexelsBatch] = useState(null) // { total, done, cancelled }
   const [bulkDelete, setBulkDelete] = useState(false)
   const [bulkSel, setBulkSel]       = useState([])
@@ -939,15 +940,7 @@ export default function Cadastros() {
                   🖼 Imagens
                 </button>
               )}
-              <button onClick={() => setImportandoImg(true)}
-                style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                📷 Foto
-              </button>
-              <button onClick={() => setImportandoTexto(true)}
-                style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                📋 Colar
-              </button>
-              <button onClick={() => setImportando(true)}
+              <button onClick={() => setImportChooser(true)}
                 style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                 ⬇️ Importar
               </button>
@@ -1316,6 +1309,43 @@ export default function Cadastros() {
         </>
       )}
 
+      {importChooser && (
+        <>
+          <div className="sheet-overlay" onClick={() => setImportChooser(false)} />
+          <div className="sheet">
+            <div className="sheet-title">
+              <span>Como quer importar?</span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setImportChooser(false)}>×</button>
+            </div>
+            {[
+              { icon: '📊', ttl: 'Planilha Excel', sub: 'Excel ou Google Sheets', action: () => setImportando(true) },
+              { icon: '🖼', ttl: 'Enviar imagem', sub: 'Foto da galeria, screenshot ou PDF', action: () => setImportandoImg('upload') },
+              { icon: '📷', ttl: 'Tirar foto', sub: 'Fotografar lista impressa ou caderno', action: () => setImportandoImg('environment') },
+              { icon: '📋', ttl: 'Colar texto', sub: 'Colar lista de qualquer formato', action: () => setImportandoTexto(true) },
+            ].map(o => (
+              <button
+                key={o.ttl}
+                onClick={() => { o.action(); setImportChooser(false) }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  width: '100%', padding: '13px 4px', background: 'none', border: 'none',
+                  borderBottom: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left',
+                }}
+              >
+                <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
+                  {o.icon}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{o.ttl}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{o.sub}</div>
+                </div>
+                <span style={{ color: 'var(--text-tertiary)', fontSize: 18, flexShrink: 0 }}>›</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
       {importando && (
         <Suspense fallback={null}>
           <ImportarExcel mode="insumos" onClose={() => setImportando(false)} onImported={() => { rIns(); rEmb(); setImportando(false) }} />
@@ -1323,7 +1353,13 @@ export default function Cadastros() {
       )}
       {importandoImg && (
         <Suspense fallback={null}>
-          <ImportarImagem categorias={catsInsumo} fornecedoresList={fornecedores} onClose={() => setImportandoImg(false)} onImported={() => { rIns(); setImportandoImg(false) }} />
+          <ImportarImagem
+            categorias={catsInsumo}
+            fornecedoresList={fornecedores}
+            captureMode={importandoImg === 'environment' ? 'environment' : null}
+            onClose={() => setImportandoImg(null)}
+            onImported={() => { rIns(); setImportandoImg(null) }}
+          />
         </Suspense>
       )}
       {importandoTexto && (

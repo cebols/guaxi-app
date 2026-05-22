@@ -456,7 +456,7 @@ function CropTool({ src, onConfirm, onSkip }) {
 
 const UNID_OPTS = ['g', 'ml', 'un', 'kg', 'L', 'cx']
 
-export default function ImportarImagem({ onClose, onImported, categorias = [], fornecedoresList = [], mode = 'insumos', insumosList = [], onIngredientesImportados }) {
+export default function ImportarImagem({ onClose, onImported, categorias = [], fornecedoresList = [], mode = 'insumos', insumosList = [], onIngredientesImportados, captureMode = 'environment' }) {
   const inputRef = useRef()
   const sheetRef = useRef()
   const [file, setFile] = useState(null)
@@ -618,7 +618,7 @@ export default function ImportarImagem({ onClose, onImported, categorias = [], f
               ref={inputRef}
               type="file"
               accept="image/*,application/pdf"
-              capture="environment"
+              {...(captureMode ? { capture: captureMode } : {})}
               style={{ display: 'none' }}
               onChange={e => handleFile(e.target.files?.[0])}
             />
