@@ -969,3 +969,31 @@ export async function updateReceitaImagem(id, url) {
 export async function updateProdutoImagem(id, url) {
   await supabase.from('produtos').update({ imagem_url: url }).eq('id', id)
 }
+
+// ── Cardápio público ──────────────────────────────────────────
+
+export async function saveCardapio({ nomeLoja, dados }) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Você precisa estar logado.')
+  const { data, error } = await supabase.from('cardapios').upsert(
+    { user_id: user.id, nome_loja: nomeLoja || '', dados, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' }
+  ).select('id').single()
+  if (error) throw error
+  return data.id
+}
+
+export async function getCardapioPublico(id) {
+  const { data, error } = await supabase
+    .from('cardapios')
+    .select('nome_loja, dados, updated_at')
+    .eq('id', id)
+    .single()
+  if (error) return null
+  return {
+    nomeLoja: data.nome_loja || '',
+    itens: data.dados?.itens || [],
+    comFotos: data.dados?.comFotos !== false,
+    updatedAt: data.updated_at,
+  }
+}

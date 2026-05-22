@@ -11,7 +11,6 @@ import {
 } from '../services/db'
 import { uploadImage } from '../services/storage'
 import { MontarCardapio } from '../components/MontarCardapio'
-import { ImportariFood } from '../components/ImportariFood'
 
 const PLAT_COLOR  = { Direta: 'var(--teal)', '99Food': '#f59e0b', iFood: '#ef4444' }
 const TIPO_LABELS = { produto: 'Produzido', avulso: 'Avulso', combo: 'Combo' }
@@ -472,9 +471,6 @@ export default function Produtos() {
             <button onClick={() => setSheet({ type: 'cardapio' })} style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               📋 Cardápio
             </button>
-            <button onClick={() => setSheet({ type: 'ifood' })} style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              🍔 iFood
-            </button>
             <button onClick={() => setSheet({ type: 'produto' })} style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               + Novo
             </button>
@@ -633,13 +629,6 @@ export default function Produtos() {
           cfg={cfg}
           custoSacola={custoSacola}
           onClose={() => setSheet(null)}
-        />
-      )}
-
-      {sheet?.type === 'ifood' && (
-        <ImportariFood
-          onClose={() => setSheet(null)}
-          onImported={n => { rProd(); show(`${n} produto(s) importado(s) do iFood!`) }}
         />
       )}
 

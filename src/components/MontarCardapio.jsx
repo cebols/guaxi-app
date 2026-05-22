@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { calcPrecos } from '../hooks/useConfig'
+import { saveCardapio } from '../services/db'
 import { ItemThumb } from './ItemThumb'
 
 const fmtR = v => Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -16,6 +17,9 @@ export function MontarCardapio({ produtos, nomeLoja, cfg, custoSacola, onClose }
   const [comFotos, setComFotos] = useState(true)
   const [precoTipo, setPrecoTipo] = useState('direta')
   const [gerando, setGerando] = useState(false)
+  const [gerandoLink, setGerandoLink] = useState(false)
+  const [link, setLink] = useState('')
+  const [copiado, setCopiado] = useState(false)
 
   const lista = produtos || []
 
@@ -62,6 +66,31 @@ export function MontarCardapio({ produtos, nomeLoja, cfg, custoSacola, onClose }
     } finally {
       setGerando(false)
     }
+  }
+
+  const handleGerarLink = async () => {
+    if (itensCardapio.length === 0) return
+    setGerandoLink(true)
+    setCopiado(false)
+    try {
+      const id = await saveCardapio({
+        nomeLoja,
+        dados: { itens: itensCardapio, comFotos },
+      })
+      setLink(`${window.location.origin}/cardapio/${id}`)
+    } catch (e) {
+      alert('Erro ao gerar link: ' + e.message)
+    } finally {
+      setGerandoLink(false)
+    }
+  }
+
+  const copiarLink = async () => {
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopiado(true)
+      setTimeout(() => setCopiado(false), 2000)
+    } catch {}
   }
 
   return (
@@ -173,16 +202,62 @@ export function MontarCardapio({ produtos, nomeLoja, cfg, custoSacola, onClose }
           ))}
         </div>
 
-        <button
-          disabled={!itensCardapio.length || gerando}
-          onClick={handleGerar}
-          style={{
-            width: '100%', padding: '13px', borderRadius: 10, border: 'none', fontSize: 14,
-            fontWeight: 700, cursor: itensCardapio.length && !gerando ? 'pointer' : 'not-allowed',
-            background: itensCardapio.length ? 'var(--teal)' : 'var(--border)', color: '#fff',
-          }}>
-          {gerando ? 'Gerando PDF…' : itensCardapio.length ? `Baixar cardápio · ${itensCardapio.length} produto(s)` : 'Selecione produtos'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            disabled={!itensCardapio.length || gerando}
+            onClick={handleGerar}
+            style={{
+              flex: 1, padding: '13px', borderRadius: 10, border: 'none', fontSize: 14,
+              fontWeight: 700, cursor: itensCardapio.length && !gerando ? 'pointer' : 'not-allowed',
+              background: itensCardapio.length ? 'var(--teal)' : 'var(--border)', color: '#fff',
+            }}>
+            {gerando ? 'Gerando PDF…' : '📄 Baixar PDF'}
+          </button>
+          <button
+            disabled={!itensCardapio.length || gerandoLink}
+            onClick={handleGerarLink}
+            style={{
+              flex: 1, padding: '13px', borderRadius: 10, fontSize: 14, fontWeight: 700,
+              cursor: itensCardapio.length && !gerandoLink ? 'pointer' : 'not-allowed',
+              border: `2px solid ${itensCardapio.length ? 'var(--teal)' : 'var(--border)'}`,
+              background: 'transparent', color: itensCardapio.length ? 'var(--teal)' : 'var(--text-secondary)',
+            }}>
+            {gerandoLink ? 'Gerando…' : '🔗 Gerar link'}
+          </button>
+        </div>
+        {!itensCardapio.length && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', textAlign: 'center', marginTop: 8 }}>
+            Selecione produtos acima
+          </div>
+        )}
+
+        {link && (
+          <div style={{ marginTop: 12, padding: 12, background: 'var(--teal-light, rgba(20,184,166,0.08))', borderRadius: 10, border: '1px solid var(--teal)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)', marginBottom: 6 }}>
+              Link público do cardápio
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>
+              Link fixo da loja — gerar de novo atualiza este mesmo link.
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                readOnly
+                value={link}
+                onFocus={e => e.target.select()}
+                style={{ flex: 1, minWidth: 0, fontSize: 12, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card-bg)', color: 'var(--text-primary)' }}
+              />
+              <button onClick={copiarLink} style={{
+                padding: '8px 12px', borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 700,
+                cursor: 'pointer', background: 'var(--teal)', color: '#fff', whiteSpace: 'nowrap',
+              }}>
+                {copiado ? '✓ Copiado' : 'Copiar'}
+              </button>
+            </div>
+            <a href={link} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 8, fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>
+              Abrir cardápio →
+            </a>
+          </div>
+        )}
       </div>
     </>
   )
