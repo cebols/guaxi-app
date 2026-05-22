@@ -86,6 +86,10 @@ export async function saveInsumo(insumo) {
   if (data?.id && custoUnit > 0) {
     snapshotInsumoCost(data.id, custoUnit).catch(() => {})
   }
+  // Propagate name change to all receita_ingredientes that reference this insumo.
+  if (insumo.id && insumo.nome) {
+    supabase.from('receita_ingredientes').update({ insumo_nome: insumo.nome }).eq('insumo_id', insumo.id).then(() => {})
+  }
   return data
 }
 

@@ -283,9 +283,9 @@ export default function Cozinha() {
                             {(subRec.ingredientes || []).map((subIng, si) => {
                               const subScale = (ing.quantidade * fator) / (subRec.rendimento || 1)
                               return (
-                                <div key={si} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 14, color: 'var(--text-secondary)' }}>
-                                  <span>{subIng.nome}</span>
-                                  <span style={{ color: 'var(--teal)', fontWeight: 600 }}>{fmtQty(subIng.quantidade * subScale, subIng.unidade)}</span>
+                                <div key={si} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0', fontSize: 14, color: 'var(--text-secondary)' }}>
+                                  <span style={{ flex: 1, minWidth: 0 }}>{subIng.nome}</span>
+                                  <span style={{ color: 'var(--teal)', fontWeight: 700, flexShrink: 0 }}>{fmtQty(subIng.quantidade * subScale, subIng.unidade)}</span>
                                 </div>
                               )
                             })}

@@ -448,23 +448,22 @@ export default function ReceitaForm() {
         <div className="field-label">Nome da receita</div>
         <input className="field-input" placeholder="ex: Bolo de chocolate" value={form.nome} onChange={e => setField('nome', e.target.value)} />
 
-        <div className="field-row">
-          <div>
-            <div className="field-label">Tipo</div>
-            <input
-              className="field-input"
-              list="tipo-opts"
-              placeholder="ex: Bolo"
-              value={form.tipo}
-              onChange={e => setField('tipo', e.target.value)}
-            />
-            <datalist id="tipo-opts">
-              {[...new Set([...TIPO_OPTS, ...(receitas || []).map(r => r.tipo).filter(Boolean)])].map(t => (
-                <option key={t} value={t} />
-              ))}
-            </datalist>
-          </div>
-          <div>
+        <div>
+          <div className="field-label">Tipo</div>
+          <input
+            className="field-input"
+            list="tipo-opts"
+            placeholder="ex: Bolo"
+            value={form.tipo}
+            onChange={e => setField('tipo', e.target.value)}
+          />
+          <datalist id="tipo-opts">
+            {[...new Set([...TIPO_OPTS, ...(receitas || []).map(r => r.tipo).filter(Boolean)])].map(t => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
+        </div>
+        <div>
             <div className="field-label">{isWeightUnit ? 'Porções (opcional)' : 'Rendimento'}</div>
             {/* Chip picker for unit */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 7 }}>
@@ -553,7 +552,6 @@ export default function ReceitaForm() {
                 onChange={e => { const v = e.target.value; setField('rendimento', v); setField('porcoes', v) }}
               />
             )}
-          </div>
         </div>
 
         {/* Resumo peso/rendimento */}
