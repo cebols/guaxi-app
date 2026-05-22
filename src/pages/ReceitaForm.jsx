@@ -14,6 +14,7 @@ function norm(s) {
 
 const TIPO_OPTS = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
 const WEIGHT_UNITS = ['g', 'ml', 'kg', 'L']
+const BUILT_IN_UNITS = ['g', 'ml', 'kg', 'L', 'un', 'cx']
 
 // Sugestão de forma redonda baseada no volume (ml ≈ g para massas)
 const DIAMS = [15, 18, 20, 21, 22, 24, 26, 28, 30]
@@ -197,6 +198,9 @@ export default function ReceitaForm() {
     { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' },
   ])
   const [saving, setSaving] = useState(false)
+  const [customUnits, setCustomUnits] = useState(null) // null = not yet initialized
+  const [addingUnit, setAddingUnit] = useState(false)
+  const [newUnitInput, setNewUnitInput] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [ingDrop, setIngDrop] = useState(null) // { idx, matches[] }
   const ingDropRef = useRef(null)
@@ -340,10 +344,15 @@ export default function ReceitaForm() {
   const rendimentoNum  = isWeightUnit ? rendAutoNum : (parseFloat(form.rendimento) || 0)
   const custoUnid      = rendimentoNum > 0 ? custoTotal / rendimentoNum : 0
 
-  const unidadesGera = useMemo(() =>
-    [...new Set((receitas || []).map(r => r.unidadeGera).filter(Boolean))].sort(),
+  // Custom units derived from DB (excluding built-ins), editable per session.
+  const customUnitsFromDB = useMemo(() =>
+    [...new Set((receitas || []).map(r => r.unidadeGera).filter(u => u && !BUILT_IN_UNITS.includes(u)))].sort(),
     [receitas]
   )
+  const visibleCustomUnits = customUnits !== null ? customUnits : customUnitsFromDB
+  useEffect(() => {
+    if (customUnits === null && receitas) setCustomUnits(customUnitsFromDB)
+  }, [receitas]) // eslint-disable-line
 
   const handleSave = async () => {
     if (!form.nome) { show('Preencha o nome da receita'); return }
@@ -456,48 +465,93 @@ export default function ReceitaForm() {
             </datalist>
           </div>
           <div>
-            <div className="field-label">Rendimento</div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              {!isWeightUnit && (
+            <div className="field-label">{isWeightUnit ? 'Porções (opcional)' : 'Rendimento'}</div>
+            {/* Chip picker for unit */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 7 }}>
+              {BUILT_IN_UNITS.map(u => (
+                <button key={u} type="button" onClick={() => setField('unidadeGera', u)} style={{
+                  padding: '4px 10px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontWeight: form.unidadeGera === u ? 700 : 400,
+                  border: `1px solid ${form.unidadeGera === u ? 'var(--teal)' : 'var(--border)'}`,
+                  background: form.unidadeGera === u ? 'var(--teal)' : 'transparent',
+                  color: form.unidadeGera === u ? '#fff' : 'var(--text-secondary)',
+                }}>{u}</button>
+              ))}
+              {visibleCustomUnits.map(u => (
+                <div key={u} style={{ display: 'flex', alignItems: 'center', borderRadius: 20,
+                  border: `1px solid ${form.unidadeGera === u ? 'var(--teal)' : 'var(--border)'}`,
+                  background: form.unidadeGera === u ? 'rgba(20,184,166,0.1)' : 'transparent',
+                  overflow: 'hidden',
+                }}>
+                  <button type="button" onClick={() => setField('unidadeGera', u)} style={{
+                    padding: '4px 6px 4px 10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12,
+                    color: form.unidadeGera === u ? 'var(--teal)' : 'var(--text-secondary)',
+                    fontWeight: form.unidadeGera === u ? 700 : 400,
+                  }}>{u}</button>
+                  <button type="button" onClick={() => {
+                    setCustomUnits(p => (p || []).filter(x => x !== u))
+                    if (form.unidadeGera === u) setField('unidadeGera', 'g')
+                  }} style={{ padding: '4px 8px 4px 2px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1 }}>×</button>
+                </div>
+              ))}
+              {addingUnit ? (
                 <input
+                  autoFocus
                   className="field-input"
-                  type="text" inputMode="decimal"
-                  placeholder="ex: 12"
-                  style={{ flex: '0 0 72px' }}
-                  value={form.rendimento}
-                  onChange={e => {
-                    const v = e.target.value
-                    setField('rendimento', v)
-                    setField('porcoes', v)
+                  style={{ width: 80, padding: '3px 8px', fontSize: 12, marginBottom: 0 }}
+                  placeholder="ex: fatia"
+                  value={newUnitInput}
+                  onChange={e => setNewUnitInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && newUnitInput.trim()) {
+                      const u = newUnitInput.trim()
+                      setCustomUnits(p => [...new Set([...(p || []), u])])
+                      setField('unidadeGera', u)
+                      setNewUnitInput('')
+                      setAddingUnit(false)
+                    } else if (e.key === 'Escape') {
+                      setAddingUnit(false); setNewUnitInput('')
+                    }
+                  }}
+                  onBlur={() => {
+                    if (newUnitInput.trim()) {
+                      const u = newUnitInput.trim()
+                      setCustomUnits(p => [...new Set([...(p || []), u])])
+                      setField('unidadeGera', u)
+                    }
+                    setAddingUnit(false); setNewUnitInput('')
                   }}
                 />
+              ) : (
+                <button type="button" onClick={() => setAddingUnit(true)} style={{
+                  padding: '4px 10px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
+                  border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-tertiary)',
+                }}>+ novo</button>
               )}
-              {isWeightUnit && (
+            </div>
+            {/* Value field */}
+            {isWeightUnit ? (
+              <>
                 <input
                   className="field-input"
                   type="text" inputMode="numeric"
-                  placeholder="porções"
-                  style={{ flex: '0 0 72px' }}
+                  placeholder="nº de porções"
                   value={form.porcoes}
                   onChange={e => { const v = e.target.value; if (v === '' || parseInt(v) > 0) setField('porcoes', v) }}
                 />
-              )}
+                {form.porcoes && parseInt(form.porcoes) > 1 && rendimentoBruto > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: -4, marginBottom: 4 }}>
+                    {Math.round(rendimentoBruto / parseInt(form.porcoes))}g por porção
+                  </div>
+                )}
+              </>
+            ) : (
               <input
                 className="field-input"
-                list="unidades-gera-list"
-                placeholder="unidade"
-                style={{ flex: 1 }}
-                value={form.unidadeGera}
-                onChange={e => setField('unidadeGera', e.target.value)}
+                type="text" inputMode="decimal"
+                placeholder={`Qtd em ${form.unidadeGera || 'un'}`}
+                value={form.rendimento}
+                onChange={e => { const v = e.target.value; setField('rendimento', v); setField('porcoes', v) }}
               />
-              <datalist id="unidades-gera-list">
-                {unidadesGera.map(u => <option key={u} value={u} />)}
-              </datalist>
-            </div>
-            {isWeightUnit && form.porcoes && parseInt(form.porcoes) > 1 && rendimentoBruto > 0 && (
-              <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4 }}>
-                {Math.round(rendimentoBruto / parseInt(form.porcoes))}g por porção
-              </div>
             )}
           </div>
         </div>

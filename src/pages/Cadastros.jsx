@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'react'
+import { supabase } from '../lib/supabase'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
@@ -762,6 +763,7 @@ export default function Cadastros() {
   const [bulkSel, setBulkSel]       = useState([])
   const [bulkConfirm, setBulkConfirm] = useState(false)
   const [bulkBusca, setBulkBusca]   = useState('')
+  const [confirmDeleteCat, setConfirmDeleteCat] = useState(null)
   const { toast, show } = useToast()
   const { profile } = useAuth()
   const importRef    = useRef(null)
@@ -833,6 +835,17 @@ export default function Cadastros() {
   )
 
   const withReload = (fn, reload) => async (...args) => { await fn(...args); reload(); show('Salvo!') }
+
+  const handleDeleteCategoria = async ({ cat, tipo }) => {
+    setConfirmDeleteCat(null)
+    const table = tipo === 'insumos' ? 'insumos' : 'embalagens'
+    const { error } = await supabase.from(table).update({ categoria: '' }).eq('categoria', cat)
+    if (error) { alert('Erro ao remover categoria: ' + error.message); return }
+    if (filtroCat === cat) setFiltroCat('')
+    if (tipo === 'insumos') rIns()
+    else rEmb()
+    show('Categoria removida!')
+  }
 
   const insActions = {
     save: async (form, fontes) => {
@@ -981,21 +994,33 @@ export default function Cadastros() {
         </div>
         {(() => {
           const cats = tab === 'insumos' ? catsInsumo : catsEmbalagem
-          if (cats.length < 2) return null
+          if (cats.length < 1) return null
           return (
-            <select
-              value={filtroCat}
-              onChange={e => setFiltroCat(e.target.value)}
-              style={{
-                width: '100%', marginBottom: 12, padding: '8px 12px', borderRadius: 8,
-                border: `1px solid ${filtroCat ? 'var(--teal)' : 'var(--border-color)'}`,
-                background: 'var(--bg-secondary)', color: filtroCat ? 'var(--teal)' : 'var(--text-secondary)',
-                fontSize: 13, cursor: 'pointer', fontWeight: filtroCat ? 600 : 400,
-              }}
-            >
-              <option value=''>Todas as categorias</option>
-              {cats.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-            </select>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+              <button onClick={() => setFiltroCat('')} style={{
+                padding: '5px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
+                border: !filtroCat ? '1px solid var(--teal)' : '1px solid var(--border)',
+                background: !filtroCat ? 'var(--teal)' : 'transparent',
+                color: !filtroCat ? '#fff' : 'var(--text-secondary)',
+              }}>Todas</button>
+              {cats.map(cat => (
+                <div key={cat} style={{ display: 'flex', alignItems: 'center', borderRadius: 20,
+                  border: filtroCat === cat ? '1px solid var(--teal)' : '1px solid var(--border)',
+                  background: filtroCat === cat ? 'rgba(20,184,166,0.1)' : 'transparent',
+                  overflow: 'hidden',
+                }}>
+                  <button onClick={() => setFiltroCat(filtroCat === cat ? '' : cat)} style={{
+                    padding: '5px 8px 5px 12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12,
+                    color: filtroCat === cat ? 'var(--teal)' : 'var(--text-secondary)',
+                    fontWeight: filtroCat === cat ? 700 : 400,
+                  }}>{cat}</button>
+                  <button onClick={() => setConfirmDeleteCat({ cat, tipo: tab === 'insumos' ? 'insumos' : 'embalagens' })} style={{
+                    padding: '5px 8px 5px 4px', background: 'none', border: 'none', cursor: 'pointer',
+                    fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1,
+                  }}>×</button>
+                </div>
+              ))}
+            </div>
           )
         })()}
 
@@ -1391,6 +1416,26 @@ export default function Cadastros() {
             </button>
           </div>
         </div>
+      )}
+
+      {confirmDeleteCat && (
+        <>
+          <div className="sheet-overlay" onClick={() => setConfirmDeleteCat(null)} />
+          <div className="sheet" style={{ maxWidth: 360 }}>
+            <div className="sheet-title">
+              <span>Apagar categoria</span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setConfirmDeleteCat(null)}>×</button>
+            </div>
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Remover <strong>"{confirmDeleteCat.cat}"</strong> de todos os {confirmDeleteCat.tipo}?
+              Os itens ficam sem categoria — isso não pode ser desfeito.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setConfirmDeleteCat(null)} className="btn-secondary" style={{ flex: 1 }}>Cancelar</button>
+              <button onClick={() => handleDeleteCategoria(confirmDeleteCat)} className="btn-danger" style={{ flex: 1 }}>Apagar</button>
+            </div>
+          </div>
+        </>
       )}
 
       {toast && <div className="toast">{toast}</div>}

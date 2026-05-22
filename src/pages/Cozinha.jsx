@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, Fragment } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { getReceitas, deleteReceitas, saveReceita, getInsumos } from '../services/db'
@@ -76,6 +76,8 @@ export default function Cozinha() {
     }
   }, [pesoBase])
 
+  const [expandedSubs, setExpandedSubs] = useState(new Set())
+
   const toggleChecked = (i) => {
     setChecked(prev => ({ ...prev, [i]: !prev[i] }))
     if (navigator.vibrate) navigator.vibrate(30)
@@ -83,6 +85,13 @@ export default function Cozinha() {
   const toggleStep = (i) => {
     setCheckedStep(prev => ({ ...prev, [i]: !prev[i] }))
     if (navigator.vibrate) navigator.vibrate(30)
+  }
+  const toggleSub = (i) => {
+    setExpandedSubs(prev => {
+      const n = new Set(prev)
+      n.has(i) ? n.delete(i) : n.add(i)
+      return n
+    })
   }
 
   const checkedCount = Object.values(checked).filter(Boolean).length
@@ -174,7 +183,8 @@ export default function Cozinha() {
                     style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--text-primary)', padding: '4px 0', flexShrink: 0 }}
                   />
                   <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g
-                    {receita.rendimento > 0 && ` · ${Math.round(receita.rendimento * fator)} un`}
+                    {receita.rendimento > 0 && !['g', 'ml', 'kg', 'L'].includes(receita.unidadeGera) &&
+                      ` · ${Math.round(receita.rendimento * fator)} ${receita.unidadeGera || 'un'}`}
                   </span>
                 </>}
               </div>
@@ -188,70 +198,100 @@ export default function Cozinha() {
                 <div className="card card-flush">
                   {ingredientes.map((ing, i) => {
                     const isChecked = !!checked[i]
+                    const isSubExpanded = expandedSubs.has(i)
+                    const subRec = ing.subReceitaId ? (receitas || []).find(r => r.id === ing.subReceitaId) : null
                     return (
-                      <div
-                        key={i}
-                        onClick={() => toggleChecked(i)}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 16,
-                          padding: '16px 14px',
-                          borderBottom: i < ingredientes.length - 1 ? '1px solid var(--border)' : 'none',
-                          cursor: 'pointer',
-                          opacity: isChecked ? 0.4 : 1,
-                          transition: 'opacity 0.15s',
-                          userSelect: 'none',
-                          WebkitTapHighlightColor: 'transparent',
-                        }}
-                      >
-                        {/* Circle checkbox */}
-                        <div style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: '50%',
-                          border: `2.5px solid ${isChecked ? 'var(--teal)' : '#555'}`,
-                          background: isChecked ? 'var(--teal)' : 'none',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          flexShrink: 0,
-                          transition: 'all 0.15s',
-                        }}>
-                          {isChecked && (
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </div>
-
-                        {/* Name */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          {ing.subReceitaId && (
-                            <span style={{ fontSize: 10, background: 'var(--teal)', color: '#fff', borderRadius: 4, padding: '1px 4px', marginRight: 6, fontWeight: 700 }}>R</span>
-                          )}
-                          <span style={{
-                            fontSize: 18,
-                            fontWeight: 500,
-                            textDecoration: isChecked ? 'line-through' : 'none',
-                            color: isChecked ? 'var(--text-secondary)' : 'var(--text-primary)',
+                      <Fragment key={i}>
+                        <div
+                          onClick={() => toggleChecked(i)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 16,
+                            padding: '16px 14px',
+                            borderBottom: i < ingredientes.length - 1 ? '1px solid var(--border)' : 'none',
+                            cursor: 'pointer',
+                            opacity: isChecked ? 0.4 : 1,
+                            transition: 'opacity 0.15s',
+                            userSelect: 'none',
+                            WebkitTapHighlightColor: 'transparent',
+                          }}
+                        >
+                          {/* Circle checkbox */}
+                          <div style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            border: `2.5px solid ${isChecked ? 'var(--teal)' : '#555'}`,
+                            background: isChecked ? 'var(--teal)' : 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            transition: 'all 0.15s',
                           }}>
-                            {ing.nome}
+                            {isChecked && (
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            )}
+                          </div>
+
+                          {/* Name */}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            {ing.subReceitaId && (
+                              <button
+                                onClick={e => { e.stopPropagation(); toggleSub(i) }}
+                                style={{
+                                  fontSize: 10,
+                                  background: isSubExpanded ? 'transparent' : 'var(--teal)',
+                                  color: isSubExpanded ? 'var(--teal)' : '#fff',
+                                  border: isSubExpanded ? '1.5px solid var(--teal)' : 'none',
+                                  borderRadius: 4,
+                                  padding: '1px 4px',
+                                  marginRight: 6,
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  lineHeight: 1.6,
+                                }}
+                              >R</button>
+                            )}
+                            <span style={{
+                              fontSize: 18,
+                              fontWeight: 500,
+                              textDecoration: isChecked ? 'line-through' : 'none',
+                              color: isChecked ? 'var(--text-secondary)' : 'var(--text-primary)',
+                            }}>
+                              {ing.nome}
+                            </span>
+                          </div>
+
+                          {/* Quantity — large */}
+                          <span style={{
+                            fontSize: 44,
+                            fontWeight: 700,
+                            lineHeight: 1,
+                            color: isChecked ? 'var(--text-secondary)' : 'var(--teal)',
+                            letterSpacing: -1,
+                            flexShrink: 0,
+                          }}>
+                            {fmtQty(ing.quantidade * fator, ing.unidade)}
                           </span>
                         </div>
-
-                        {/* Quantity — large */}
-                        <span style={{
-                          fontSize: 44,
-                          fontWeight: 700,
-                          lineHeight: 1,
-                          color: isChecked ? 'var(--text-secondary)' : 'var(--teal)',
-                          letterSpacing: -1,
-                          flexShrink: 0,
-                        }}>
-                          {fmtQty(ing.quantidade * fator, ing.unidade)}
-                        </span>
-                      </div>
+                        {isSubExpanded && subRec && (
+                          <div style={{ borderLeft: '3px solid var(--teal)', marginLeft: 32, paddingLeft: 12, marginBottom: 8 }}>
+                            {(subRec.ingredientes || []).map((subIng, si) => {
+                              const subScale = (ing.quantidade * fator) / (subRec.rendimento || 1)
+                              return (
+                                <div key={si} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 14, color: 'var(--text-secondary)' }}>
+                                  <span>{subIng.nome}</span>
+                                  <span style={{ color: 'var(--teal)', fontWeight: 600 }}>{fmtQty(subIng.quantidade * subScale, subIng.unidade)}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </Fragment>
                     )
                   })}
                 </div>
