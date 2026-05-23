@@ -96,13 +96,14 @@ function norm(s) {
         nome: i.nome, quantidade: i.quantidade, unidade: i.unidade,
         insumoId: i.insumoId, subReceitaId: i.subReceitaId,
       }))
-      await saveReceita({
+      const novoId = await saveReceita({
         nome: `${rec.nome} (cópia)`,
         tipo: rec.tipo, rendimento: rec.rendimento, unidadeGera: rec.unidadeGera,
         pesoLiquido: rec.pesoLiquido, fatorPerda: rec.fatorPerda,
         instrucoes: rec.instrucoes, custoTotal: rec.custoTotal, custoUnid: rec.custoUnid,
       }, ingredientes)
       reload()
+      navigate(`/fichas/${novoId}/editar`)
     } catch (err) {
       alert('Erro ao duplicar: ' + err.message)
     } finally {

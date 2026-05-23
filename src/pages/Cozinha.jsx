@@ -118,8 +118,8 @@ export default function Cozinha() {
                       if (!receita) return
                       try {
                         const ings = (receita.ingredientes || []).map(i => ({ nome: i.nome, quantidade: i.quantidade, unidade: i.unidade, insumoId: i.insumoId, subReceitaId: i.subReceitaId }))
-                        await saveReceita({ nome: `${receita.nome} (cópia)`, tipo: receita.tipo, rendimento: receita.rendimento, unidadeGera: receita.unidadeGera, pesoLiquido: receita.pesoLiquido, fatorPerda: receita.fatorPerda, instrucoes: receita.instrucoes, custoTotal: receita.custoTotal, custoUnid: receita.custoUnid }, ings)
-                        navigate('/fichas')
+                        const novoId = await saveReceita({ nome: `${receita.nome} (cópia)`, tipo: receita.tipo, rendimento: receita.rendimento, unidadeGera: receita.unidadeGera, pesoLiquido: receita.pesoLiquido, fatorPerda: receita.fatorPerda, instrucoes: receita.instrucoes, custoTotal: receita.custoTotal, custoUnid: receita.custoUnid }, ings)
+                        navigate(`/fichas/${novoId}/editar`)
                       } catch (e) { alert('Erro: ' + e.message) }
                     }} style={{ width: '100%', padding: '11px 14px', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--text-primary)' }}>⎘ Duplicar</button>
                     <button onClick={() => { setMenuOpen(false); setConfirmExcluir(true) }} style={{ width: '100%', padding: '11px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontSize: 13, color: 'var(--alert-text)' }}>🗑️ Excluir</button>
