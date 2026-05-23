@@ -346,11 +346,17 @@ CREATE POLICY "own_data" ON producoes FOR ALL USING (user_id = auth.uid()) WITH 
 CREATE TABLE IF NOT EXISTS producao_itens (
   id               bigserial primary key,
   producao_id      bigint not null references producoes(id) on delete cascade,
+  tipo             text default 'receita',     -- 'receita' | 'produto'
   receita_id       bigint,
-  receita_nome     text not null,
-  quantidade       int not null default 1,
+  receita_nome     text,
+  produto_id       bigint,
+  produto_nome     text,
+  quantidade       numeric not null default 1,
+  modo             text default 'doses',       -- 'doses' | 'peso_liquido' | 'unidades'
+  valor_alvo       numeric,
   rendimento_total numeric,
-  unidade_gera     text default 'un'
+  unidade_gera     text default 'un',
+  snapshot         jsonb
 );
 ALTER TABLE producao_itens ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "own_data" ON producao_itens;
@@ -385,6 +391,18 @@ CREATE POLICY "profiles_own" ON profiles FOR ALL
 ALTER TABLE insumos  ADD COLUMN IF NOT EXISTS imagem_url text;
 ALTER TABLE receitas ADD COLUMN IF NOT EXISTS imagem_url text;
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS imagem_url text;
+
+-- ── Mise en place v2: produtos+receitas, estoque receitas, snapshot ──
+ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS estoque_atual numeric;
+ALTER TABLE producao_itens   ALTER COLUMN receita_nome DROP NOT NULL;
+ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS tipo         text default 'receita';
+ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS produto_id   bigint;
+ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS produto_nome text;
+ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS modo         text default 'doses';
+ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS valor_alvo   numeric;
+ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS snapshot     jsonb;
+-- quantidade era int, virou numeric (doses fracionárias)
+ALTER TABLE producao_itens   ALTER COLUMN quantidade TYPE numeric;
 
 -- ── Cardápio público ─────────────────────────────────────────
 -- Um link fixo por loja; gerar de novo atualiza o mesmo link.

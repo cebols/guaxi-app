@@ -850,33 +850,179 @@ export async function deleteVenda(id) {
 
 // ── Produções ─────────────────────────────────────────────────
 
-export async function saveProducao(lote, receitas) {
-  try {
-    // Debit insumos estoque
-    const debitos = {}
-    lote.forEach(({ receitaId, qtd }) => {
-      const rec = receitas.find(r => r.id === receitaId)
-      if (!rec) return
-      ;(rec.ingredientes || []).forEach(ing => {
-        if (ing.insumoId) debitos[ing.insumoId] = (debitos[ing.insumoId] || 0) + ing.quantidade * qtd
-      })
-    })
-    const ids = Object.keys(debitos).map(Number)
-    if (ids.length) {
-      const { data } = await supabase.from('insumos').select('id, estoque_atual').in('id', ids)
-      await Promise.all((data || []).map(ins =>
-        supabase.from('insumos').update({ estoque_atual: Math.max(0, (ins.estoque_atual || 0) - (debitos[ins.id] || 0)) }).eq('id', ins.id)
-      ))
+// ─── Mise en place v2 ─────────────────────────────────────────
+// Calcula doses por receita a partir de um lote (produtos+receitas)
+// e retorna { dosesPerReceita, perItemContrib }.
+function computeDoses(lote, receitas, produtos) {
+  const dosesPerReceita = {}            // receitaId -> total doses
+  const perItemContrib  = lote.map(() => ({})) // [{receitaId: doses}, ...]
+
+  lote.forEach((item, idx) => {
+    if (item.tipo === 'produto') {
+      const prod = (produtos || []).find(p => p.id === item.refId)
+      if (!prod) return
+      for (const recRef of (prod.receitas || [])) {
+        const rec = (receitas || []).find(r => r.id === recRef.receitaId)
+        if (!rec || !rec.rendimento) continue
+        const amount = (recRef.quantidade || 1) * (item.qtd || 0)
+        const d = amount / rec.rendimento
+        dosesPerReceita[recRef.receitaId] = (dosesPerReceita[recRef.receitaId] || 0) + d
+        perItemContrib[idx][recRef.receitaId] = (perItemContrib[idx][recRef.receitaId] || 0) + d
+      }
+    } else {
+      // receita
+      const rec = (receitas || []).find(r => r.id === item.refId)
+      if (!rec || !rec.rendimento) return
+      let d
+      if (item.modo === 'peso_liquido' && rec.fatorPerda != null) {
+        const bruto = (item.valorAlvo || 0) / (1 - rec.fatorPerda / 100)
+        d = bruto / rec.rendimento
+      } else if (item.modo === 'unidades') {
+        d = (item.valorAlvo || 0) / rec.rendimento
+      } else {
+        d = item.qtd || 0
+      }
+      dosesPerReceita[item.refId] = (dosesPerReceita[item.refId] || 0) + d
+      perItemContrib[idx][item.refId] = d
     }
-    // Save record
+  })
+  return { dosesPerReceita, perItemContrib }
+}
+
+// Calcula débito total de insumos a partir de doses por receita
+function computeDebitos(dosesPerReceita, receitas) {
+  const debitos = {}
+  for (const [recIdStr, doses] of Object.entries(dosesPerReceita)) {
+    const rec = (receitas || []).find(r => r.id === Number(recIdStr))
+    if (!rec) continue
+    for (const ing of (rec.ingredientes || [])) {
+      if (ing.insumoId) {
+        debitos[ing.insumoId] = (debitos[ing.insumoId] || 0) + (ing.quantidade * doses)
+      }
+    }
+  }
+  return debitos
+}
+
+function rendimentoLiquidoCalc(rec, doses) {
+  const fp = rec?.fatorPerda || 0
+  return doses * (rec?.rendimento || 0) * (1 - fp / 100)
+}
+
+async function aplicarDebitosInsumos(debitos, sinal = -1) {
+  const ids = Object.keys(debitos).map(Number)
+  if (!ids.length) return
+  const { data } = await supabase.from('insumos').select('id, estoque_atual').in('id', ids)
+  await Promise.all((data || []).map(ins => {
+    const cur = ins.estoque_atual
+    if (cur == null) return null  // sem controle de estoque
+    const novo = sinal < 0
+      ? Math.max(0, cur - (debitos[ins.id] || 0))
+      : cur + (debitos[ins.id] || 0)
+    return supabase.from('insumos').update({ estoque_atual: novo }).eq('id', ins.id)
+  }))
+}
+
+async function ajustarEstoqueProduto(id, delta) {
+  const { data } = await supabase.from('produtos').select('estoque_atual').eq('id', id).single()
+  const cur = data?.estoque_atual
+  const base = cur == null ? 0 : cur
+  await supabase.from('produtos').update({ estoque_atual: Math.max(0, base + delta) }).eq('id', id)
+}
+
+async function ajustarEstoqueReceita(id, delta) {
+  const { data } = await supabase.from('receitas').select('estoque_atual').eq('id', id).single()
+  const cur = data?.estoque_atual
+  const base = cur == null ? 0 : cur
+  await supabase.from('receitas').update({ estoque_atual: Math.max(0, base + delta) }).eq('id', id)
+}
+
+export async function saveProducao(lote, receitas, produtos) {
+  try {
+    const { dosesPerReceita, perItemContrib } = computeDoses(lote, receitas, produtos)
+    const debitos = computeDebitos(dosesPerReceita, receitas)
+
+    // Cria producao
     const { data: prod, error } = await supabase.from('producoes').insert({ created_at: new Date().toISOString() }).select().single()
     if (error) throw error
-    await supabase.from('producao_itens').insert(
-      lote.map(item => {
-        const rec = receitas.find(r => r.id === item.receitaId)
-        return { producao_id: prod.id, receita_id: item.receitaId, receita_nome: item.nome, quantidade: item.qtd, rendimento_total: rec ? rec.rendimento * item.qtd : null, unidade_gera: rec?.unidadeGera || 'un' }
-      })
-    )
+
+    // Monta snapshots + linhas por item
+    const itemsToInsert = lote.map((item, idx) => {
+      const contribDoses = perItemContrib[idx]
+      const itemDebitos = {}
+      for (const [recIdStr, d] of Object.entries(contribDoses)) {
+        const rec = receitas.find(r => r.id === Number(recIdStr))
+        if (!rec) continue
+        for (const ing of (rec.ingredientes || [])) {
+          if (ing.insumoId) {
+            itemDebitos[ing.insumoId] = (itemDebitos[ing.insumoId] || 0) + ing.quantidade * d
+          }
+        }
+      }
+
+      let credito = null
+      if (item.tipo === 'produto') {
+        credito = { tipo: 'produto', id: item.refId, qtd: item.qtd }
+      } else {
+        const rec = receitas.find(r => r.id === item.refId)
+        let qtdCredit
+        if (item.modo === 'peso_liquido') qtdCredit = item.valorAlvo || 0
+        else if (item.modo === 'unidades') qtdCredit = item.valorAlvo || 0
+        else qtdCredit = rendimentoLiquidoCalc(rec, item.qtd || 0)
+        credito = { tipo: 'receita', id: item.refId, qtd: qtdCredit }
+      }
+
+      const snapshot = { debitos: itemDebitos, credito, dosesContrib: contribDoses }
+
+      if (item.tipo === 'produto') {
+        return {
+          producao_id: prod.id,
+          tipo: 'produto',
+          produto_id: item.refId,
+          produto_nome: item.nome,
+          quantidade: item.qtd,
+          snapshot,
+        }
+      } else {
+        const rec = receitas.find(r => r.id === item.refId)
+        let rendTotal
+        if (item.modo === 'peso_liquido') rendTotal = item.valorAlvo
+        else if (item.modo === 'unidades') rendTotal = item.valorAlvo
+        else rendTotal = (item.qtd || 0) * (rec?.rendimento || 0)
+        return {
+          producao_id: prod.id,
+          tipo: 'receita',
+          receita_id: item.refId,
+          receita_nome: item.nome,
+          quantidade: item.qtd,
+          modo: item.modo || 'doses',
+          valor_alvo: item.valorAlvo ?? null,
+          rendimento_total: rendTotal,
+          unidade_gera: rec?.unidadeGera || 'un',
+          snapshot,
+        }
+      }
+    })
+
+    await supabase.from('producao_itens').insert(itemsToInsert)
+
+    // Aplica débitos de insumos
+    await aplicarDebitosInsumos(debitos, -1)
+
+    // Créditos em produtos/receitas
+    for (const item of lote) {
+      if (item.tipo === 'produto') {
+        await ajustarEstoqueProduto(item.refId, item.qtd || 0)
+      } else {
+        const rec = receitas.find(r => r.id === item.refId)
+        let qtd
+        if (item.modo === 'peso_liquido') qtd = item.valorAlvo || 0
+        else if (item.modo === 'unidades') qtd = item.valorAlvo || 0
+        else qtd = rendimentoLiquidoCalc(rec, item.qtd || 0)
+        await ajustarEstoqueReceita(item.refId, qtd)
+      }
+    }
+
     return prod.id
   } catch (e) {
     if (e?.code === '42P01' || e?.message?.includes('producoes')) return null
@@ -884,7 +1030,7 @@ export async function saveProducao(lote, receitas) {
   }
 }
 
-export async function getProducoes(limit = 15) {
+export async function getProducoes(limit = 30) {
   try {
     const { data, error } = await supabase.from('producoes').select('*, producao_itens(*)').order('created_at', { ascending: false }).limit(limit)
     if (error) throw error
@@ -892,14 +1038,49 @@ export async function getProducoes(limit = 15) {
       id: p.id,
       createdAt: p.created_at,
       itens: (p.producao_itens || []).map(i => ({
-        receitaId: i.receita_id, nome: i.receita_nome, quantidade: i.quantidade,
-        rendimentoTotal: i.rendimento_total, unidadeGera: i.unidade_gera,
+        id: i.id,
+        tipo: i.tipo || 'receita',
+        receitaId: i.receita_id,
+        produtoId: i.produto_id,
+        nome: i.tipo === 'produto' ? (i.produto_nome || '') : (i.receita_nome || ''),
+        quantidade: i.quantidade,
+        modo: i.modo || 'doses',
+        valorAlvo: i.valor_alvo,
+        rendimentoTotal: i.rendimento_total,
+        unidadeGera: i.unidade_gera || 'un',
+        snapshot: i.snapshot || null,
       })),
     }))
   } catch (e) {
     if (e?.message?.includes('producoes')) return []
     return []
   }
+}
+
+async function reverterSnapshot(snap) {
+  if (!snap) return
+  if (snap.debitos && Object.keys(snap.debitos).length) {
+    await aplicarDebitosInsumos(snap.debitos, +1)
+  }
+  if (snap.credito) {
+    const delta = -(snap.credito.qtd || 0)
+    if (snap.credito.tipo === 'produto') await ajustarEstoqueProduto(snap.credito.id, delta)
+    else if (snap.credito.tipo === 'receita') await ajustarEstoqueReceita(snap.credito.id, delta)
+  }
+}
+
+export async function deleteProducaoItem(itemId) {
+  const { data } = await supabase.from('producao_itens').select('*').eq('id', itemId).single()
+  if (data?.snapshot) await reverterSnapshot(data.snapshot)
+  await supabase.from('producao_itens').delete().eq('id', itemId)
+}
+
+export async function deleteProducao(id) {
+  const { data } = await supabase.from('producao_itens').select('*').eq('producao_id', id)
+  for (const item of (data || [])) {
+    if (item.snapshot) await reverterSnapshot(item.snapshot)
+  }
+  await supabase.from('producoes').delete().eq('id', id)
 }
 
 export async function deleteReceita(id) {
