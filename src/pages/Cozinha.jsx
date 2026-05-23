@@ -45,6 +45,7 @@ export default function Cozinha() {
 
   const [fator, setFator] = useState(1)
   const [pesoInput, setPesoInput] = useState('')
+  const [liquidoInput, setLiquidoInput] = useState('')
   const [checked, setChecked] = useState({})
   const [checkedStep, setCheckedStep] = useState({})
   const [menuOpen, setMenuOpen] = useState(false)
@@ -60,19 +61,35 @@ export default function Cozinha() {
     return s
   }, 0)
 
-  const onFatorChange = useCallback((val) => {
+  const onFatorChange = useCallback((val, fatorPerda) => {
     const f = parseFloat(val)
     if (!isNaN(f) && f > 0) {
       setFator(Math.round(f * 100) / 100)
-      if (pesoBase > 0) setPesoInput(Math.round(pesoBase * f).toString())
+      if (pesoBase > 0) {
+        setPesoInput(Math.round(pesoBase * f).toString())
+        if (fatorPerda != null) setLiquidoInput(Math.round(pesoBase * f * (1 - fatorPerda / 100)).toString())
+      }
     }
   }, [pesoBase])
 
-  const onPesoChange = useCallback((val) => {
+  const onPesoChange = useCallback((val, fatorPerda) => {
     setPesoInput(val)
     const p = parseFloat(val)
     if (!isNaN(p) && p > 0 && pesoBase > 0) {
-      setFator(Math.round((p / pesoBase) * 100) / 100)
+      const f = Math.round((p / pesoBase) * 100) / 100
+      setFator(f)
+      if (fatorPerda != null) setLiquidoInput(Math.round(p * (1 - fatorPerda / 100)).toString())
+    }
+  }, [pesoBase])
+
+  const onLiquidoChange = useCallback((val, fatorPerda) => {
+    setLiquidoInput(val)
+    const l = parseFloat(val)
+    if (!isNaN(l) && l > 0 && pesoBase > 0 && fatorPerda != null) {
+      const bruto = l / (1 - fatorPerda / 100)
+      const f = Math.round((bruto / pesoBase) * 100) / 100
+      setFator(f)
+      setPesoInput(Math.round(bruto).toString())
     }
   }, [pesoBase])
 
@@ -170,7 +187,7 @@ export default function Cozinha() {
                   type="text"
                   inputMode="decimal"
                   value={fator}
-                  onChange={e => onFatorChange(e.target.value)}
+                  onChange={e => onFatorChange(e.target.value, receita.fatorPerda)}
                   style={{ fontSize: 22, fontWeight: 700, width: 56, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--text-primary)', padding: '4px 0', flexShrink: 0 }}
                 />
                 {pesoBase > 0 && <>
@@ -179,7 +196,7 @@ export default function Cozinha() {
                     type="text"
                     inputMode="decimal"
                     value={pesoInput || Math.round(pesoBase * fator).toLocaleString('pt-BR')}
-                    onChange={e => onPesoChange(e.target.value)}
+                    onChange={e => onPesoChange(e.target.value, receita.fatorPerda)}
                     style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--text-primary)', padding: '4px 0', flexShrink: 0 }}
                   />
                   <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g
@@ -188,6 +205,19 @@ export default function Cozinha() {
                   </span>
                 </>}
               </div>
+              {receita.fatorPerda != null && pesoBase > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', flexShrink: 0 }}>Líquido</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={liquidoInput || Math.round(pesoBase * fator * (1 - receita.fatorPerda / 100)).toString()}
+                    onChange={e => onLiquidoChange(e.target.value, receita.fatorPerda)}
+                    style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--teal)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--teal)', padding: '4px 0', flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g</span>
+                </div>
+              )}
             </div>
 
             {/* INGREDIENTES checklist */}
