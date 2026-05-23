@@ -995,31 +995,29 @@ export default function Cadastros() {
         {(() => {
           const cats = tab === 'insumos' ? catsInsumo : catsEmbalagem
           if (cats.length < 1) return null
+          const tipo = tab === 'insumos' ? 'insumos' : 'embalagens'
           return (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-              <button onClick={() => setFiltroCat('')} style={{
-                padding: '5px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
-                border: !filtroCat ? '1px solid var(--teal)' : '1px solid var(--border)',
-                background: !filtroCat ? 'var(--teal)' : 'transparent',
-                color: !filtroCat ? '#fff' : 'var(--text-secondary)',
-              }}>Todas</button>
-              {cats.map(cat => (
-                <div key={cat} style={{ display: 'flex', alignItems: 'center', borderRadius: 20,
-                  border: filtroCat === cat ? '1px solid var(--teal)' : '1px solid var(--border)',
-                  background: filtroCat === cat ? 'rgba(20,184,166,0.1)' : 'transparent',
-                  overflow: 'hidden',
-                }}>
-                  <button onClick={() => setFiltroCat(filtroCat === cat ? '' : cat)} style={{
-                    padding: '5px 8px 5px 12px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12,
-                    color: filtroCat === cat ? 'var(--teal)' : 'var(--text-secondary)',
-                    fontWeight: filtroCat === cat ? 700 : 400,
-                  }}>{cat}</button>
-                  <button onClick={() => setConfirmDeleteCat({ cat, tipo: tab === 'insumos' ? 'insumos' : 'embalagens' })} style={{
-                    padding: '5px 8px 5px 4px', background: 'none', border: 'none', cursor: 'pointer',
-                    fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1,
-                  }}>×</button>
-                </div>
-              ))}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+              <select
+                value={filtroCat}
+                onChange={e => setFiltroCat(e.target.value)}
+                style={{
+                  flex: 1, padding: '7px 10px', borderRadius: 8, fontSize: 13,
+                  border: '1px solid var(--border)', background: 'var(--surface)',
+                  color: filtroCat ? 'var(--teal)' : 'var(--text-secondary)',
+                  fontWeight: filtroCat ? 700 : 400, cursor: 'pointer',
+                }}
+              >
+                <option value="">Todas as categorias</option>
+                {cats.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+              </select>
+              {filtroCat && (
+                <button
+                  onClick={() => setConfirmDeleteCat({ cat: filtroCat, tipo })}
+                  title="Apagar categoria"
+                  style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-tertiary)' }}
+                >×</button>
+              )}
             </div>
           )
         })()}
