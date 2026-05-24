@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
   getReceitas, getInsumos, getProdutos,
-  saveProducao, getProducoes, deleteProducao, deleteProducaoItem,
+  saveProducao,
 } from '../services/db'
 
 function norm(s) {
@@ -40,16 +40,12 @@ export default function MiseEnPlace() {
   const { data: receitas } = useData(getReceitas)
   const { data: insumos }  = useData(getInsumos)
   const { data: produtos } = useData(getProdutos)
-  const { data: historico, reload: reloadHist } = useData(getProducoes)
 
-  const [busca, setBusca]               = useState('')
-  const [filtroTipo, setFiltroTipo]     = useState('todos') // 'todos' | 'receitas' | 'produtos'
-  const [lote, setLote]                 = useState([])      // [{ tipo, refId, nome, qtd, modo?, valorAlvo? }]
-  const [sheet, setSheet]               = useState(null)
-  const [confirmando, setConfirmando]   = useState(false)
-  const [histDetalhe, setHistDetalhe]   = useState(null)
-  const [confirmDelProd, setConfirmDelProd] = useState(null)
-  const [confirmDelItem, setConfirmDelItem] = useState(null)
+  const [busca, setBusca]             = useState('')
+  const [filtroTipo, setFiltroTipo]   = useState('todos') // 'todos' | 'receitas' | 'produtos'
+  const [lote, setLote]               = useState([])      // [{ tipo, refId, nome, qtd, modo?, valorAlvo? }]
+  const [sheet, setSheet]             = useState(null)
+  const [confirmando, setConfirmando] = useState(false)
 
   const inLote = (tipo, id) => lote.some(x => x.tipo === tipo && x.refId === id)
 
@@ -131,7 +127,6 @@ export default function MiseEnPlace() {
     setConfirmando(true)
     try {
       const prodId = await saveProducao(lote, receitas || [], produtos || [])
-      await reloadHist()
       setLote([])
       setSheet(null)
       if (prodId) navigate(`/producao/${prodId}`)
@@ -142,46 +137,32 @@ export default function MiseEnPlace() {
     }
   }
 
-  async function handleDeleteProd() {
-    const id = confirmDelProd
-    setConfirmDelProd(null)
-    await deleteProducao(id)
-    await reloadHist()
-    if (histDetalhe?.id === id) setHistDetalhe(null)
-  }
-  async function handleDeleteItem() {
-    const { itemId, prodId } = confirmDelItem || {}
-    setConfirmDelItem(null)
-    await deleteProducaoItem(itemId)
-    await reloadHist()
-    // Atualiza histDetalhe se aberto
-    if (histDetalhe?.id === prodId) {
-      const fresh = (await getProducoes())
-      const upd = fresh.find(p => p.id === prodId)
-      if (upd && upd.itens.length) setHistDetalhe(upd)
-      else setHistDetalhe(null)
-    }
-  }
-
   return (
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <div className="topbar-title">Mise en place</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => setSheet('historico')} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
-              Histórico
+          <div className="topbar-title">Planejar produção</div>
+          {lote.length > 0 && (
+            <button onClick={() => setSheet('recibo')} style={{
+              background: temFalta ? '#f59e0b' : 'var(--teal)',
+              color: '#fff', border: 'none', borderRadius: 8,
+              padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            }}>
+              {temFalta ? '⚠ Ver recibo' : `✓ Ver recibo (${lote.length})`}
             </button>
-            {lote.length > 0 && (
-              <button onClick={() => setSheet('recibo')} style={{
-                background: temFalta ? '#f59e0b' : 'var(--teal)',
-                color: '#fff', border: 'none', borderRadius: 8,
-                padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-              }}>
-                {temFalta ? '⚠ Ver recibo' : '✓ Ver recibo'}
-              </button>
-            )}
-          </div>
+          )}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg-secondary)' }}>
+        <div style={{ display: 'flex', maxWidth: 640, margin: '0 auto', padding: '0 12px' }}>
+          <button style={{ padding: '12px 16px', background: 'none', border: 'none', borderBottom: '2px solid var(--teal)', fontSize: 13, cursor: 'pointer', color: 'var(--teal)', fontWeight: 700 }}>
+            Mise en place
+          </button>
+          <button onClick={() => navigate('/mise-en-place/historico')} style={{ padding: '12px 16px', background: 'none', border: 'none', fontSize: 13, cursor: 'pointer', color: 'var(--text-secondary)', fontWeight: 500 }}>
+            Histórico
+          </button>
         </div>
       </div>
 
@@ -282,81 +263,7 @@ export default function MiseEnPlace() {
         />
       )}
 
-      {/* Sheet: histórico */}
-      {sheet === 'historico' && (
-        <>
-          <div className="sheet-overlay" onClick={() => setSheet(null)} />
-          <div className="sheet">
-            <div className="sheet-title">
-              <span>Histórico de produções</span>
-              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setSheet(null)}>×</button>
-            </div>
-            {(historico || []).length === 0 ? (
-              <div style={{ color: 'var(--text-tertiary)', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>Nenhuma produção registrada</div>
-            ) : (historico || []).map(prod => (
-              <div key={prod.id} style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 6 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{fmtDate(prod.createdAt)}</div>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={() => navigate(`/producao/${prod.id}`)} style={{ fontSize: 11, color: 'var(--teal)', background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
-                      Abrir
-                    </button>
-                    <button onClick={() => setConfirmDelProd(prod.id)} style={{ fontSize: 11, color: 'var(--alert-text, #ef4444)', background: 'none', border: '1px solid var(--alert-text, #ef4444)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
-                      Apagar
-                    </button>
-                  </div>
-                </div>
-                {prod.itens.map((item, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '2px 0' }}>
-                    <span style={{ fontWeight: 600 }}>
-                      <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, marginRight: 6, background: item.tipo === 'produto' ? '#1e3a5f' : '#334155', color: item.tipo === 'produto' ? '#60a5fa' : '#94a3b8', fontWeight: 600 }}>
-                        {item.tipo === 'produto' ? 'P' : 'R'}
-                      </span>
-                      {item.nome}
-                    </span>
-                    <span style={{ color: 'var(--text-secondary)' }}>
-                      {item.tipo === 'produto'
-                        ? `${fmtQtd(item.quantidade)} un`
-                        : item.modo === 'peso_liquido' ? `${fmtQtd(item.valorAlvo)} g líq`
-                          : item.modo === 'unidades' ? `${fmtQtd(item.valorAlvo)} ${item.unidadeGera}`
-                          : `${fmtQtd(item.quantidade)} dose${item.quantidade > 1 ? 's' : ''}`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        </>
-      )}
 
-      {/* Detalhe histórico */}
-      {histDetalhe && (
-        <HistDetalhe
-          prod={histDetalhe}
-          receitas={receitas || []}
-          produtos={produtos || []}
-          onClose={() => setHistDetalhe(null)}
-          onDelItem={(itemId) => setConfirmDelItem({ itemId, prodId: histDetalhe.id })}
-        />
-      )}
-
-      {/* Confirmar deleção */}
-      {confirmDelProd != null && (
-        <ConfirmModal
-          icon="🗑️" title="Apagar esta produção?"
-          msg="Estoque será revertido (insumos somados de volta, produtos/receitas debitados)."
-          onCancel={() => setConfirmDelProd(null)}
-          onConfirm={handleDeleteProd}
-        />
-      )}
-      {confirmDelItem && (
-        <ConfirmModal
-          icon="🗑️" title="Apagar este item?"
-          msg="Estoque será revertido apenas para esse item."
-          onCancel={() => setConfirmDelItem(null)}
-          onConfirm={handleDeleteItem}
-        />
-      )}
     </>
   )
 }
@@ -623,99 +530,3 @@ function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais,
   )
 }
 
-function HistDetalhe({ prod, receitas, produtos, onClose, onDelItem }) {
-  // Recomputa doses por receita a partir dos itens
-  const dosesPerReceita = useMemo(() => {
-    const map = {}
-    for (const item of prod.itens) {
-      // Usa snapshot.dosesContrib quando disponível (mais preciso)
-      if (item.snapshot?.dosesContrib) {
-        for (const [rid, d] of Object.entries(item.snapshot.dosesContrib)) {
-          map[rid] = (map[rid] || 0) + d
-        }
-      } else if (item.tipo === 'receita' && item.receitaId) {
-        // Fallback p/ itens antigos
-        const rec = receitas.find(r => r.id === item.receitaId)
-        if (rec?.rendimento) {
-          let d
-          if (item.modo === 'peso_liquido' && rec.fatorPerda != null) d = (item.valorAlvo / (1 - rec.fatorPerda / 100)) / rec.rendimento
-          else if (item.modo === 'unidades') d = (item.valorAlvo || 0) / rec.rendimento
-          else d = item.quantidade || 0
-          map[item.receitaId] = (map[item.receitaId] || 0) + d
-        }
-      }
-    }
-    return map
-  }, [prod, receitas])
-
-  return (
-    <>
-      <div className="sheet-overlay" style={{ zIndex: 65 }} onClick={onClose} />
-      <div className="sheet" style={{ zIndex: 75 }}>
-        <div className="sheet-title">
-          <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 14, cursor: 'pointer', padding: '0 8px 0 0' }} onClick={onClose}>← </button>
-          <span style={{ flex: 1 }}>{fmtDate(prod.createdAt)}</span>
-          <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
-        </div>
-
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Itens</div>
-        {prod.itens.map((item, i) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0', borderBottom: '0.5px solid var(--border)', fontSize: 13 }}>
-            <span style={{ flex: 1, fontWeight: 600 }}>
-              <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, marginRight: 6, background: item.tipo === 'produto' ? '#1e3a5f' : '#334155', color: item.tipo === 'produto' ? '#60a5fa' : '#94a3b8', fontWeight: 600 }}>
-                {item.tipo === 'produto' ? 'P' : 'R'}
-              </span>
-              {item.nome}
-            </span>
-            <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-              {item.tipo === 'produto'
-                ? `${fmtQtd(item.quantidade)} un`
-                : item.modo === 'peso_liquido' ? `${fmtQtd(item.valorAlvo)} ${item.unidadeGera || 'g'} líq`
-                  : item.modo === 'unidades' ? `${fmtQtd(item.valorAlvo)} ${item.unidadeGera || 'un'}`
-                  : `${fmtQtd(item.quantidade)} dose(s)`}
-            </span>
-            <button onClick={() => onDelItem(item.id)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 14, cursor: 'pointer' }}>×</button>
-          </div>
-        ))}
-
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 14, marginBottom: 6 }}>Mise en place por receita</div>
-        {Object.entries(dosesPerReceita).map(([recIdStr, doses]) => {
-          const rec = receitas.find(r => r.id === Number(recIdStr))
-          if (!rec || doses <= 0) return null
-          return (
-            <div key={recIdStr} style={{ marginBottom: 10, padding: '6px 10px', background: 'var(--bg-secondary, #1f2937)', borderRadius: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)', marginBottom: 4 }}>
-                {rec.nome} <span style={{ color: 'var(--text-secondary)', fontWeight: 400 }}>· {fmtQtd(doses)} dose(s)</span>
-              </div>
-              {(rec.ingredientes || []).map((ing, idx) => (
-                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 12 }}>
-                  <span>{ing.nome}</span>
-                  <span style={{ fontWeight: 600 }}>{fmtQtd(ing.quantidade * doses)}{ing.unidade}</span>
-                </div>
-              ))}
-            </div>
-          )
-        })}
-        {Object.keys(dosesPerReceita).length === 0 && (
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', paddingTop: 8 }}>Receitas não encontradas — podem ter sido excluídas.</div>
-        )}
-      </div>
-    </>
-  )
-}
-
-function ConfirmModal({ icon, title, msg, onCancel, onConfirm }) {
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)' }}>
-      <div style={{ background: 'var(--bg-card)', borderRadius: 14, padding: 24, maxWidth: 320, width: '90%', textAlign: 'center' }}>
-        <div style={{ fontSize: 28, marginBottom: 8 }}>{icon}</div>
-        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>{title}</div>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>{msg}</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={onCancel} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
-          <button onClick={onConfirm} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: 'var(--alert-text, #ef4444)', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Apagar</button>
-        </div>
-      </div>
-    </div>
-  )
-}

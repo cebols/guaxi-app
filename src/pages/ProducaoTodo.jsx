@@ -71,7 +71,7 @@ export default function ProducaoTodo() {
       for (const [insumoId, q] of Object.entries(dbs)) {
         if (!map[insumoId]) {
           const ins = (insumos || []).find(i => String(i.id) === String(insumoId))
-          map[insumoId] = { insumoId: Number(insumoId), nome: ins?.nome || `insumo#${insumoId}`, unidade: ins?.unidade || 'g', necessario: 0, estoque: ins?.estoqueAtual ?? null }
+          map[insumoId] = { insumoId: Number(insumoId), nome: ins?.nome || `insumo#${insumoId}`, unidade: ins?.unidade || 'g', necessario: 0, estoque: ins?.estoqueAtual ?? null, linkCompra: ins?.linkCompra || '', whatsapp: ins?.whatsapp || '', fornecedor: ins?.fornecedor || '' }
         }
         map[insumoId].necessario += q
       }
@@ -264,15 +264,25 @@ export default function ProducaoTodo() {
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8 }}>Insumos com estoque abaixo do necessário:</div>
                 {faltas.map((it, i) => {
                   const falta = it.necessario - (it.estoque || 0)
+                  const waLink = it.whatsapp ? `https://wa.me/55${it.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá! Preciso de ${it.nome}: ${fmtQtd(falta)}${it.unidade}`)}` : null
                   return (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 12, borderBottom: '0.5px solid var(--border)' }}>
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{it.nome}</div>
-                        <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
-                          tem {fmtQtd(it.estoque || 0)}{it.unidade} · precisa {fmtQtd(it.necessario)}{it.unidade}
+                    <div key={i} style={{ padding: '7px 0', fontSize: 12, borderBottom: '0.5px solid var(--border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600 }}>{it.nome}</div>
+                          {it.fornecedor && <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{it.fornecedor}</div>}
+                          <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+                            tem {fmtQtd(it.estoque || 0)}{it.unidade} · precisa {fmtQtd(it.necessario)}{it.unidade}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                          <span style={{ fontWeight: 700, color: '#f59e0b' }}>+{fmtQtd(falta)}{it.unidade}</span>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            {it.linkCompra && <a href={it.linkCompra} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: 'var(--teal)', textDecoration: 'none', padding: '2px 6px', border: '1px solid var(--teal)', borderRadius: 4 }}>Loja</a>}
+                            {waLink && <a href={waLink} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: '#fff', background: '#25d366', padding: '2px 6px', borderRadius: 4, textDecoration: 'none' }}>WA</a>}
+                          </div>
                         </div>
                       </div>
-                      <span style={{ fontWeight: 700, color: '#f59e0b' }}>+{fmtQtd(falta)}{it.unidade}</span>
                     </div>
                   )
                 })}

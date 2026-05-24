@@ -964,35 +964,64 @@ export default function Contagem() {
   const loading = tab === 'insumos' ? loadIns : tab === 'embalagens' ? loadEmb : loadProd
 
   if (vista === null) {
+    const totalInsumos = (insumos || []).length
+    const faltandoInsumos = (insumos || []).filter(i => i.estoqueAtual != null && i.estoqueAtual < (i.estoqueMin || 0)).length
+    const faltandoEmb = (embalagens || []).filter(e => e.estoqueAtual != null && e.estoqueAtual < (e.estoqueMin || 0)).length
+    const totalFaltando = faltandoInsumos + faltandoEmb
+
     return (
       <>
         <div className="topbar">
           <div className="topbar-inner">
-            <div>
-              <div className="topbar-title">Estoque</div>
-              <div className="topbar-sub">O que você deseja fazer?</div>
-            </div>
+            <div className="topbar-title">Estoque</div>
           </div>
         </div>
-        <div className="page-inner" style={{ paddingTop: 24 }}>
-          {[
-            { key: 'contagem', icon: '📦', titulo: 'Contar estoque', sub: 'Fazer a contagem dos seus insumos, embalagens ou produtos' },
-            { key: 'compra',   icon: '🛒', titulo: 'Nova compra',    sub: 'Registrar uma compra de insumos ou embalagens' },
-            { key: 'consultar',icon: '👁', titulo: 'Consultar',      sub: 'Consultar seu estoque atual ou histórico de compras' },
-          ].map(c => (
-            <button key={c.key} onClick={() => setVista(c.key)} className="card" style={{
-              width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 12,
-              display: 'flex', gap: 14, alignItems: 'center', background: 'var(--bg-card)',
-              border: '1px solid var(--border-color)', borderRadius: 12, padding: 16,
-            }}>
-              <span style={{ fontSize: 30, flexShrink: 0 }}>{c.icon}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--text-primary)' }}>{c.titulo}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 3 }}>{c.sub}</div>
+        <div className="page-inner" style={{ paddingTop: 16 }}>
+
+          {/* Stats rápidos */}
+          {!loadIns && !loadEmb && (
+            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+              <div className="card" style={{ flex: 1, padding: '12px 14px', background: totalFaltando > 0 ? 'rgba(239,68,68,0.08)' : 'rgba(20,184,166,0.08)', borderColor: totalFaltando > 0 ? '#ef4444' : 'var(--teal)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Abaixo do mínimo</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: totalFaltando > 0 ? '#ef4444' : 'var(--teal)', marginTop: 2 }}>{totalFaltando}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 1 }}>item(s)</div>
               </div>
-              <span style={{ color: 'var(--text-tertiary)', fontSize: 20 }}>›</span>
+              <div className="card" style={{ flex: 1, padding: '12px 14px' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Insumos</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', marginTop: 2 }}>{totalInsumos}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 1 }}>cadastrados</div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>O que deseja fazer?</div>
+
+          {[
+            { key: 'contagem', icon: '📦', titulo: 'Contar estoque', sub: 'Registrar o estoque físico atual', accent: 'var(--teal)' },
+            { key: 'compra',   icon: '🛒', titulo: 'Nova compra',    sub: 'Registrar compra de insumos ou embalagens', accent: '#60a5fa' },
+            { key: 'consultar',icon: '🔍', titulo: 'Consultar',      sub: 'Ver estoque atual e histórico de compras', accent: '#a78bfa' },
+          ].map(c => (
+            <button key={c.key} onClick={() => setVista(c.key)} style={{
+              width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 10,
+              display: 'flex', gap: 14, alignItems: 'center',
+              background: 'var(--bg-card)', border: '1px solid var(--border-color)',
+              borderRadius: 14, padding: '14px 16px', borderLeft: `4px solid ${c.accent}`,
+            }}>
+              <span style={{ fontSize: 24, flexShrink: 0 }}>{c.icon}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{c.titulo}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{c.sub}</div>
+              </div>
+              <span style={{ color: 'var(--text-tertiary)', fontSize: 18, flexShrink: 0 }}>›</span>
             </button>
           ))}
+
+          {/* Lista de compras rápida se tiver faltas */}
+          {totalFaltando > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <ListaCompras contagem={{}} itens={[...(insumos || []).map(i => ({ ...i, _tipo: 'insumo' })), ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem' }))]} />
+            </div>
+          )}
         </div>
         {toast && <div className="toast">{toast}</div>}
       </>

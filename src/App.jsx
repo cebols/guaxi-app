@@ -15,8 +15,9 @@ const Cadastros    = lazy(() => import('./pages/Cadastros'))
 const Configuracoes = lazy(() => import('./pages/Configuracoes'))
 const Produtos     = lazy(() => import('./pages/Produtos'))
 const Vendas       = lazy(() => import('./pages/Vendas'))
-const MiseEnPlace  = lazy(() => import('./pages/MiseEnPlace'))
-const ProducaoTodo = lazy(() => import('./pages/ProducaoTodo'))
+const MiseEnPlace       = lazy(() => import('./pages/MiseEnPlace'))
+const ProducaoTodo      = lazy(() => import('./pages/ProducaoTodo'))
+const ProducaoHistorico = lazy(() => import('./pages/ProducaoHistorico'))
 const CardapioPublico = lazy(() => import('./pages/CardapioPublico'))
 
 function PageFallback() {
@@ -164,8 +165,9 @@ export default function App() {
             <Route path="/cadastros"           element={<Cadastros />} />
             <Route path="/produtos"            element={<Produtos />} />
             <Route path="/vendas"              element={<Vendas />} />
-            <Route path="/mise-en-place"       element={<MiseEnPlace />} />
-            <Route path="/producao/:id"        element={<ProducaoTodo />} />
+            <Route path="/mise-en-place"           element={<MiseEnPlace />} />
+            <Route path="/mise-en-place/historico" element={<ProducaoHistorico />} />
+            <Route path="/producao/:id"            element={<ProducaoTodo />} />
             <Route path="/configuracoes"       element={<Configuracoes />} />
             <Route path="*"                    element={<Navigate to="/" />} />
           </Routes>

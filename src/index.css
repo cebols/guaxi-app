@@ -69,6 +69,10 @@ input, select, textarea { font-family: var(--font); }
   padding: 0 12px;
 }
 
+.page-content {
+  padding: 12px;
+}
+
 .topbar-inner {
   display: flex;
   align-items: center;
@@ -785,6 +789,11 @@ input, select, textarea { font-family: var(--font); }
     max-width: 1000px;
     margin: 0 auto;
     padding: 0 24px 24px;
+  }
+  .page-content {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 16px 24px 24px;
   }
   .topbar-inner {
     max-width: 1000px;

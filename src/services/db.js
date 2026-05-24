@@ -1100,7 +1100,8 @@ export async function getProducao(id) {
 }
 
 export async function updateProducaoChecks(id, checks) {
-  await supabase.from('producoes').update({ checks }).eq('id', id)
+  const { error } = await supabase.from('producoes').update({ checks }).eq('id', id)
+  if (error) throw error
 }
 
 export async function deleteProducao(id) {
