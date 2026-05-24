@@ -174,7 +174,7 @@ export default function ProducaoTodo() {
                   ? `${fmtQtd(item.quantidade)} un`
                   : item.modo === 'peso_liquido' ? `${fmtQtd(item.valorAlvo)} ${item.unidadeGera || 'g'} líq`
                     : item.modo === 'unidades' ? `${fmtQtd(item.valorAlvo)} ${item.unidadeGera || 'un'}`
-                    : `${fmtQtd(item.quantidade)} dose(s)`}
+                    : `${fmtQtd(item.quantidade)} receita(s) original(is)`}
               </span>
               <button onClick={() => setConfirmDelItem(item.id)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 14, cursor: 'pointer', padding: '0 4px' }}>×</button>
             </div>
@@ -211,7 +211,7 @@ export default function ProducaoTodo() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, textDecoration: isChecked ? 'line-through' : 'none' }}>{rec.nome}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                    {fmtQtd(doses)} dose(s) → {fmtQtd(renderTotal)} {rec.unidadeGera}{fp > 0 ? ` (${fmtQtd(liq)} líq)` : ''}
+                    {fmtQtd(doses)} receita(s) original(is) → {fmtQtd(renderTotal)} {rec.unidadeGera}{fp > 0 ? ` (${fmtQtd(liq)} líq)` : ''}
                   </div>
                 </div>
                 <button onClick={e => { e.stopPropagation(); navigate(`/fichas/${recIdStr}?doses=${doses}`) }}

@@ -260,6 +260,7 @@ export default function MiseEnPlace() {
           confirmando={confirmando}
           onClose={() => setSheet(null)}
           onConfirmar={handleConfirmar}
+          onUpdateItem={(idx, patch) => updateItem(idx, patch)}
         />
       )}
 
@@ -314,7 +315,7 @@ function LoteCard({ item, rec, prod, receitas, onUpdate, onRemove }) {
                 color: item.modo === m ? 'var(--teal)' : 'var(--text-secondary)',
                 fontWeight: item.modo === m ? 600 : 400,
               }}>
-              {m === 'doses' ? 'doses' : m === 'peso_liquido' ? 'peso líq' : 'unidades'}
+              {m === 'doses' ? 'receitas orig.' : m === 'peso_liquido' ? 'peso líq' : 'unidades'}
             </button>
           ))}
         </div>
@@ -341,7 +342,7 @@ function LoteCard({ item, rec, prod, receitas, onUpdate, onRemove }) {
             />
             <button onClick={() => onUpdate({ qtd: (item.qtd || 0) + 1 })} style={btnStyle}>+</button>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              {item.qtd > 1 ? 'doses' : 'dose'} → {fmtQtd((rec?.rendimento || 0) * item.qtd)} {rec?.unidadeGera}
+              receita(s) original(is) → {fmtQtd((rec?.rendimento || 0) * item.qtd)} {rec?.unidadeGera}
               {rec?.fatorPerda != null && PESO_UNITS.has(rec.unidadeGera) ? ` (${fmtQtd((rec.rendimento || 0) * item.qtd * (1 - rec.fatorPerda / 100))} líq)` : ''}
             </span>
           </>
@@ -395,10 +396,13 @@ function LoteCard({ item, rec, prod, receitas, onUpdate, onRemove }) {
   )
 }
 
-function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais, confirmando, onClose, onConfirmar }) {
+function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais, confirmando, onClose, onConfirmar, onUpdateItem }) {
   const [showDebit, setShowDebit] = useState(false)
   const [showCompras, setShowCompras] = useState(false)
   const faltas = debitosTotais.filter(d => d.estoque != null && d.estoque < d.necessario)
+
+  const btnStyle = { width: 24, height: 24, borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg-secondary, #374151)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }
+
   return (
     <>
       <div className="sheet-overlay" onClick={onClose} />
@@ -411,21 +415,39 @@ function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais,
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Itens selecionados</div>
         {lote.map((item, i) => {
           const rec = item.tipo === 'receita' ? receitas.find(r => r.id === item.refId) : null
+          const isModo = item.modo === 'peso_liquido' || item.modo === 'unidades'
+          const curVal = isModo ? (item.valorAlvo || 0) : (item.qtd || 0)
+          const unidLabel = item.tipo === 'produto' ? 'un'
+            : item.modo === 'peso_liquido' ? `${rec?.unidadeGera || 'g'} líq`
+            : item.modo === 'unidades' ? (rec?.unidadeGera || 'un')
+            : 'receita(s)'
           return (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '0.5px solid var(--border)', fontSize: 13 }}>
-              <span style={{ fontWeight: 600 }}>
-                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, marginRight: 6, background: item.tipo === 'produto' ? '#1e3a5f' : '#334155', color: item.tipo === 'produto' ? '#60a5fa' : '#94a3b8', fontWeight: 600 }}>
-                  {item.tipo === 'produto' ? 'P' : 'R'}
-                </span>
-                {item.nome}
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: '0.5px solid var(--border)', fontSize: 13 }}>
+              <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: item.tipo === 'produto' ? '#1e3a5f' : '#334155', color: item.tipo === 'produto' ? '#60a5fa' : '#94a3b8', fontWeight: 600, flexShrink: 0 }}>
+                {item.tipo === 'produto' ? 'P' : 'R'}
               </span>
-              <span style={{ color: 'var(--text-secondary)' }}>
-                {item.tipo === 'produto'
-                  ? `${fmtQtd(item.qtd)} un`
-                  : item.modo === 'peso_liquido' ? `${fmtQtd(item.valorAlvo)} ${rec?.unidadeGera || 'g'} líq`
-                    : item.modo === 'unidades' ? `${fmtQtd(item.valorAlvo)} ${rec?.unidadeGera || 'un'}`
-                    : `${fmtQtd(item.qtd)} dose${item.qtd > 1 ? 's' : ''}`}
-              </span>
+              <span style={{ flex: 1, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nome}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                <button style={btnStyle} onClick={() => {
+                  const next = Math.max(0, curVal - 1)
+                  onUpdateItem(i, isModo ? { valorAlvo: next } : item.tipo === 'produto' ? { qtd: next } : { qtd: next })
+                }}>−</button>
+                <input
+                  type="text" inputMode="decimal"
+                  value={curVal}
+                  onChange={e => {
+                    const v = parseFloat(e.target.value) || 0
+                    onUpdateItem(i, isModo ? { valorAlvo: v } : item.tipo === 'produto' ? { qtd: v } : { qtd: v })
+                  }}
+                  onFocus={e => e.target.select()}
+                  style={{ width: 46, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 5, padding: '3px 0', fontSize: 13, background: 'var(--card-bg)', color: 'var(--text-primary)', fontWeight: 700 }}
+                />
+                <button style={btnStyle} onClick={() => {
+                  const next = curVal + 1
+                  onUpdateItem(i, isModo ? { valorAlvo: next } : item.tipo === 'produto' ? { qtd: next } : { qtd: next })
+                }}>+</button>
+                <span style={{ fontSize: 11, color: 'var(--text-secondary)', minWidth: 28 }}>{unidLabel}</span>
+              </div>
             </div>
           )
         })}
@@ -442,7 +464,7 @@ function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais,
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)', marginBottom: 6 }}>
                 {rec.nome}
                 <span style={{ color: 'var(--text-secondary)', fontWeight: 400, marginLeft: 6 }}>
-                  {fmtQtd(doses)} dose(s) → {fmtQtd(renderTotal)} {rec.unidadeGera}{fp > 0 ? ` (${fmtQtd(liq)} líq)` : ''}
+                  {fmtQtd(doses)} receita(s) original(is) → {fmtQtd(renderTotal)} {rec.unidadeGera}{fp > 0 ? ` (${fmtQtd(liq)} líq)` : ''}
                 </span>
               </div>
               {(rec.ingredientes || []).map((ing, i) => {

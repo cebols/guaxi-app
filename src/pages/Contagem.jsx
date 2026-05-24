@@ -32,7 +32,12 @@ function fmt(v) {
 
 function fmtQtd(v) {
   const n = Number(v || 0)
-  return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+  return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })
+}
+
+function round1(v) {
+  if (v == null || v === '') return v
+  return Math.round(parseFloat(v) * 10) / 10
 }
 
 function fmtN(v) {
@@ -109,10 +114,9 @@ function ListaCompras({ contagem, itens }) {
 }
 
 // ─── StockTab ────────────────────────────────────────────────────────────────
-function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', filtro = 'todos' }) {
+function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', filtro = 'todos', sortBy = 'categoria' }) {
   const filtered = useMemo(() => {
-    if (filtro === 'todos') return itens
-    return itens.filter(item => {
+    let list = filtro === 'todos' ? [...itens] : itens.filter(item => {
       const val = contagem[item.id]
       const effectiveMin = minValues?.[item.id] ?? item.estoqueMin
       const stockVal = val !== undefined && val !== '' ? parseFloat(val) : item.estoqueAtual
@@ -120,9 +124,20 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', 
       if (filtro === 'naocontados') return val === undefined || val === ''
       return true
     })
-  }, [itens, contagem, minValues, filtro])
+    if (sortBy === 'proximo_fim') {
+      list.sort((a, b) => {
+        const min = key => minValues?.[key] ?? itens.find(i => i.id === key)?.estoqueMin ?? 0
+        const ra = min(a.id) > 0 ? (a.estoqueAtual ?? 0) / min(a.id) : Infinity
+        const rb = min(b.id) > 0 ? (b.estoqueAtual ?? 0) / min(b.id) : Infinity
+        return ra - rb
+      })
+    } else if (sortBy === 'nome') {
+      list.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'))
+    }
+    return list
+  }, [itens, contagem, minValues, filtro, sortBy])
 
-  const grupos = groupBy(filtered, 'categoria')
+  const grupos = sortBy === 'categoria' ? groupBy(filtered, 'categoria') : { '': filtered }
   const orderedIds = useMemo(() => Object.values(grupos).flat().map(i => i.id), [grupos])
   const inputRefs = useRef({})
 
@@ -144,12 +159,14 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', 
     <>
       {Object.entries(grupos).map(([cat, items]) => (
         <div key={cat}>
-          <div className="cat-header">{cat}</div>
+          {cat && <div className="cat-header">{cat}</div>}
           <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
             {items.map(item => {
-              const val = contagem[item.id] ?? (item.estoqueAtual ?? '')
+              const rawStock = item.estoqueAtual != null ? round1(item.estoqueAtual) : ''
+              const val = contagem[item.id] !== undefined ? contagem[item.id] : (rawStock !== '' ? String(rawStock) : '')
               const effectiveMin = minValues?.[item.id] ?? item.estoqueMin
               const falta = val !== '' ? calcPedir(val, effectiveMin) : null
+              const faltaRounded = falta != null ? round1(falta) : null
               return (
                 <div key={item.id} className="stock-row">
                   <div>
@@ -166,8 +183,8 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', 
                       onKeyDown={handleKey(item.id)}
                       onFocus={e => e.target.select()}
                     />
-                    {falta !== null && falta > 0 && <div className="pedir-txt">{labelPedir} {falta} {item.unidade}</div>}
-                    {falta !== null && falta === 0 && <div className="ok-txt">ok</div>}
+                    {faltaRounded !== null && faltaRounded > 0 && <div className="pedir-txt">{labelPedir} {fmtQtd(faltaRounded)} {item.unidade}</div>}
+                    {faltaRounded !== null && faltaRounded <= 0 && <div className="ok-txt">ok</div>}
                   </div>
                 </div>
               )
@@ -816,6 +833,7 @@ export default function Contagem() {
   const [tab, setTab]       = useState('insumos')
   const [busca, setBusca]   = useState('')
   const [filtroContagem, setFiltroContagem] = useState('todos')
+  const [sortContagem, setSortContagem] = useState('categoria')
   const [contagemIns,  setContagemIns]  = useState({})
   const [contagemEmb,  setContagemEmb]  = useState({})
   const [contagemProd, setContagemProd] = useState({})
@@ -1125,7 +1143,7 @@ export default function Contagem() {
 
               return (
                 <>
-                  <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto' }}>
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 8, overflowX: 'auto', alignItems: 'center' }}>
                     {[['todos', 'Tudo'], ['faltando', '🔴 Faltando'], ['naocontados', '👁 Não contados']].map(([k, l]) => (
                       <button key={k} onClick={() => setFiltroContagem(k)} style={{
                         padding: '5px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
@@ -1136,12 +1154,20 @@ export default function Contagem() {
                         cursor: 'pointer', whiteSpace: 'nowrap',
                       }}>{l}</button>
                     ))}
+                    <select value={sortContagem} onChange={e => setSortContagem(e.target.value)} style={{
+                      marginLeft: 'auto', fontSize: 11, padding: '4px 8px', borderRadius: 6, flexShrink: 0,
+                      border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer',
+                    }}>
+                      <option value="categoria">📂 Categoria</option>
+                      <option value="proximo_fim">⏳ Próx. do fim</option>
+                      <option value="nome">A–Z</option>
+                    </select>
                   </div>
-                  <StockTab itens={itensFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} filtro={filtroContagem} />
+                  <StockTab itens={itensFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} filtro={filtroContagem} sortBy={sortContagem} />
                   {busca && semFiltrados.length > 0 && (
                     <>
                       <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600, margin: '12px 0 6px', textTransform: 'uppercase', letterSpacing: 1 }}>Sem estoque</div>
-                      <StockTab itens={semFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} filtro={filtroContagem} />
+                      <StockTab itens={semFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} filtro={filtroContagem} sortBy={sortContagem} />
                     </>
                   )}
                   {!busca && itensSemEstoque.length > 0 && (
@@ -1150,7 +1176,7 @@ export default function Contagem() {
                       <span>{semEstoqueAberto ? '▲' : '▼'}</span>
                     </button>
                   )}
-                  {!busca && semEstoqueAberto && <StockTab itens={itensSemEstoque} contagem={contagem} onChange={onChange} minValues={minVals} />}
+                  {!busca && semEstoqueAberto && <StockTab itens={itensSemEstoque} contagem={contagem} onChange={onChange} minValues={minVals} sortBy={sortContagem} />}
                   <button onClick={handleEnviar} style={{ width: '100%', padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}>
                     Enviar contagem →
                   </button>
