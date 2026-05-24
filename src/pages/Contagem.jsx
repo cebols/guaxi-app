@@ -2,7 +2,16 @@ import { useState, useRef, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores } from '../services/db'
+import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes } from '../services/db'
+
+function aplicarAjuste(itens, ajusteMap) {
+  if (!ajusteMap || Object.keys(ajusteMap).length === 0) return itens
+  return itens.map(i => {
+    const delta = ajusteMap[i.id] || 0
+    if (delta === 0) return i
+    return { ...i, estoqueAtual: Math.max(0, (i.estoqueAtual ?? 0) + delta) }
+  })
+}
 
 function waLink(phone) {
   const digits = (phone || '').replace(/\D/g, '')
@@ -710,17 +719,23 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
 }
 
 // ─── ConsultarView ───────────────────────────────────────────────────────────
-function ConsultarView({ insumos, embalagens, produtos, onVoltar }) {
+function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
   const [tab, setTab] = useState('insumos')
   const [sortBy, setSortBy] = useState('proximo_fim') // proximo_fim | nome | categoria | maior_estoque
   const [filtro, setFiltro] = useState('todos') // todos | abaixo_min | sem_estoque
+  const [modo, setModo] = useState('atual') // atual | futuro
 
   const produtosParaConsulta = useMemo(() => (produtos || [])
     .filter(p => p.tipo !== 'combo')
     .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' })),
     [produtos])
 
-  const baseItens = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : tab === 'produtos' ? produtosParaConsulta : []
+  const ajusteDoTab = modo === 'futuro'
+    ? (tab === 'insumos' ? ajustes?.insumos : tab === 'produtos' ? ajustes?.produtos : null)
+    : null
+
+  const baseItensRaw = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : tab === 'produtos' ? produtosParaConsulta : []
+  const baseItens = aplicarAjuste(baseItensRaw, ajusteDoTab)
 
   const itensProcessados = useMemo(() => {
     let list = [...baseItens]
@@ -763,6 +778,25 @@ function ConsultarView({ insumos, embalagens, produtos, onVoltar }) {
           <GastosTab />
         ) : (
           <>
+            {/* Toggle Atual/Futuro - só faz sentido em insumos e produtos */}
+            {(tab === 'insumos' || tab === 'produtos') && (
+              <div style={{ display: 'flex', gap: 0, marginBottom: 10, border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', width: 'fit-content' }}>
+                {[['atual', 'Atual'], ['futuro', 'Futuro']].map(([k, l]) => (
+                  <button key={k} onClick={() => setModo(k)} style={{
+                    fontSize: 12, padding: '6px 14px', cursor: 'pointer', border: 'none',
+                    background: modo === k ? 'var(--teal)' : 'transparent',
+                    color: modo === k ? '#fff' : 'var(--text-secondary)',
+                    fontWeight: modo === k ? 700 : 500,
+                  }}>{l}</button>
+                ))}
+              </div>
+            )}
+            {modo === 'futuro' && (tab === 'insumos' || tab === 'produtos') && (
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10, marginTop: -4 }}>
+                Considerando produções planejadas ainda não concluídas
+              </div>
+            )}
+
             {/* Filtros e ordenação */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
               {[['todos','Todos'],['abaixo_min','⚠ Abaixo do mín.'],['sem_estoque','Sem estoque']].map(([k,l]) => (
@@ -826,6 +860,8 @@ export default function Contagem() {
   const { data: insumos,    loading: loadIns,  reload: reloadIns  } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb,  reload: reloadEmb  } = useData(getEmbalagens)
   const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
+  const { data: producoes } = useData(getProducoes)
+  const ajustes = useMemo(() => computeAjustesPendentes(producoes || []), [producoes])
   const { toast, show } = useToast()
   const navigate = useNavigate()
 
@@ -1004,6 +1040,7 @@ export default function Contagem() {
           insumos={insumos}
           embalagens={embalagens}
           produtos={produtos}
+          ajustes={ajustes}
           onVoltar={() => setVista(null)}
         />
         {toast && <div className="toast">{toast}</div>}
@@ -1028,7 +1065,8 @@ export default function Contagem() {
 
   if (vista === null) {
     const totalInsumos = (insumos || []).length
-    const faltandoInsumos = (insumos || []).filter(i => i.estoqueAtual != null && i.estoqueAtual < (i.estoqueMin || 0)).length
+    const insumosFuturo = aplicarAjuste(insumos || [], ajustes?.insumos)
+    const faltandoInsumos = insumosFuturo.filter(i => i.estoqueAtual != null && i.estoqueAtual < (i.estoqueMin || 0)).length
     const faltandoEmb = (embalagens || []).filter(e => e.estoqueAtual != null && e.estoqueAtual < (e.estoqueMin || 0)).length
     const totalFaltando = faltandoInsumos + faltandoEmb
 
@@ -1047,7 +1085,9 @@ export default function Contagem() {
               <div className="card" style={{ flex: 1, padding: '12px 14px', background: totalFaltando > 0 ? 'rgba(239,68,68,0.08)' : 'rgba(20,184,166,0.08)', borderColor: totalFaltando > 0 ? '#ef4444' : 'var(--teal)' }}>
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Abaixo do mínimo</div>
                 <div style={{ fontSize: 22, fontWeight: 800, color: totalFaltando > 0 ? '#ef4444' : 'var(--teal)', marginTop: 2 }}>{totalFaltando}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 1 }}>item(s)</div>
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                  {Object.keys(ajustes?.insumos || {}).length > 0 ? 'considerando mises planejados' : 'item(s)'}
+                </div>
               </div>
               <div className="card" style={{ flex: 1, padding: '12px 14px' }}>
                 <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.4 }}>Insumos</div>
@@ -1080,10 +1120,10 @@ export default function Contagem() {
             </button>
           ))}
 
-          {/* Lista de compras rápida se tiver faltas */}
+          {/* Lista de compras rápida se tiver faltas (baseada no futuro) */}
           {totalFaltando > 0 && (
             <div style={{ marginTop: 8 }}>
-              <ListaCompras contagem={{}} itens={[...(insumos || []).map(i => ({ ...i, _tipo: 'insumo' })), ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem' }))]} />
+              <ListaCompras contagem={{}} itens={[...insumosFuturo.map(i => ({ ...i, _tipo: 'insumo' })), ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem' }))]} />
             </div>
           )}
         </div>

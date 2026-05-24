@@ -1057,6 +1057,36 @@ async function aplicarCreditoItem(item, sinal) {
   else if (credito.tipo === 'receita') await ajustarEstoqueReceita(credito.id, delta)
 }
 
+// Calcula ajustes pendentes (não aplicados) a partir das produções:
+// - Débitos de receitas não checkadas (consumo futuro de insumos)
+// - Créditos de itens não-completos (produção futura de produtos/receitas)
+// Retorna deltas a serem somados ao estoque atual para obter o "futuro".
+export function computeAjustesPendentes(producoes) {
+  const insumos = {}, produtos = {}, receitas = {}
+  for (const p of (producoes || [])) {
+    const checkSet = new Set((p.checks || []).map(String))
+    for (const item of (p.itens || [])) {
+      const snap = item.snapshot
+      if (!snap || !snap.debitosPorReceita) continue // legacy: já aplicado, não conta como pendente
+      for (const [recIdStr, debs] of Object.entries(snap.debitosPorReceita)) {
+        if (checkSet.has(recIdStr)) continue
+        for (const [insId, q] of Object.entries(debs)) {
+          insumos[insId] = (insumos[insId] || 0) - q
+        }
+      }
+      const dosesContrib = snap.dosesContrib || {}
+      const recIds = Object.keys(dosesContrib)
+      const isComplete = recIds.length > 0 && recIds.every(rid => checkSet.has(String(rid)))
+      if (!isComplete && !snap.creditoAplicadoNaCriacao && snap.credito) {
+        const { tipo, id, qtd } = snap.credito
+        if (tipo === 'produto') produtos[id] = (produtos[id] || 0) + (qtd || 0)
+        else if (tipo === 'receita') receitas[id] = (receitas[id] || 0) + (qtd || 0)
+      }
+    }
+  }
+  return { insumos, produtos, receitas }
+}
+
 export async function getProducoes(limit = 30) {
   try {
     const { data, error } = await supabase.from('producoes').select('*, producao_itens(*)').order('created_at', { ascending: false }).limit(limit)
