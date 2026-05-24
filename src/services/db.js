@@ -1032,6 +1032,74 @@ export async function saveProducao(lote, receitas, produtos) {
   }
 }
 
+export async function addProducaoItens(producaoId, lote, receitas, produtos) {
+  const { perItemContrib } = computeDoses(lote, receitas, produtos)
+
+  const itemsToInsert = lote.map((item, idx) => {
+    const contribDoses = perItemContrib[idx]
+    const itemDebitos = {}
+    const debitosPorReceita = {}
+    for (const [recIdStr, d] of Object.entries(contribDoses)) {
+      const rec = receitas.find(r => r.id === Number(recIdStr))
+      if (!rec) continue
+      const recDeb = {}
+      for (const ing of (rec.ingredientes || [])) {
+        if (ing.insumoId) {
+          const q = ing.quantidade * d
+          itemDebitos[ing.insumoId] = (itemDebitos[ing.insumoId] || 0) + q
+          recDeb[ing.insumoId] = (recDeb[ing.insumoId] || 0) + q
+        }
+      }
+      debitosPorReceita[recIdStr] = recDeb
+    }
+
+    let credito = null
+    if (item.tipo === 'produto') {
+      credito = { tipo: 'produto', id: item.refId, qtd: item.qtd }
+    } else {
+      const rec = receitas.find(r => r.id === item.refId)
+      let qtdCredit
+      if (item.modo === 'peso_liquido') qtdCredit = item.valorAlvo || 0
+      else if (item.modo === 'unidades') qtdCredit = item.valorAlvo || 0
+      else qtdCredit = rendimentoLiquidoCalc(rec, item.qtd || 0)
+      credito = { tipo: 'receita', id: item.refId, qtd: qtdCredit }
+    }
+
+    const hasReceitas = Object.keys(contribDoses).length > 0
+    const snapshot = {
+      debitos: itemDebitos, credito, dosesContrib: contribDoses,
+      debitosPorReceita, creditoAplicadoNaCriacao: !hasReceitas,
+    }
+
+    if (item.tipo === 'produto') {
+      return { producao_id: producaoId, tipo: 'produto', produto_id: item.refId, produto_nome: item.nome, quantidade: item.qtd, snapshot }
+    } else {
+      const rec = receitas.find(r => r.id === item.refId)
+      let rendTotal
+      if (item.modo === 'peso_liquido') rendTotal = item.valorAlvo
+      else if (item.modo === 'unidades') rendTotal = item.valorAlvo
+      else rendTotal = (item.qtd || 0) * (rec?.rendimento || 0)
+      return { producao_id: producaoId, tipo: 'receita', receita_id: item.refId, receita_nome: item.nome, quantidade: item.qtd, modo: item.modo || 'doses', valor_alvo: item.valorAlvo ?? null, rendimento_total: rendTotal, unidade_gera: rec?.unidadeGera || 'un', snapshot }
+    }
+  })
+
+  const { error } = await supabase.from('producao_itens').insert(itemsToInsert)
+  if (error) throw error
+
+  for (let idx = 0; idx < lote.length; idx++) {
+    const item = lote[idx]
+    const hasReceitas = Object.keys(perItemContrib[idx]).length > 0
+    if (!hasReceitas && item.tipo === 'produto') await ajustarEstoqueProduto(item.refId, item.qtd || 0)
+  }
+}
+
+export async function updateProducaoItemQtd(itemId, quantidade, valorAlvo) {
+  const upd = { quantidade }
+  if (valorAlvo !== undefined) upd.valor_alvo = valorAlvo
+  const { error } = await supabase.from('producao_itens').update(upd).eq('id', itemId)
+  if (error) throw error
+}
+
 // Detecta se item foi salvo no formato novo (estoque dirigido por checks)
 function isItemNovoFormato(item) {
   return item?.snapshot && item.snapshot.debitosPorReceita != null

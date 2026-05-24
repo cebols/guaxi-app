@@ -723,6 +723,7 @@ function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
   const [tab, setTab] = useState('insumos')
   const [sortBy, setSortBy] = useState('proximo_fim') // proximo_fim | nome | categoria | maior_estoque
   const [filtro, setFiltro] = useState('todos') // todos | abaixo_min | sem_estoque
+  const [busca, setBusca] = useState('')
 
   const produtosParaConsulta = useMemo(() => (produtos || [])
     .filter(p => p.tipo !== 'combo')
@@ -735,10 +736,12 @@ function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
 
   const itensProcessados = useMemo(() => {
     let list = [...baseItens]
-    // filtro
+    if (busca) {
+      const q = normStr(busca)
+      list = list.filter(i => normStr(i.nome).includes(q) || normStr(i.categoria || '').includes(q))
+    }
     if (filtro === 'abaixo_min') list = list.filter(i => i.estoqueAtual != null && i.estoqueAtual < (i.estoqueMin || 0))
     else if (filtro === 'sem_estoque') list = list.filter(i => !i.estoqueAtual || i.estoqueAtual <= 0)
-    // sort
     if (sortBy === 'nome') list.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'))
     else if (sortBy === 'maior_estoque') list.sort((a, b) => (b.estoqueAtual || 0) - (a.estoqueAtual || 0))
     else if (sortBy === 'proximo_fim') {
@@ -749,7 +752,7 @@ function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
       })
     }
     return list
-  }, [baseItens, sortBy, filtro])
+  }, [baseItens, busca, sortBy, filtro])
 
   const grupos = sortBy === 'categoria' ? groupBy(itensProcessados, 'categoria') : { '': itensProcessados }
 
@@ -774,6 +777,17 @@ function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
           <GastosTab />
         ) : (
           <>
+            {/* Busca */}
+            <div style={{ position: 'relative', marginBottom: 10 }}>
+              <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 13, color: 'var(--text-tertiary)', pointerEvents: 'none' }}>🔍</span>
+              <input
+                value={busca}
+                onChange={e => setBusca(e.target.value)}
+                placeholder="Buscar..."
+                style={{ width: '100%', paddingLeft: 30, paddingRight: busca ? 28 : 10, paddingTop: 8, paddingBottom: 8, borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' }}
+              />
+              {busca && <button onClick={() => setBusca('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 16, cursor: 'pointer', padding: 0, lineHeight: 1 }}>×</button>}
+            </div>
 
             {/* Filtros e ordenação */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>

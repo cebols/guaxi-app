@@ -2,8 +2,9 @@ import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
-  getProducao, getReceitas, getInsumos,
+  getProducao, getReceitas, getInsumos, getProdutos,
   updateProducaoChecks, deleteProducao, deleteProducaoItem,
+  addProducaoItens, updateProducaoItemQtd,
 } from '../services/db'
 
 function norm(s) {
@@ -23,19 +24,37 @@ function fmtDate(iso) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
+const PESO_UNITS = new Set(['g', 'ml', 'kg', 'L'])
+
+function dosesParaItem(item, rec) {
+  if (!rec || !rec.rendimento) return 0
+  if (item.modo === 'peso_liquido' && rec.fatorPerda != null) {
+    const bruto = (item.valorAlvo || 0) / (1 - rec.fatorPerda / 100)
+    return bruto / rec.rendimento
+  }
+  if (item.modo === 'unidades') return (item.valorAlvo || 0) / rec.rendimento
+  return item.qtd || 0
+}
+
 export default function ProducaoTodo() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { data: receitas } = useData(getReceitas)
   const { data: insumos, reload: reloadInsumos } = useData(getInsumos)
+  const { data: produtos } = useData(getProdutos)
 
-  const [prod, setProd]       = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [showDebit, setShowDebit] = useState(false)
+  const [prod, setProd]             = useState(null)
+  const [loading, setLoading]       = useState(true)
+  const [showDebit, setShowDebit]   = useState(false)
   const [showCompras, setShowCompras] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [confirmDelItem, setConfirmDelItem] = useState(null)
   const [expandReceita, setExpandReceita] = useState({})
+  const [editMode, setEditMode]     = useState(false)
+  const [qtdEdits, setQtdEdits]     = useState({}) // itemId -> string value
+  const [savingQtd, setSavingQtd]   = useState({})
+  const [showAddSheet, setShowAddSheet] = useState(false)
+  const [addSaving, setAddSaving]   = useState(false)
 
   async function reload() {
     setLoading(true)
@@ -48,7 +67,6 @@ export default function ProducaoTodo() {
 
   const checks = useMemo(() => new Set(prod?.checks || []), [prod])
 
-  // Doses por receita
   const dosesPerReceita = useMemo(() => {
     if (!prod) return {}
     const map = {}
@@ -62,7 +80,6 @@ export default function ProducaoTodo() {
     return map
   }, [prod])
 
-  // Debitos totais (snapshots somados)
   const debitosTotais = useMemo(() => {
     if (!prod) return []
     const map = {}
@@ -110,6 +127,37 @@ export default function ProducaoTodo() {
     await reload()
   }
 
+  async function handleSaveQtd(item) {
+    const raw = qtdEdits[item.id]
+    if (raw === undefined) return
+    const val = parseFloat(raw)
+    if (isNaN(val) || val < 0) return
+    setSavingQtd(s => ({ ...s, [item.id]: true }))
+    try {
+      const isModo = item.modo === 'peso_liquido' || item.modo === 'unidades'
+      await updateProducaoItemQtd(item.id, isModo ? item.quantidade : val, isModo ? val : undefined)
+      await reload()
+      setQtdEdits(s => { const n = { ...s }; delete n[item.id]; return n })
+    } catch (e) {
+      alert('Erro: ' + e.message)
+    } finally {
+      setSavingQtd(s => { const n = { ...s }; delete n[item.id]; return n })
+    }
+  }
+
+  async function handleAddItens(lote) {
+    setAddSaving(true)
+    try {
+      await addProducaoItens(prod.id, lote, receitas || [], produtos || [])
+      await reload()
+      setShowAddSheet(false)
+    } catch (e) {
+      alert('Erro ao adicionar: ' + e.message)
+    } finally {
+      setAddSaving(false)
+    }
+  }
+
   if (loading) return (
     <>
       <div className="topbar"><div className="topbar-inner"><div className="topbar-title">Carregando...</div></div></div>
@@ -134,8 +182,16 @@ export default function ProducaoTodo() {
             <div className="topbar-sub">{fmtDate(prod.createdAt)}</div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => { setEditMode(e => !e); setQtdEdits({}) }} style={{
+              background: editMode ? 'rgba(20,184,166,0.15)' : 'none',
+              border: editMode ? '1px solid var(--teal)' : '1px solid var(--border)',
+              color: editMode ? 'var(--teal)' : 'var(--text-secondary)',
+              borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: editMode ? 700 : 400,
+            }}>
+              ✏️ Editar
+            </button>
             <button onClick={() => setConfirmDel(true)} style={{ background: 'none', border: '1px solid #7f1d1d', color: '#ef4444', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
-              🗑️ Apagar
+              🗑️
             </button>
             <button onClick={() => navigate('/mise-en-place')} className="btn-ghost" style={{ fontSize: 16, padding: '5px 10px' }}>←</button>
           </div>
@@ -143,13 +199,12 @@ export default function ProducaoTodo() {
       </div>
 
       <div className="page-content">
-        {/* Progress (sticky no topo) */}
+        {/* Progresso */}
         <div className="card" style={{
           padding: '12px 14px', marginBottom: 12,
           position: 'sticky', top: 0, zIndex: 10,
           backdropFilter: 'blur(8px)',
           background: 'color-mix(in srgb, var(--bg-card) 92%, transparent)',
-          transition: 'box-shadow 0.2s, padding 0.2s',
           boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
@@ -161,28 +216,56 @@ export default function ProducaoTodo() {
           </div>
         </div>
 
-        {/* Itens (produtos/receitas pedidos) */}
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>O que foi pedido</div>
+        {/* O que foi pedido */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>O que foi pedido</div>
+          {editMode && (
+            <button onClick={() => setShowAddSheet(true)} style={{
+              fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6,
+              border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer',
+            }}>+ Adicionar</button>
+          )}
+        </div>
         <div className="card" style={{ padding: '10px 14px', marginBottom: 12 }}>
-          {prod.itens.map((item, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0', borderBottom: i < prod.itens.length - 1 ? '0.5px solid var(--border)' : 'none', fontSize: 13 }}>
-              <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: item.tipo === 'produto' ? '#1e3a5f' : '#334155', color: item.tipo === 'produto' ? '#60a5fa' : '#94a3b8', fontWeight: 600 }}>
-                {item.tipo === 'produto' ? 'P' : 'R'}
-              </span>
-              <span style={{ flex: 1, fontWeight: 600 }}>{item.nome}</span>
-              <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                {item.tipo === 'produto'
-                  ? `${fmtQtd(item.quantidade)} un`
-                  : item.modo === 'peso_liquido' ? `${fmtQtd(item.valorAlvo)} ${item.unidadeGera || 'g'} líq`
-                    : item.modo === 'unidades' ? `${fmtQtd(item.valorAlvo)} ${item.unidadeGera || 'un'}`
-                    : `${fmtQtd(item.quantidade)} Receita original`}
-              </span>
-              <button onClick={() => setConfirmDelItem(item.id)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 14, cursor: 'pointer', padding: '0 4px' }}>×</button>
-            </div>
-          ))}
+          {prod.itens.map((item, i) => {
+            const isModo = item.modo === 'peso_liquido' || item.modo === 'unidades'
+            const displayQtd = isModo ? item.valorAlvo : item.quantidade
+            const editVal = qtdEdits[item.id] !== undefined ? qtdEdits[item.id] : String(displayQtd ?? '')
+            const unidLabel = item.tipo === 'produto' ? 'un'
+              : item.modo === 'peso_liquido' ? `${item.unidadeGera || 'g'} líq`
+              : item.modo === 'unidades' ? (item.unidadeGera || 'un')
+              : 'receita(s)'
+            return (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 0', borderBottom: i < prod.itens.length - 1 ? '0.5px solid var(--border)' : 'none', fontSize: 13 }}>
+                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: item.tipo === 'produto' ? '#1e3a5f' : '#334155', color: item.tipo === 'produto' ? '#60a5fa' : '#94a3b8', fontWeight: 600, flexShrink: 0 }}>
+                  {item.tipo === 'produto' ? 'P' : 'R'}
+                </span>
+                <span style={{ flex: 1, fontWeight: 600 }}>{item.nome}</span>
+                {editMode ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <input
+                      type="text" inputMode="decimal"
+                      value={editVal}
+                      onChange={e => setQtdEdits(s => ({ ...s, [item.id]: e.target.value }))}
+                      onBlur={() => handleSaveQtd(item)}
+                      onFocus={e => e.target.select()}
+                      style={{ width: 52, textAlign: 'center', border: '1px solid var(--teal)', borderRadius: 5, padding: '3px 4px', fontSize: 12, background: 'var(--card-bg)', color: 'var(--teal)', fontWeight: 700 }}
+                    />
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{unidLabel}</span>
+                    {savingQtd[item.id] && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>…</span>}
+                    <button onClick={() => setConfirmDelItem(item.id)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 14, cursor: 'pointer', padding: '0 2px' }}>×</button>
+                  </div>
+                ) : (
+                  <span style={{ color: 'var(--text-secondary)', fontSize: 12, flexShrink: 0 }}>
+                    {fmtQtd(displayQtd)} {unidLabel}
+                  </span>
+                )}
+              </div>
+            )
+          })}
         </div>
 
-        {/* Receitas a produzir (checklist) */}
+        {/* Receitas a produzir */}
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Receitas a produzir</div>
         {Object.entries(dosesPerReceita).map(([recIdStr, doses]) => {
           const rec = (receitas || []).find(r => r.id === Number(recIdStr))
@@ -198,10 +281,7 @@ export default function ProducaoTodo() {
               opacity: isChecked ? 0.55 : 1,
               borderLeft: isChecked ? '3px solid var(--teal)' : '3px solid transparent',
             }}>
-              <div
-                onClick={() => toggleCheck(recIdStr)}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer' }}
-              >
+              <div onClick={() => toggleCheck(recIdStr)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer' }}>
                 <div style={{
                   width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
                   border: `2px solid ${isChecked ? 'var(--teal)' : 'var(--border)'}`,
@@ -241,7 +321,7 @@ export default function ProducaoTodo() {
           <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, padding: 20 }}>Nenhuma receita nesta produção</div>
         )}
 
-        {/* Total a debitar (toggle) */}
+        {/* Total a debitar */}
         {debitosTotais.length > 0 && (
           <div className="card" style={{ padding: 0, marginTop: 14, overflow: 'hidden' }}>
             <button onClick={() => setShowDebit(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
@@ -254,7 +334,7 @@ export default function ProducaoTodo() {
               <div style={{ padding: '0 14px 12px' }}>
                 {debitosTotais.map((it, i) => (
                   <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 }}>
-                    <span style={{ color: it.estoque != null && it.estoque < it.necessario ? 'var(--alert-text, #ef4444)' : 'var(--text-primary)' }}>{it.nome}</span>
+                    <span style={{ color: it.estoque != null && it.estoque < it.necessario ? '#ef4444' : 'var(--text-primary)' }}>{it.nome}</span>
                     <span style={{ fontWeight: 600 }}>{fmtQtd(it.necessario)}{it.unidade}{it.estoque != null && it.estoque < it.necessario ? ' ⚠' : ''}</span>
                   </div>
                 ))}
@@ -284,9 +364,7 @@ export default function ProducaoTodo() {
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 600 }}>{it.nome}</div>
                           {it.fornecedor && <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{it.fornecedor}</div>}
-                          <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
-                            tem {fmtQtd(it.estoque || 0)}{it.unidade} · precisa {fmtQtd(it.necessario)}{it.unidade}
-                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>tem {fmtQtd(it.estoque || 0)}{it.unidade} · precisa {fmtQtd(it.necessario)}{it.unidade}</div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                           <span style={{ fontWeight: 700, color: '#f59e0b' }}>+{fmtQtd(falta)}{it.unidade}</span>
@@ -311,6 +389,16 @@ export default function ProducaoTodo() {
         )}
       </div>
 
+      {showAddSheet && (
+        <AddItemSheet
+          receitas={receitas || []}
+          produtos={produtos || []}
+          saving={addSaving}
+          onClose={() => setShowAddSheet(false)}
+          onConfirmar={handleAddItens}
+        />
+      )}
+
       {confirmDel && (
         <ConfirmModal
           icon="🗑️" title="Apagar esta produção?"
@@ -331,6 +419,120 @@ export default function ProducaoTodo() {
   )
 }
 
+function AddItemSheet({ receitas, produtos, saving, onClose, onConfirmar }) {
+  const [busca, setBusca] = useState('')
+  const [filtroTipo, setFiltroTipo] = useState('todos')
+  const [lote, setLote] = useState([])
+
+  const inLote = (tipo, id) => lote.some(x => x.tipo === tipo && x.refId === id)
+
+  const filtrados = useMemo(() => {
+    const q = norm(busca)
+    const recs = receitas.filter(r => norm(r.nome).includes(q))
+      .map(r => ({ tipo: 'receita', id: r.id, nome: r.nome, sub: `rende ${r.rendimento} ${r.unidadeGera}` }))
+    const prods = produtos.filter(p => p.tipo !== 'avulso' && norm(p.nome).includes(q))
+      .map(p => ({ tipo: 'produto', id: p.id, nome: p.nome, sub: `${(p.receitas || []).length} receita(s)` }))
+    if (filtroTipo === 'receitas') return recs
+    if (filtroTipo === 'produtos') return prods
+    return [...prods, ...recs]
+  }, [receitas, produtos, busca, filtroTipo])
+
+  function toggle(tipo, item) {
+    if (inLote(tipo, item.id)) { setLote(l => l.filter(x => !(x.tipo === tipo && x.refId === item.id))); return }
+    if (tipo === 'produto') setLote(l => [...l, { tipo: 'produto', refId: item.id, nome: item.nome, qtd: 1 }])
+    else setLote(l => [...l, { tipo: 'receita', refId: item.id, nome: item.nome, qtd: 1, modo: 'doses', valorAlvo: null }])
+  }
+
+  function updateLote(idx, patch) { setLote(l => l.map((x, i) => i === idx ? { ...x, ...patch } : x)) }
+
+  const btnStyle = { width: 26, height: 26, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }
+
+  return (
+    <>
+      <div className="sheet-overlay" onClick={onClose} />
+      <div className="sheet" style={{ maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="sheet-title">
+          <span>Adicionar itens</span>
+          <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
+        </div>
+
+        {/* Lote selecionado */}
+        {lote.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            {lote.map((item, idx) => {
+              const rec = item.tipo === 'receita' ? receitas.find(r => r.id === item.refId) : null
+              const isProd = item.tipo === 'produto'
+              return (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '0.5px solid var(--border)' }}>
+                  <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: isProd ? '#1e3a5f' : '#334155', color: isProd ? '#60a5fa' : '#94a3b8', fontWeight: 600, flexShrink: 0 }}>{isProd ? 'P' : 'R'}</span>
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 600 }}>{item.nome}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+                    <button style={btnStyle} onClick={() => updateLote(idx, isProd ? { qtd: Math.max(0, (item.qtd || 0) - 1) } : { qtd: Math.max(0, (item.qtd || 0) - 1) })}>−</button>
+                    <input type="text" inputMode="decimal" value={isProd ? item.qtd : item.qtd}
+                      onChange={e => updateLote(idx, { qtd: parseFloat(e.target.value) || 0 })}
+                      style={{ width: 42, textAlign: 'center', border: '1px solid var(--border)', borderRadius: 5, padding: '2px 0', fontSize: 13, background: 'var(--card-bg)', color: 'var(--text-primary)', fontWeight: 700 }}
+                    />
+                    <button style={btnStyle} onClick={() => updateLote(idx, { qtd: (item.qtd || 0) + 1 })}>+</button>
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)', minWidth: 20 }}>{isProd ? 'un' : 'dose(s)'}</span>
+                    <button onClick={() => setLote(l => l.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 16, cursor: 'pointer', padding: 0 }}>×</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Filtro tipo */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+          {[['todos','Todos'],['produtos','Produtos'],['receitas','Receitas']].map(([k,l]) => (
+            <button key={k} onClick={() => setFiltroTipo(k)} style={{
+              padding: '4px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer',
+              border: filtroTipo === k ? '1px solid var(--teal)' : '1px solid var(--border)',
+              background: filtroTipo === k ? 'var(--teal)' : 'transparent',
+              color: filtroTipo === k ? '#fff' : 'var(--text-secondary)', fontWeight: filtroTipo === k ? 600 : 400,
+            }}>{l}</button>
+          ))}
+        </div>
+
+        {/* Busca */}
+        <input
+          value={busca} onChange={e => setBusca(e.target.value)}
+          placeholder="Buscar..."
+          style={{ marginBottom: 8, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13 }}
+        />
+
+        {/* Lista scroll */}
+        <div style={{ overflowY: 'auto', flex: 1, marginBottom: 10 }}>
+          {filtrados.map(item => {
+            const inLot = inLote(item.tipo, item.id)
+            return (
+              <div key={`${item.tipo}-${item.id}`}
+                onClick={() => toggle(item.tipo, item)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 4px', borderBottom: '0.5px solid var(--border)', cursor: 'pointer', background: inLot ? 'rgba(20,184,166,0.06)' : 'transparent' }}>
+                <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: item.tipo === 'produto' ? '#1e3a5f' : '#334155', color: item.tipo === 'produto' ? '#60a5fa' : '#94a3b8', fontWeight: 600, flexShrink: 0 }}>
+                  {item.tipo === 'produto' ? 'P' : 'R'}
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{item.nome}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{item.sub}</div>
+                </div>
+                <span style={{ color: inLot ? 'var(--teal)' : 'var(--text-tertiary)', fontSize: inLot ? 14 : 20, fontWeight: 700 }}>{inLot ? '✓' : '+'}</span>
+              </div>
+            )
+          })}
+        </div>
+
+        <button
+          disabled={lote.length === 0 || saving}
+          onClick={() => onConfirmar(lote)}
+          style={{ width: '100%', padding: '12px', borderRadius: 10, border: 'none', background: lote.length > 0 ? 'var(--teal)' : '#333', color: lote.length > 0 ? '#fff' : '#666', fontWeight: 700, fontSize: 14, cursor: lote.length > 0 ? 'pointer' : 'default' }}>
+          {saving ? 'Salvando...' : lote.length > 0 ? `Adicionar ${lote.length} item(s)` : 'Selecione itens'}
+        </button>
+      </div>
+    </>
+  )
+}
+
 function ConfirmModal({ icon, title, msg, onCancel, onConfirm }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)' }}>
@@ -340,7 +542,7 @@ function ConfirmModal({ icon, title, msg, onCancel, onConfirm }) {
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>{msg}</div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onCancel} style={{ flex: 1, padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
-          <button onClick={onConfirm} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: 'var(--alert-text, #ef4444)', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Apagar</button>
+          <button onClick={onConfirm} style={{ flex: 1, padding: '10px', borderRadius: 8, border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>Apagar</button>
         </div>
       </div>
     </div>
