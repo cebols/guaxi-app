@@ -380,6 +380,19 @@ function PlatPrecos({ prod, cfg, custoSacola }) {
   )
 }
 
+function estoqueInfo(prod) {
+  if (prod.tipo === 'combo') return null
+  const atual = prod.estoqueAtual
+  const min = prod.estoqueMin || 0
+  if (atual == null && !min) return null
+  const qtd = Math.max(0, Math.ceil(atual ?? 0))
+  let color, label
+  if (qtd <= 0) { color = '#ef4444'; label = 'sem estoque' }
+  else if (min > 0 && qtd < min) { color = '#f59e0b'; label = `abaixo do mín. (${min})` }
+  else { color = 'var(--teal)'; label = min > 0 ? `mín. ${min}` : 'em estoque' }
+  return { qtd, color, label, min }
+}
+
 function subtext(prod) {
   if (prod.tipo === 'avulso') return [prod.fornecedor, 'Item avulso'].filter(Boolean).join(' · ')
   if (prod.tipo === 'combo')  return (prod.componentes || []).map(c => `${c.quantidade}× ${c.produtoNome}`).join(' + ') || 'Combo'
@@ -500,6 +513,7 @@ export default function Produtos() {
                       <thead><tr>
                         <th>Nome</th>
                         <th>Composição</th>
+                        <th>Estoque</th>
                         <th>Custo</th>
                         <th style={{ color: PLAT_COLOR.Direta }}>Direta</th>
                         <th style={{ color: PLAT_COLOR['99Food'] }}>99Food</th>
@@ -518,6 +532,11 @@ export default function Produtos() {
                                 </div>
                               </td>
                               <td className="muted" style={{ fontSize: 12 }}>{subtext(prod)}</td>
+                              <td>{(() => {
+                                const info = estoqueInfo(prod)
+                                if (!info) return <span className="muted">—</span>
+                                return <span style={{ color: info.color, fontWeight: 600 }}>{info.qtd} un<span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400, marginLeft: 4 }}>{info.min > 0 ? `/ ${info.min}` : ''}</span></span>
+                              })()}</td>
                               <td className="muted">{prod.custoTotal > 0 ? fmtR(prod.custoTotal) : '—'}</td>
                               <td style={{ color: PLAT_COLOR.Direta }}>{fmtR(prod.precoDireta ?? p.base)}</td>
                               <td style={{ color: PLAT_COLOR['99Food'] }}>{fmtR(prod.preco99 ?? p.p99)}</td>
@@ -587,6 +606,17 @@ export default function Produtos() {
                           </div>
                           <div className="list-item-sub">{subtext(prod)}</div>
                           <PlatPrecos prod={prod} cfg={cfg} custoSacola={custoSacola} />
+                          {(() => {
+                            const info = estoqueInfo(prod)
+                            if (!info) return null
+                            return (
+                              <div style={{ fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: info.color }} />
+                                <span style={{ color: info.color, fontWeight: 600 }}>{info.qtd} un</span>
+                                <span style={{ color: 'var(--text-tertiary)' }}>· {info.label}</span>
+                              </div>
+                            )
+                          })()}
                         </div>
                         {prod.custoTotal > 0 && (
                           <div style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0, textAlign: 'right' }}>
