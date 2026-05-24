@@ -115,12 +115,18 @@ export default function MiseEnPlace() {
         map[key].necessario += ing.quantidade * doses
       }
     }
-    const estMap = Object.fromEntries((insumos || []).map(i => [i.id, i.estoque || i.estoqueAtual]))
+    const aju = computeAjustesPendentes(producoes || [])
+    const estMap = Object.fromEntries((insumos || []).map(i => {
+      const base = i.estoque ?? i.estoqueAtual ?? null
+      if (base == null) return [i.id, null]
+      const delta = aju.insumos?.[i.id] || 0
+      return [i.id, Math.max(0, base + delta)]
+    }))
     return Object.values(map).map(it => ({
       ...it,
       estoque: it.insumoId ? (estMap[it.insumoId] ?? null) : null,
     }))
-  }, [dosesPerReceita, receitas, insumos])
+  }, [dosesPerReceita, receitas, insumos, producoes])
 
   const temFalta = debitosTotais.some(d => d.estoque != null && d.estoque < d.necessario)
 
