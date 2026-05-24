@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
-import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda, getCompras, getVendas } from '../services/db'
+import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda, getCompras, getVendas, getProducoes, computeAjustesPendentes } from '../services/db'
 import { getConfig, CONFIG_DEFAULTS } from '../hooks/useConfig'
 import { NovoPedidoSheet } from './Pedidos'
 import { useToast } from '../hooks/useToast'
@@ -280,6 +280,16 @@ export default function Home() {
   const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
   const { data: compras } = useData(getCompras)
   const { data: vendas }  = useData(getVendas)
+  const { data: producoes } = useData(getProducoes)
+  const ajustes = useMemo(() => computeAjustesPendentes(producoes || []), [producoes])
+  const aplicarAjusteHome = (itens, map) => {
+    if (!map || Object.keys(map).length === 0) return itens
+    return itens.map(i => {
+      const d = map[i.id] || 0
+      if (d === 0) return i
+      return { ...i, estoqueAtual: Math.max(0, (i.estoqueAtual ?? 0) + d) }
+    })
+  }
 
   const reloadAll = () => { reloadEnc(); reloadIns(); reloadEmb(); reloadProd() }
 
@@ -296,13 +306,15 @@ export default function Home() {
   const aReceber        = (encomendas || []).filter(e => e.status !== 'Cancelado' && e.pgto !== 'Pago').reduce((s, e) => s + (e.saldo || 0), 0)
   const pgtosPendentes  = (encomendas || []).filter(e => e.status !== 'Cancelado' && e.pgto !== 'Pago').length
 
-  const alertasInsumos = (insumos || [])
+  const insumosFut = aplicarAjusteHome(insumos || [], ajustes?.insumos)
+  const produtosFut = aplicarAjusteHome(produtos || [], ajustes?.produtos)
+  const alertasInsumos = insumosFut
     .filter(i => i.estoqueAtual !== null && i.estoqueAtual !== undefined && i.estoqueMin > 0 && nivelEstoque(i.estoqueAtual, i.estoqueMin) < 2)
     .sort((a, b) => nivelEstoque(a.estoqueAtual, a.estoqueMin) - nivelEstoque(b.estoqueAtual, b.estoqueMin))
   const alertasEmb = (embalagens || [])
     .filter(e => e.estoqueAtual !== null && e.estoqueAtual !== undefined && e.estoqueMin > 0 && nivelEstoque(e.estoqueAtual, e.estoqueMin) < 2)
     .sort((a, b) => nivelEstoque(a.estoqueAtual, a.estoqueMin) - nivelEstoque(b.estoqueAtual, b.estoqueMin))
-  const alertasProd = (produtos || [])
+  const alertasProd = produtosFut
     .filter(p => p.estoqueAtual !== null && p.estoqueAtual !== undefined && p.estoqueMin > 0 && nivelEstoque(p.estoqueAtual, p.estoqueMin) < 2)
     .map(p => ({ ...p, unidade: 'un' }))
     .sort((a, b) => nivelEstoque(a.estoqueAtual, a.estoqueMin) - nivelEstoque(b.estoqueAtual, b.estoqueMin))

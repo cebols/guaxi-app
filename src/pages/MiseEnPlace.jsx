@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
   getReceitas, getInsumos, getProdutos,
-  saveProducao, getProducoes,
+  saveProducao, getProducoes, computeAjustesPendentes,
 } from '../services/db'
 
 function norm(s) {
@@ -124,6 +124,26 @@ export default function MiseEnPlace() {
 
   const temFalta = debitosTotais.some(d => d.estoque != null && d.estoque < d.necessario)
 
+  // Sugestões de produção: produtos com estoque futuro < mínimo, e ainda não no lote atual
+  const sugestoes = useMemo(() => {
+    const aju = computeAjustesPendentes(producoes || [])
+    const noLote = new Set(lote.filter(x => x.tipo === 'produto').map(x => x.refId))
+    return (produtos || [])
+      .filter(p => p.tipo !== 'combo' && p.tipo !== 'avulso' && p.estoqueMin > 0 && !noLote.has(p.id))
+      .map(p => {
+        const futuro = Math.max(0, (p.estoqueAtual ?? 0) + (aju.produtos?.[p.id] || 0))
+        const falta = p.estoqueMin - futuro
+        return { ...p, futuro, falta }
+      })
+      .filter(p => p.falta > 0)
+      .sort((a, b) => b.falta - a.falta)
+      .slice(0, 4)
+  }, [producoes, produtos, lote])
+
+  function addProdutoSugerido(prod, qtd) {
+    setLote(l => [...l, { tipo: 'produto', refId: prod.id, nome: prod.nome, qtd }])
+  }
+
   // Última produção não concluída
   const ultimaIncompleta = useMemo(() => {
     for (const prod of (producoes || [])) {
@@ -199,6 +219,26 @@ export default function MiseEnPlace() {
             </div>
             <span style={{ color: '#60a5fa', fontSize: 18, flexShrink: 0 }}>›</span>
           </button>
+        )}
+        {sugestoes.length > 0 && lote.length === 0 && (
+          <div className="card" style={{ padding: '10px 14px', marginBottom: 12, background: 'rgba(245,158,11,0.06)', borderColor: '#92400e' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>💡 Sugestões</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>Abaixo do mínimo (considerando produções planejadas)</div>
+            {sugestoes.map(s => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{s.nome}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                    {s.futuro} un · mín. {s.estoqueMin} · faltam {Math.ceil(s.falta)}
+                  </div>
+                </div>
+                <button onClick={() => addProdutoSugerido(s, Math.ceil(s.falta))}
+                  style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                  + {Math.ceil(s.falta)}
+                </button>
+              </div>
+            ))}
+          </div>
         )}
         {lote.length > 0 && (
           <div className="card" style={{ padding: '10px 14px', marginBottom: 12 }}>
