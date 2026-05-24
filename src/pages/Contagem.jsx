@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores } from '../services/db'
@@ -694,14 +695,35 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
 // ─── ConsultarView ───────────────────────────────────────────────────────────
 function ConsultarView({ insumos, embalagens, produtos, onVoltar }) {
   const [tab, setTab] = useState('insumos')
+  const [sortBy, setSortBy] = useState('proximo_fim') // proximo_fim | nome | categoria | maior_estoque
+  const [filtro, setFiltro] = useState('todos') // todos | abaixo_min | sem_estoque
 
   const produtosParaConsulta = useMemo(() => (produtos || [])
     .filter(p => p.tipo !== 'combo')
     .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' })),
     [produtos])
 
-  const itens = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : tab === 'produtos' ? produtosParaConsulta : []
-  const grupos = groupBy(itens, 'categoria')
+  const baseItens = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : tab === 'produtos' ? produtosParaConsulta : []
+
+  const itensProcessados = useMemo(() => {
+    let list = [...baseItens]
+    // filtro
+    if (filtro === 'abaixo_min') list = list.filter(i => i.estoqueAtual != null && i.estoqueAtual < (i.estoqueMin || 0))
+    else if (filtro === 'sem_estoque') list = list.filter(i => !i.estoqueAtual || i.estoqueAtual <= 0)
+    // sort
+    if (sortBy === 'nome') list.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'))
+    else if (sortBy === 'maior_estoque') list.sort((a, b) => (b.estoqueAtual || 0) - (a.estoqueAtual || 0))
+    else if (sortBy === 'proximo_fim') {
+      list.sort((a, b) => {
+        const ra = a.estoqueMin > 0 ? (a.estoqueAtual ?? 0) / a.estoqueMin : Infinity
+        const rb = b.estoqueMin > 0 ? (b.estoqueAtual ?? 0) / b.estoqueMin : Infinity
+        return ra - rb
+      })
+    }
+    return list
+  }, [baseItens, sortBy, filtro])
+
+  const grupos = sortBy === 'categoria' ? groupBy(itensProcessados, 'categoria') : { '': itensProcessados }
 
   return (
     <>
@@ -724,10 +746,32 @@ function ConsultarView({ insumos, embalagens, produtos, onVoltar }) {
           <GastosTab />
         ) : (
           <>
-            {itens.length === 0 && <div className="empty" style={{ marginTop: 24 }}><span>Nenhum item cadastrado</span></div>}
+            {/* Filtros e ordenação */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+              {[['todos','Todos'],['abaixo_min','⚠ Abaixo do mín.'],['sem_estoque','Sem estoque']].map(([k,l]) => (
+                <button key={k} onClick={() => setFiltro(k)} style={{
+                  fontSize: 11, padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
+                  border: filtro === k ? '1px solid var(--teal)' : '1px solid var(--border-color)',
+                  background: filtro === k ? 'var(--teal)' : 'transparent',
+                  color: filtro === k ? '#fff' : 'var(--text-secondary)',
+                  fontWeight: filtro === k ? 600 : 400,
+                }}>{l}</button>
+              ))}
+              <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{
+                fontSize: 11, padding: '4px 10px', borderRadius: 6, marginLeft: 'auto',
+                border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer',
+              }}>
+                <option value="proximo_fim">⏳ Próx. do fim</option>
+                <option value="categoria">📂 Categoria</option>
+                <option value="nome">A–Z</option>
+                <option value="maior_estoque">Maior estoque</option>
+              </select>
+            </div>
+
+            {itensProcessados.length === 0 && <div className="empty" style={{ marginTop: 24 }}><span>Nenhum item</span></div>}
             {Object.entries(grupos).map(([cat, items]) => (
               <div key={cat}>
-                <div className="cat-header">{cat}</div>
+                {cat && <div className="cat-header">{cat}</div>}
                 <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
                   {items.map((item, i) => {
                     const pct = item.estoqueMin > 0 ? Math.min(100, Math.max(0, (item.estoqueAtual ?? 0) / item.estoqueMin * 100)) : 100
@@ -766,6 +810,7 @@ export default function Contagem() {
   const { data: embalagens, loading: loadEmb,  reload: reloadEmb  } = useData(getEmbalagens)
   const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
   const { toast, show } = useToast()
+  const navigate = useNavigate()
 
   const [vista, setVista]   = useState(null) // null | 'contagem' | 'compra' | 'consultar'
   const [tab, setTab]       = useState('insumos')
@@ -997,11 +1042,12 @@ export default function Contagem() {
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>O que deseja fazer?</div>
 
           {[
-            { key: 'contagem', icon: '📦', titulo: 'Contar estoque', sub: 'Registrar o estoque físico atual', accent: 'var(--teal)' },
-            { key: 'compra',   icon: '🛒', titulo: 'Nova compra',    sub: 'Registrar compra de insumos ou embalagens', accent: '#60a5fa' },
-            { key: 'consultar',icon: '🔍', titulo: 'Consultar',      sub: 'Ver estoque atual e histórico de compras', accent: '#a78bfa' },
+            { key: 'contagem',  icon: '📦', titulo: 'Contar estoque', sub: 'Registrar o estoque físico atual', accent: 'var(--teal)' },
+            { key: 'compra',    icon: '🛒', titulo: 'Nova compra',    sub: 'Registrar compra de insumos ou embalagens', accent: '#60a5fa' },
+            { key: 'consultar', icon: '🔍', titulo: 'Consultar',      sub: 'Ver estoque atual com filtros e ordenação', accent: '#a78bfa' },
+            { key: 'historico', icon: '📋', titulo: 'Histórico de produção', sub: 'Mise en place: o que foi produzido e debitado', accent: '#f59e0b', route: '/mise-en-place/historico' },
           ].map(c => (
-            <button key={c.key} onClick={() => setVista(c.key)} style={{
+            <button key={c.key} onClick={() => c.route ? navigate(c.route) : setVista(c.key)} style={{
               width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 10,
               display: 'flex', gap: 14, alignItems: 'center',
               background: 'var(--bg-card)', border: '1px solid var(--border-color)',

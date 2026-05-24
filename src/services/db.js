@@ -1004,7 +1004,8 @@ export async function saveProducao(lote, receitas, produtos) {
       }
     })
 
-    await supabase.from('producao_itens').insert(itemsToInsert)
+    const { error: insErr } = await supabase.from('producao_itens').insert(itemsToInsert)
+    if (insErr) throw insErr
 
     // Aplica débitos de insumos
     await aplicarDebitosInsumos(debitos, -1)
@@ -1070,9 +1071,61 @@ async function reverterSnapshot(snap) {
   }
 }
 
+// Recomputa snapshot a partir dos dados do item + receitas/produtos atuais
+// Usado como fallback quando o item não tem snapshot salvo (migração antiga)
+async function rebuildSnapshot(item) {
+  const { data: receitas } = await supabase.from('receitas').select('*, receita_ingredientes(*)')
+  const recs = (receitas || []).map(r => ({
+    id: r.id,
+    rendimento: r.rendimento || 1,
+    fatorPerda: r.fator_perda,
+    ingredientes: (r.receita_ingredientes || []).map(i => ({ insumoId: i.insumo_id, quantidade: i.quantidade })),
+  }))
+
+  let dosesContrib = {}
+  let credito = null
+
+  if (item.tipo === 'produto' && item.produto_id) {
+    const { data: prs } = await supabase.from('produto_receitas').select('*').eq('produto_id', item.produto_id)
+    for (const pr of (prs || [])) {
+      const rec = recs.find(r => r.id === pr.receita_id)
+      if (!rec) continue
+      const d = ((pr.quantidade || 1) * (item.quantidade || 0)) / rec.rendimento
+      dosesContrib[pr.receita_id] = (dosesContrib[pr.receita_id] || 0) + d
+    }
+    credito = { tipo: 'produto', id: item.produto_id, qtd: item.quantidade || 0 }
+  } else if (item.receita_id) {
+    const rec = recs.find(r => r.id === item.receita_id)
+    let d = 0
+    if (rec) {
+      if (item.modo === 'peso_liquido' && rec.fatorPerda != null) d = (item.valor_alvo || 0) / (1 - rec.fatorPerda / 100) / rec.rendimento
+      else if (item.modo === 'unidades') d = (item.valor_alvo || 0) / rec.rendimento
+      else d = item.quantidade || 0
+      dosesContrib[item.receita_id] = d
+    }
+    let qtdCredit
+    if (item.modo === 'peso_liquido' || item.modo === 'unidades') qtdCredit = item.valor_alvo || 0
+    else qtdCredit = rec ? d * rec.rendimento * (1 - (rec.fatorPerda || 0) / 100) : 0
+    credito = { tipo: 'receita', id: item.receita_id, qtd: qtdCredit }
+  }
+
+  const debitos = {}
+  for (const [recIdStr, d] of Object.entries(dosesContrib)) {
+    const rec = recs.find(r => r.id === Number(recIdStr))
+    if (!rec) continue
+    for (const ing of rec.ingredientes) {
+      if (ing.insumoId) debitos[ing.insumoId] = (debitos[ing.insumoId] || 0) + ing.quantidade * d
+    }
+  }
+  return { debitos, credito, dosesContrib }
+}
+
 export async function deleteProducaoItem(itemId) {
   const { data } = await supabase.from('producao_itens').select('*').eq('id', itemId).single()
-  if (data?.snapshot) await reverterSnapshot(data.snapshot)
+  if (data) {
+    const snap = data.snapshot || await rebuildSnapshot(data)
+    await reverterSnapshot(snap)
+  }
   await supabase.from('producao_itens').delete().eq('id', itemId)
 }
 
@@ -1107,7 +1160,8 @@ export async function updateProducaoChecks(id, checks) {
 export async function deleteProducao(id) {
   const { data } = await supabase.from('producao_itens').select('*').eq('producao_id', id)
   for (const item of (data || [])) {
-    if (item.snapshot) await reverterSnapshot(item.snapshot)
+    const snap = item.snapshot || await rebuildSnapshot(item)
+    await reverterSnapshot(snap)
   }
   await supabase.from('producoes').delete().eq('id', id)
 }

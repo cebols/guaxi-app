@@ -1,5 +1,5 @@
-import { useState, useCallback, Fragment } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useState, useCallback, Fragment, useEffect } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { getReceitas, deleteReceitas, saveReceita, getInsumos } from '../services/db'
 
@@ -37,13 +37,18 @@ function fmtQty(n, unidade) {
 export default function Cozinha() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { data: receitas, loading } = useData(getReceitas)
 
   const { data: insumos } = useData(getInsumos)
   const receita = (receitas || []).find(r => String(r.id) === String(id))
   const ingredientes = receita?.ingredientes || []
 
-  const [fator, setFator] = useState(1)
+  const dosesParam = parseFloat(searchParams.get('doses'))
+  const [fator, setFator] = useState(dosesParam > 0 ? Math.round(dosesParam * 100) / 100 : 1)
+  useEffect(() => {
+    if (dosesParam > 0) setFator(Math.round(dosesParam * 100) / 100)
+  }, [dosesParam])
   const [pesoInput, setPesoInput] = useState('')
   const [liquidoInput, setLiquidoInput] = useState('')
   const [checked, setChecked] = useState({})

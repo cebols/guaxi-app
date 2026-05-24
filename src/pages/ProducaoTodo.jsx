@@ -142,8 +142,15 @@ export default function ProducaoTodo() {
       </div>
 
       <div className="page-content">
-        {/* Progress */}
-        <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
+        {/* Progress (sticky no topo) */}
+        <div className="card" style={{
+          padding: '12px 14px', marginBottom: 12,
+          position: 'sticky', top: 0, zIndex: 10,
+          backdropFilter: 'blur(8px)',
+          background: 'color-mix(in srgb, var(--bg-card) 92%, transparent)',
+          transition: 'box-shadow 0.2s, padding 0.2s',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+        }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>{doneReceitas} de {totalReceitas} receita(s) feitas</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: pct === 100 ? 'var(--teal)' : 'var(--text-primary)' }}>{pct}%</div>
@@ -207,6 +214,11 @@ export default function ProducaoTodo() {
                     {fmtQtd(doses)} dose(s) → {fmtQtd(renderTotal)} {rec.unidadeGera}{fp > 0 ? ` (${fmtQtd(liq)} líq)` : ''}
                   </div>
                 </div>
+                <button onClick={e => { e.stopPropagation(); navigate(`/fichas/${recIdStr}?doses=${doses}`) }}
+                  title="Abrir modo cozinha"
+                  style={{ background: 'rgba(20,184,166,0.1)', border: '1px solid var(--teal)', color: 'var(--teal)', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: '5px 9px', borderRadius: 6 }}>
+                  👨‍🍳 Cozinha
+                </button>
                 <button onClick={e => { e.stopPropagation(); setExpandReceita(s => ({ ...s, [recIdStr]: !s[recIdStr] })) }}
                   style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 14, cursor: 'pointer', padding: '4px 8px', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</button>
               </div>
