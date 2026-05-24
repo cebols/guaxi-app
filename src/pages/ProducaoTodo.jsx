@@ -27,7 +27,7 @@ export default function ProducaoTodo() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { data: receitas } = useData(getReceitas)
-  const { data: insumos }  = useData(getInsumos)
+  const { data: insumos, reload: reloadInsumos } = useData(getInsumos)
 
   const [prod, setProd]       = useState(null)
   const [loading, setLoading] = useState(true)
@@ -90,6 +90,7 @@ export default function ProducaoTodo() {
     setProd({ ...prod, checks: arr })
     try {
       await updateProducaoChecks(prod.id, arr)
+      reloadInsumos()
     } catch (e) {
       alert('Erro ao salvar: ' + e.message)
       reload()

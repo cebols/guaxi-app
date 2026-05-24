@@ -939,25 +939,27 @@ async function ajustarEstoqueReceita(id, delta) {
 
 export async function saveProducao(lote, receitas, produtos) {
   try {
-    const { dosesPerReceita, perItemContrib } = computeDoses(lote, receitas, produtos)
-    const debitos = computeDebitos(dosesPerReceita, receitas)
+    const { perItemContrib } = computeDoses(lote, receitas, produtos)
 
-    // Cria producao
     const { data: prod, error } = await supabase.from('producoes').insert({ created_at: new Date().toISOString() }).select().single()
     if (error) throw error
 
-    // Monta snapshots + linhas por item
     const itemsToInsert = lote.map((item, idx) => {
       const contribDoses = perItemContrib[idx]
       const itemDebitos = {}
+      const debitosPorReceita = {}
       for (const [recIdStr, d] of Object.entries(contribDoses)) {
         const rec = receitas.find(r => r.id === Number(recIdStr))
         if (!rec) continue
+        const recDeb = {}
         for (const ing of (rec.ingredientes || [])) {
           if (ing.insumoId) {
-            itemDebitos[ing.insumoId] = (itemDebitos[ing.insumoId] || 0) + ing.quantidade * d
+            const q = ing.quantidade * d
+            itemDebitos[ing.insumoId] = (itemDebitos[ing.insumoId] || 0) + q
+            recDeb[ing.insumoId] = (recDeb[ing.insumoId] || 0) + q
           }
         }
+        debitosPorReceita[recIdStr] = recDeb
       }
 
       let credito = null
@@ -972,7 +974,14 @@ export async function saveProducao(lote, receitas, produtos) {
         credito = { tipo: 'receita', id: item.refId, qtd: qtdCredit }
       }
 
-      const snapshot = { debitos: itemDebitos, credito, dosesContrib: contribDoses }
+      const hasReceitas = Object.keys(contribDoses).length > 0
+      const snapshot = {
+        debitos: itemDebitos,
+        credito,
+        dosesContrib: contribDoses,
+        debitosPorReceita,
+        creditoAplicadoNaCriacao: !hasReceitas,
+      }
 
       if (item.tipo === 'produto') {
         return {
@@ -1007,20 +1016,12 @@ export async function saveProducao(lote, receitas, produtos) {
     const { error: insErr } = await supabase.from('producao_itens').insert(itemsToInsert)
     if (insErr) throw insErr
 
-    // Aplica débitos de insumos
-    await aplicarDebitosInsumos(debitos, -1)
-
-    // Créditos em produtos/receitas
-    for (const item of lote) {
-      if (item.tipo === 'produto') {
+    // Itens sem receitas (avulsos): crédito aplicado imediatamente
+    for (let idx = 0; idx < lote.length; idx++) {
+      const item = lote[idx]
+      const hasReceitas = Object.keys(perItemContrib[idx]).length > 0
+      if (!hasReceitas && item.tipo === 'produto') {
         await ajustarEstoqueProduto(item.refId, item.qtd || 0)
-      } else {
-        const rec = receitas.find(r => r.id === item.refId)
-        let qtd
-        if (item.modo === 'peso_liquido') qtd = item.valorAlvo || 0
-        else if (item.modo === 'unidades') qtd = item.valorAlvo || 0
-        else qtd = rendimentoLiquidoCalc(rec, item.qtd || 0)
-        await ajustarEstoqueReceita(item.refId, qtd)
       }
     }
 
@@ -1029,6 +1030,31 @@ export async function saveProducao(lote, receitas, produtos) {
     if (e?.code === '42P01' || e?.message?.includes('producoes')) return null
     throw e
   }
+}
+
+// Detecta se item foi salvo no formato novo (estoque dirigido por checks)
+function isItemNovoFormato(item) {
+  return item?.snapshot && item.snapshot.debitosPorReceita != null
+}
+
+function itemCompleto(item, checksSet) {
+  const dosesContrib = item.snapshot?.dosesContrib || {}
+  const recIds = Object.keys(dosesContrib)
+  if (recIds.length === 0) return true
+  return recIds.every(rid => checksSet.has(String(rid)))
+}
+
+async function aplicarDebitosDeReceita(item, recIdStr, sinal) {
+  const debitos = item.snapshot?.debitosPorReceita?.[recIdStr]
+  if (debitos) await aplicarDebitosInsumos(debitos, sinal)
+}
+
+async function aplicarCreditoItem(item, sinal) {
+  const credito = item.snapshot?.credito
+  if (!credito) return
+  const delta = sinal * (credito.qtd || 0)
+  if (credito.tipo === 'produto') await ajustarEstoqueProduto(credito.id, delta)
+  else if (credito.tipo === 'receita') await ajustarEstoqueReceita(credito.id, delta)
 }
 
 export async function getProducoes(limit = 30) {
@@ -1120,11 +1146,36 @@ async function rebuildSnapshot(item) {
   return { debitos, credito, dosesContrib }
 }
 
+// Reverte do estoque apenas o que JÁ FOI APLICADO para este item, considerando os checks atuais
+async function reverterAplicado(item, checks) {
+  if (!item?.snapshot) return
+  if (!isItemNovoFormato(item)) {
+    // Legacy: snapshot aplicado integralmente na criação → reverte tudo
+    return reverterSnapshot(item.snapshot)
+  }
+  const checkSet = new Set((checks || []).map(String))
+  // Reverte débitos das receitas marcadas como concluídas
+  for (const recIdStr of Object.keys(item.snapshot.debitosPorReceita || {})) {
+    if (checkSet.has(recIdStr)) {
+      await aplicarDebitosDeReceita(item, recIdStr, +1)
+    }
+  }
+  // Reverte crédito se aplicado (item completo, ou avulso já aplicado na criação)
+  if (item.snapshot.creditoAplicadoNaCriacao || itemCompleto(item, checkSet)) {
+    await aplicarCreditoItem(item, -1)
+  }
+}
+
 export async function deleteProducaoItem(itemId) {
-  const { data } = await supabase.from('producao_itens').select('*').eq('id', itemId).single()
+  const { data } = await supabase.from('producao_itens').select('*, producoes(checks)').eq('id', itemId).single()
   if (data) {
-    const snap = data.snapshot || await rebuildSnapshot(data)
-    await reverterSnapshot(snap)
+    if (isItemNovoFormato(data)) {
+      const checks = Array.isArray(data.producoes?.checks) ? data.producoes.checks : []
+      await reverterAplicado(data, checks)
+    } else {
+      const snap = data.snapshot || await rebuildSnapshot(data)
+      await reverterSnapshot(snap)
+    }
   }
   await supabase.from('producao_itens').delete().eq('id', itemId)
 }
@@ -1152,16 +1203,57 @@ export async function getProducao(id) {
   }
 }
 
-export async function updateProducaoChecks(id, checks) {
-  const { error } = await supabase.from('producoes').update({ checks }).eq('id', id)
+export async function updateProducaoChecks(id, newChecks) {
+  // Busca estado atual
+  const { data: prod, error } = await supabase
+    .from('producoes')
+    .select('checks, producao_itens(*)')
+    .eq('id', id)
+    .single()
   if (error) throw error
+
+  const oldChecks = Array.isArray(prod.checks) ? prod.checks : []
+  const oldSet = new Set(oldChecks.map(String))
+  const newSet = new Set((newChecks || []).map(String))
+
+  const added = [...newSet].filter(r => !oldSet.has(r))
+  const removed = [...oldSet].filter(r => !newSet.has(r))
+
+  for (const item of (prod.producao_itens || [])) {
+    if (!isItemNovoFormato(item)) continue // legacy: estoque já aplicado na criação
+
+    // Aplica débitos das receitas adicionadas, reverte das removidas
+    for (const rec of added) await aplicarDebitosDeReceita(item, rec, -1)
+    for (const rec of removed) await aplicarDebitosDeReceita(item, rec, +1)
+
+    // Aplica/reverte crédito conforme item completou ou descompletou
+    const wasComplete = itemCompleto(item, oldSet)
+    const isComplete = itemCompleto(item, newSet)
+    const creditoJaAplicadoNaCriacao = item.snapshot?.creditoAplicadoNaCriacao
+    if (!creditoJaAplicadoNaCriacao) {
+      if (!wasComplete && isComplete) await aplicarCreditoItem(item, +1)
+      else if (wasComplete && !isComplete) await aplicarCreditoItem(item, -1)
+    }
+  }
+
+  const { error: upErr } = await supabase.from('producoes').update({ checks: newChecks }).eq('id', id)
+  if (upErr) throw upErr
 }
 
 export async function deleteProducao(id) {
-  const { data } = await supabase.from('producao_itens').select('*').eq('producao_id', id)
-  for (const item of (data || [])) {
-    const snap = item.snapshot || await rebuildSnapshot(item)
-    await reverterSnapshot(snap)
+  const { data: prod } = await supabase
+    .from('producoes')
+    .select('checks, producao_itens(*)')
+    .eq('id', id)
+    .single()
+  const checks = Array.isArray(prod?.checks) ? prod.checks : []
+  for (const item of (prod?.producao_itens || [])) {
+    if (isItemNovoFormato(item)) {
+      await reverterAplicado(item, checks)
+    } else {
+      const snap = item.snapshot || await rebuildSnapshot(item)
+      await reverterSnapshot(snap)
+    }
   }
   await supabase.from('producoes').delete().eq('id', id)
 }
