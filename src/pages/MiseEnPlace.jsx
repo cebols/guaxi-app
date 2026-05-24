@@ -480,6 +480,21 @@ function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais,
   const [showCompras, setShowCompras] = useState(false)
   const faltas = debitosTotais.filter(d => d.estoque != null && d.estoque < d.necessario)
 
+  const embalagensTotais = useMemo(() => {
+    const map = {}
+    for (const item of lote) {
+      if (item.tipo !== 'produto') continue
+      const prod = produtos.find(p => p.id === item.refId)
+      if (!prod || !prod.embalagens?.length) continue
+      for (const emb of prod.embalagens) {
+        const total = (emb.quantidade || 0) * (item.qtd || 0)
+        if (!map[emb.embalagemId]) map[emb.embalagemId] = { nome: emb.nome, total: 0 }
+        map[emb.embalagemId].total += total
+      }
+    }
+    return Object.entries(map).map(([id, v]) => ({ id, ...v })).filter(e => e.total > 0)
+  }, [lote, produtos])
+
   const btnStyle = { width: 24, height: 24, borderRadius: 5, border: '1px solid var(--border)', background: 'var(--bg-secondary, #374151)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }
 
   return (
@@ -558,6 +573,19 @@ function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais,
             </div>
           )
         })}
+
+        {/* Embalagens necessárias */}
+        {embalagensTotais.length > 0 && (
+          <div style={{ marginTop: 14, border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Embalagens necessárias</div>
+            {embalagensTotais.map((emb, i) => (
+              <div key={emb.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12, borderBottom: i < embalagensTotais.length - 1 ? '0.5px solid var(--border)' : 'none' }}>
+                <span style={{ color: 'var(--text-primary)' }}>{emb.nome}</span>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{fmtQtd(emb.total)} un</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Total a debitar (toggle) */}
         {debitosTotais.length > 0 && (

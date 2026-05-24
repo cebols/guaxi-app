@@ -723,19 +723,15 @@ function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
   const [tab, setTab] = useState('insumos')
   const [sortBy, setSortBy] = useState('proximo_fim') // proximo_fim | nome | categoria | maior_estoque
   const [filtro, setFiltro] = useState('todos') // todos | abaixo_min | sem_estoque
-  const [modo, setModo] = useState('atual') // atual | futuro
 
   const produtosParaConsulta = useMemo(() => (produtos || [])
     .filter(p => p.tipo !== 'combo')
     .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' })),
     [produtos])
 
-  const ajusteDoTab = modo === 'futuro'
-    ? (tab === 'insumos' ? ajustes?.insumos : tab === 'produtos' ? ajustes?.produtos : null)
-    : null
+  const ajusteMap = tab === 'insumos' ? ajustes?.insumos : tab === 'produtos' ? ajustes?.produtos : null
 
-  const baseItensRaw = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : tab === 'produtos' ? produtosParaConsulta : []
-  const baseItens = aplicarAjuste(baseItensRaw, ajusteDoTab)
+  const baseItens = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : tab === 'produtos' ? produtosParaConsulta : []
 
   const itensProcessados = useMemo(() => {
     let list = [...baseItens]
@@ -778,24 +774,6 @@ function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
           <GastosTab />
         ) : (
           <>
-            {/* Toggle Atual/Futuro - só faz sentido em insumos e produtos */}
-            {(tab === 'insumos' || tab === 'produtos') && (
-              <div style={{ display: 'flex', gap: 0, marginBottom: 10, border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden', width: 'fit-content' }}>
-                {[['atual', 'Atual'], ['futuro', 'Futuro']].map(([k, l]) => (
-                  <button key={k} onClick={() => setModo(k)} style={{
-                    fontSize: 12, padding: '6px 14px', cursor: 'pointer', border: 'none',
-                    background: modo === k ? 'var(--teal)' : 'transparent',
-                    color: modo === k ? '#fff' : 'var(--text-secondary)',
-                    fontWeight: modo === k ? 700 : 500,
-                  }}>{l}</button>
-                ))}
-              </div>
-            )}
-            {modo === 'futuro' && (tab === 'insumos' || tab === 'produtos') && (
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10, marginTop: -4 }}>
-                Considerando produções planejadas ainda não concluídas
-              </div>
-            )}
 
             {/* Filtros e ordenação */}
             <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -825,8 +803,12 @@ function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
                 {cat && <div className="cat-header">{cat}</div>}
                 <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
                   {items.map((item, i) => {
-                    const pct = item.estoqueMin > 0 ? Math.min(100, Math.max(0, (item.estoqueAtual ?? 0) / item.estoqueMin * 100)) : 100
+                    const atual = item.estoqueAtual ?? 0
+                    const delta = ajusteMap?.[item.id] || 0
+                    const futuro = delta !== 0 ? Math.max(0, atual + delta) : null
+                    const pct = item.estoqueMin > 0 ? Math.min(100, Math.max(0, atual / item.estoqueMin * 100)) : 100
                     const barColor = pct < 50 ? '#ef4444' : pct < 100 ? '#f59e0b' : 'var(--teal)'
+                    const futuroPct = futuro != null && item.estoqueMin > 0 ? futuro / item.estoqueMin : null
                     return (
                     <div key={item.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: i < items.length - 1 ? '1px solid #222' : 'none' }}>
                       <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
@@ -838,8 +820,13 @@ function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
                       </div>
                       <div style={{ textAlign: 'right', flexShrink: 0 }}>
                         <div style={{ fontWeight: 700, fontSize: 16, color: pct < 100 ? barColor : 'var(--text-primary)' }}>
-                          {fmtN(item.estoqueAtual ?? 0)}
+                          {fmtN(atual)}
                         </div>
+                        {futuro !== null && (
+                          <div style={{ fontSize: 12, color: futuroPct != null && futuroPct < 1 ? '#f59e0b' : 'var(--text-secondary)', marginTop: 1 }}>
+                            → {fmtN(futuro)} fut.
+                          </div>
+                        )}
                         <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{item.unidade}</div>
                       </div>
                     </div>
