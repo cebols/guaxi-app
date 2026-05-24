@@ -66,7 +66,7 @@ function ListaCompras({ contagem, itens }) {
       const val = parseFloat(contagem[item.id] ?? item.estoqueAtual)
       const falta = calcPedir(val, item.estoqueMin)
       if (!falta || falta <= 0) return null
-      return { id: item.id, nome: item.nome, falta, unidade: item.unidade || '', whatsapp: item.whatsapp || '', fornecedor: item.fornecedor || '', linkCompra: item.linkCompra || '' }
+      return { id: item.id, nome: item.nome, falta: Math.ceil(falta), unidade: item.unidade || '', whatsapp: item.whatsapp || '', fornecedor: item.fornecedor || '', linkCompra: item.linkCompra || '' }
     })
     .filter(Boolean)
 
