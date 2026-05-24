@@ -130,7 +130,7 @@ export default function ProducaoHistorico() {
                           ? `${fmtQtd(item.quantidade)} un`
                           : item.modo === 'peso_liquido' ? `${fmtQtd(item.valorAlvo)} g líq`
                             : item.modo === 'unidades' ? `${fmtQtd(item.valorAlvo)} un`
-                            : `${fmtQtd(item.quantidade)} receita(s) original(is)`}
+                            : `${fmtQtd(item.quantidade)} Receita original`}
                       </span>
                       <button onClick={() => setConfirmDelItem({ itemId: item.id, prodId: prod.id })}
                         style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 14, cursor: 'pointer', padding: '0 4px' }}>×</button>

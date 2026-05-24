@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
   getReceitas, getInsumos, getProdutos,
-  saveProducao,
+  saveProducao, getProducoes,
 } from '../services/db'
 
 function norm(s) {
@@ -40,6 +40,7 @@ export default function MiseEnPlace() {
   const { data: receitas } = useData(getReceitas)
   const { data: insumos }  = useData(getInsumos)
   const { data: produtos } = useData(getProdutos)
+  const { data: producoes } = useData(getProducoes)
 
   const [busca, setBusca]             = useState('')
   const [filtroTipo, setFiltroTipo]   = useState('todos') // 'todos' | 'receitas' | 'produtos'
@@ -123,6 +124,19 @@ export default function MiseEnPlace() {
 
   const temFalta = debitosTotais.some(d => d.estoque != null && d.estoque < d.necessario)
 
+  // Última produção não concluída
+  const ultimaIncompleta = useMemo(() => {
+    for (const prod of (producoes || [])) {
+      const receitaIds = new Set(
+        prod.itens.flatMap(i => i.snapshot?.dosesContrib ? Object.keys(i.snapshot.dosesContrib) : (i.receitaId ? [String(i.receitaId)] : []))
+      )
+      const total = receitaIds.size
+      const done = (prod.checks || []).filter(c => receitaIds.has(String(c))).length
+      if (total > 0 && done < total) return { ...prod, total, done, pct: Math.round(done / total * 100) }
+    }
+    return null
+  }, [producoes])
+
   async function handleConfirmar() {
     setConfirmando(true)
     try {
@@ -167,6 +181,25 @@ export default function MiseEnPlace() {
       </div>
 
       <div className="page-content">
+        {ultimaIncompleta && (
+          <button onClick={() => navigate(`/producao/${ultimaIncompleta.id}`)} style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12,
+            padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
+            background: 'rgba(96,165,250,0.08)', border: '1px solid #60a5fa', textAlign: 'left',
+          }}>
+            <span style={{ fontSize: 20, flexShrink: 0 }}>▶</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase', letterSpacing: 0.4 }}>Continuar produção</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
+                {fmtDate(ultimaIncompleta.createdAt)} · {ultimaIncompleta.done}/{ultimaIncompleta.total} receitas
+              </div>
+              <div style={{ height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden', marginTop: 5 }}>
+                <div style={{ height: '100%', width: `${ultimaIncompleta.pct}%`, background: '#60a5fa' }} />
+              </div>
+            </div>
+            <span style={{ color: '#60a5fa', fontSize: 18, flexShrink: 0 }}>›</span>
+          </button>
+        )}
         {lote.length > 0 && (
           <div className="card" style={{ padding: '10px 14px', marginBottom: 12 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>Produção de hoje</div>
@@ -342,7 +375,7 @@ function LoteCard({ item, rec, prod, receitas, onUpdate, onRemove }) {
             />
             <button onClick={() => onUpdate({ qtd: (item.qtd || 0) + 1 })} style={btnStyle}>+</button>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              receita(s) original(is) → {fmtQtd((rec?.rendimento || 0) * item.qtd)} {rec?.unidadeGera}
+              Receita original → {fmtQtd((rec?.rendimento || 0) * item.qtd)} {rec?.unidadeGera}
               {rec?.fatorPerda != null && PESO_UNITS.has(rec.unidadeGera) ? ` (${fmtQtd((rec.rendimento || 0) * item.qtd * (1 - rec.fatorPerda / 100))} líq)` : ''}
             </span>
           </>
@@ -464,7 +497,7 @@ function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais,
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)', marginBottom: 6 }}>
                 {rec.nome}
                 <span style={{ color: 'var(--text-secondary)', fontWeight: 400, marginLeft: 6 }}>
-                  {fmtQtd(doses)} receita(s) original(is) → {fmtQtd(renderTotal)} {rec.unidadeGera}{fp > 0 ? ` (${fmtQtd(liq)} líq)` : ''}
+                  {fmtQtd(doses)} Receita original → {fmtQtd(renderTotal)} {rec.unidadeGera}{fp > 0 ? ` (${fmtQtd(liq)} líq)` : ''}
                 </span>
               </div>
               {(rec.ingredientes || []).map((ing, i) => {

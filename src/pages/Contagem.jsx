@@ -35,9 +35,9 @@ function fmtQtd(v) {
   return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })
 }
 
-function round1(v) {
+function roundUp(v) {
   if (v == null || v === '') return v
-  return Math.round(parseFloat(v) * 10) / 10
+  return Math.ceil(parseFloat(v))
 }
 
 function fmtN(v) {
@@ -162,11 +162,11 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', 
           {cat && <div className="cat-header">{cat}</div>}
           <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
             {items.map(item => {
-              const rawStock = item.estoqueAtual != null ? round1(item.estoqueAtual) : ''
+              const rawStock = item.estoqueAtual != null ? roundUp(item.estoqueAtual) : ''
               const val = contagem[item.id] !== undefined ? contagem[item.id] : (rawStock !== '' ? String(rawStock) : '')
               const effectiveMin = minValues?.[item.id] ?? item.estoqueMin
               const falta = val !== '' ? calcPedir(val, effectiveMin) : null
-              const faltaRounded = falta != null ? round1(falta) : null
+              const faltaRounded = falta != null ? roundUp(falta) : null
               return (
                 <div key={item.id} className="stock-row">
                   <div>
