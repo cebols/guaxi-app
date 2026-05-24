@@ -921,7 +921,7 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
               Tem certeza? Isso apaga {pedido.id} ({pedido.cliente}) permanentemente.
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={async () => { setSaving(true); try { await deletePedido(pedido.id); onSaved(); onBack() } catch(e) { show('Erro: '+e.message); setSaving(false) } }} style={{ flex: 1, padding: 9, background: '#7f1d1d', color: '#fca5a5', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }} disabled={saving}>Apagar</button>
+              <button onClick={async () => { setSaving(true); try { await deletePedido(pedido.id); await onSaved(); onBack() } catch(e) { show('Erro: '+e.message); setSaving(false) } }} style={{ flex: 1, padding: 9, background: '#7f1d1d', color: '#fca5a5', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }} disabled={saving}>Apagar</button>
               <button onClick={() => setConfirm(false)} style={{ flex: 1, padding: 9, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
             </div>
           </div>

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
   getReceitas, getInsumos, getProdutos,
@@ -35,6 +36,7 @@ function dosesParaItem(item, rec) {
 }
 
 export default function MiseEnPlace() {
+  const navigate = useNavigate()
   const { data: receitas } = useData(getReceitas)
   const { data: insumos }  = useData(getInsumos)
   const { data: produtos } = useData(getProdutos)
@@ -62,8 +64,11 @@ export default function MiseEnPlace() {
     return [...prods, ...recs]
   }, [receitas, produtos, busca, filtroTipo])
 
-  function add(tipo, item) {
-    if (inLote(tipo, item.id)) return
+  function toggle(tipo, item) {
+    if (inLote(tipo, item.id)) {
+      setLote(l => l.filter(x => !(x.tipo === tipo && x.refId === item.id)))
+      return
+    }
     if (tipo === 'produto') {
       setLote(l => [...l, { tipo: 'produto', refId: item.id, nome: item.nome, qtd: 1 }])
     } else {
@@ -125,10 +130,11 @@ export default function MiseEnPlace() {
   async function handleConfirmar() {
     setConfirmando(true)
     try {
-      await saveProducao(lote, receitas || [], produtos || [])
+      const prodId = await saveProducao(lote, receitas || [], produtos || [])
       await reloadHist()
       setLote([])
       setSheet(null)
+      if (prodId) navigate(`/producao/${prodId}`)
     } catch (e) {
       alert('Erro ao confirmar: ' + e.message)
     } finally {
@@ -237,10 +243,10 @@ export default function MiseEnPlace() {
             return (
               <div key={`${item.tipo}-${item.id}`} className="card"
                 style={{
-                  padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10,
-                  cursor: inLot ? 'default' : 'pointer', opacity: inLot ? 0.5 : 1,
+                  padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
+                  borderLeft: inLot ? '3px solid var(--teal)' : '3px solid transparent',
                 }}
-                onClick={() => !inLot && add(item.tipo, item)}>
+                onClick={() => toggle(item.tipo, item)}>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, background: item.tipo === 'produto' ? '#1e3a5f' : '#334155', color: item.tipo === 'produto' ? '#60a5fa' : '#94a3b8', fontWeight: 600, letterSpacing: 0.3 }}>
@@ -250,8 +256,7 @@ export default function MiseEnPlace() {
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{item.sub}</div>
                 </div>
-                {!inLot && <span style={{ color: 'var(--text-tertiary)', fontSize: 20 }}>+</span>}
-                {inLot && <span style={{ color: 'var(--teal)', fontSize: 12 }}>✓</span>}
+                <span style={{ color: inLot ? 'var(--teal)' : 'var(--text-tertiary)', fontSize: inLot ? 14 : 20, fontWeight: 700 }}>{inLot ? '✓' : '+'}</span>
               </div>
             )
           })}
@@ -293,8 +298,8 @@ export default function MiseEnPlace() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 6 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{fmtDate(prod.createdAt)}</div>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={() => setHistDetalhe(prod)} style={{ fontSize: 11, color: 'var(--teal)', background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
-                      Ver
+                    <button onClick={() => navigate(`/producao/${prod.id}`)} style={{ fontSize: 11, color: 'var(--teal)', background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
+                      Abrir
                     </button>
                     <button onClick={() => setConfirmDelProd(prod.id)} style={{ fontSize: 11, color: 'var(--alert-text, #ef4444)', background: 'none', border: '1px solid var(--alert-text, #ef4444)', borderRadius: 6, padding: '3px 8px', cursor: 'pointer' }}>
                       Apagar
@@ -458,9 +463,25 @@ function LoteCard({ item, rec, prod, receitas, onUpdate, onRemove }) {
         )}
       </div>
 
+      {isReceita && rec && (
+        <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4, paddingLeft: 2 }}>
+          1× receita ={' '}
+          {!PESO_UNITS.has(rec.unidadeGera)
+            ? `${fmtQtd(rec.rendimento)} ${rec.unidadeGera}`
+            : rec.fatorPerda != null
+              ? `${fmtQtd(rec.rendimento)} ${rec.unidadeGera} bruto · ${fmtQtd(rec.rendimento * (1 - rec.fatorPerda / 100))} ${rec.unidadeGera} líq`
+              : `${fmtQtd(rec.rendimento)} ${rec.unidadeGera}`}
+        </div>
+      )}
+
       {isProduto && prod && (prod.receitas || []).length > 0 && (
         <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 6, paddingLeft: 4 }}>
-          contém: {(prod.receitas || []).map(rr => `${fmtQtd((rr.quantidade || 1) * (item.qtd || 0))} ${rr.unidadeGera || ''} ${rr.nome}`).join(' · ')}
+          <div style={{ fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 3 }}>contém</div>
+          {(prod.receitas || []).map((rr, i) => (
+            <div key={i} style={{ padding: '1px 0' }}>
+              · {fmtQtd((rr.quantidade || 1) * (item.qtd || 0))} {rr.unidadeGera || ''} {rr.nome}
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -468,6 +489,9 @@ function LoteCard({ item, rec, prod, receitas, onUpdate, onRemove }) {
 }
 
 function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais, confirmando, onClose, onConfirmar }) {
+  const [showDebit, setShowDebit] = useState(false)
+  const [showCompras, setShowCompras] = useState(false)
+  const faltas = debitosTotais.filter(d => d.estoque != null && d.estoque < d.necessario)
   return (
     <>
       <div className="sheet-overlay" onClick={onClose} />
@@ -527,13 +551,63 @@ function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais,
           )
         })}
 
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 14, marginBottom: 6 }}>Total a debitar do estoque</div>
-        {debitosTotais.map((it, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 }}>
-            <span style={{ color: it.estoque != null && it.estoque < it.necessario ? 'var(--alert-text, #ef4444)' : 'var(--text-primary)' }}>{it.nome}</span>
-            <span style={{ fontWeight: 600 }}>{fmtQtd(it.necessario)}{it.unidade}{it.estoque != null && it.estoque < it.necessario ? ' ⚠' : ''}</span>
+        {/* Total a debitar (toggle) */}
+        {debitosTotais.length > 0 && (
+          <div style={{ marginTop: 14, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            <button onClick={() => setShowDebit(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
+                Total a debitar do estoque {faltas.length > 0 && <span title="Faltam itens no estoque" style={{ color: '#f59e0b', marginLeft: 4 }}>⚠</span>}
+              </span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 13, transform: showDebit ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
+            </button>
+            {showDebit && (
+              <div style={{ padding: '0 12px 10px' }}>
+                {debitosTotais.map((it, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12 }}>
+                    <span style={{ color: it.estoque != null && it.estoque < it.necessario ? 'var(--alert-text, #ef4444)' : 'var(--text-primary)' }}>{it.nome}</span>
+                    <span style={{ fontWeight: 600 }}>{fmtQtd(it.necessario)}{it.unidade}{it.estoque != null && it.estoque < it.necessario ? ' ⚠' : ''}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        ))}
+        )}
+
+        {/* Lista de compras (se houver faltas) */}
+        {faltas.length > 0 && (
+          <div style={{ marginTop: 8, border: '1px solid #f59e0b', borderRadius: 8, overflow: 'hidden' }}>
+            <button onClick={() => setShowCompras(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
+                📋 Lista de compras sugerida ({faltas.length})
+              </span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 13, transform: showCompras ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
+            </button>
+            {showCompras && (
+              <div style={{ padding: '0 12px 10px' }}>
+                {faltas.map((it, i) => {
+                  const falta = it.necessario - (it.estoque || 0)
+                  return (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12, borderBottom: '0.5px solid var(--border)' }}>
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{it.nome}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>
+                          tem {fmtQtd(it.estoque || 0)}{it.unidade} · precisa {fmtQtd(it.necessario)}{it.unidade}
+                        </div>
+                      </div>
+                      <span style={{ fontWeight: 700, color: '#f59e0b' }}>+{fmtQtd(falta)}{it.unidade}</span>
+                    </div>
+                  )
+                })}
+                <button onClick={() => {
+                  const txt = faltas.map(it => `${it.nome}: ${fmtQtd(it.necessario - (it.estoque || 0))}${it.unidade}`).join('\n')
+                  if (navigator.clipboard) navigator.clipboard.writeText('Lista de compras:\n' + txt)
+                }} style={{ width: '100%', marginTop: 8, padding: '8px', borderRadius: 6, border: '1px solid #f59e0b', background: 'transparent', color: '#f59e0b', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  📋 Copiar lista
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 10, marginBottom: 4 }}>
           Debita insumos · soma produtos/receitas no estoque · salva no histórico.

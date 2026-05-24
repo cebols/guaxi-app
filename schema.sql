@@ -394,6 +394,7 @@ ALTER TABLE produtos ADD COLUMN IF NOT EXISTS imagem_url text;
 
 -- ── Mise en place v2: produtos+receitas, estoque receitas, snapshot ──
 ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS estoque_atual numeric;
+ALTER TABLE producoes        ADD COLUMN IF NOT EXISTS checks       jsonb default '[]'::jsonb;
 ALTER TABLE producao_itens   ALTER COLUMN receita_nome DROP NOT NULL;
 ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS tipo         text default 'receita';
 ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS produto_id   bigint;

@@ -1037,6 +1037,7 @@ export async function getProducoes(limit = 30) {
     return (data || []).map(p => ({
       id: p.id,
       createdAt: p.created_at,
+      checks: Array.isArray(p.checks) ? p.checks : [],
       itens: (p.producao_itens || []).map(i => ({
         id: i.id,
         tipo: i.tipo || 'receita',
@@ -1073,6 +1074,33 @@ export async function deleteProducaoItem(itemId) {
   const { data } = await supabase.from('producao_itens').select('*').eq('id', itemId).single()
   if (data?.snapshot) await reverterSnapshot(data.snapshot)
   await supabase.from('producao_itens').delete().eq('id', itemId)
+}
+
+export async function getProducao(id) {
+  const { data, error } = await supabase.from('producoes').select('*, producao_itens(*)').eq('id', id).single()
+  if (error) return null
+  return {
+    id: data.id,
+    createdAt: data.created_at,
+    checks: Array.isArray(data.checks) ? data.checks : [],
+    itens: (data.producao_itens || []).map(i => ({
+      id: i.id,
+      tipo: i.tipo || 'receita',
+      receitaId: i.receita_id,
+      produtoId: i.produto_id,
+      nome: i.tipo === 'produto' ? (i.produto_nome || '') : (i.receita_nome || ''),
+      quantidade: i.quantidade,
+      modo: i.modo || 'doses',
+      valorAlvo: i.valor_alvo,
+      rendimentoTotal: i.rendimento_total,
+      unidadeGera: i.unidade_gera || 'un',
+      snapshot: i.snapshot || null,
+    })),
+  }
+}
+
+export async function updateProducaoChecks(id, checks) {
+  await supabase.from('producoes').update({ checks }).eq('id', id)
 }
 
 export async function deleteProducao(id) {
