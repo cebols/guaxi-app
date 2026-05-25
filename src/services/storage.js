@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase'
 
-const BUCKET = 'images'
+const BUCKET = 'Images'
 
 export async function uploadImage(path, file) {
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
