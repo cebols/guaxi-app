@@ -1031,7 +1031,7 @@ export default function Cadastros() {
               <div className="card card-flush">
                 {insumosFiltrados.length === 0
                   ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>{busca ? 'Nenhum resultado' : 'Nenhum insumo cadastrado'}</div>
-                  : <table className="dt">
+                  : <div className="dt-wrap"><table className="dt">
                       <thead><tr>
                         <th>Nome</th><th>Marca</th><th>Categoria</th>
                         <th>Emb.</th><th>Custo emb.</th><th>Custo/un</th>
@@ -1099,7 +1099,7 @@ export default function Cadastros() {
                           )
                         })}
                       </tbody>
-                    </table>
+                    </table></div>
                 }
               </div>
             </div>
@@ -1172,7 +1172,7 @@ export default function Cadastros() {
               <div className="card card-flush">
                 {embalagensFiltradas.length === 0
                   ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>{busca ? 'Nenhum resultado' : 'Nenhuma embalagem cadastrada'}</div>
-                  : <table className="dt">
+                  : <div className="dt-wrap"><table className="dt">
                       <thead><tr>
                         <th>Nome</th><th>Categoria</th><th>Qtd compra</th>
                         <th>Custo compra</th><th>Custo unit.</th><th>Estoque</th><th>Fornecedor</th><th></th>
@@ -1206,7 +1206,7 @@ export default function Cadastros() {
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </table></div>
                 }
               </div>
             </div>

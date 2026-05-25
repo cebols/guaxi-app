@@ -509,7 +509,7 @@ export default function Produtos() {
               <div className="card card-flush">
                 {(produtos || []).length === 0
                   ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum produto cadastrado</div>
-                  : <table className="dt">
+                  : <div className="dt-wrap"><table className="dt">
                       <thead><tr>
                         <th>Nome</th>
                         <th>Composição</th>
@@ -551,7 +551,7 @@ export default function Produtos() {
                           )
                         })}
                       </tbody>
-                    </table>
+                    </table></div>
                 }
               </div>
             </div>

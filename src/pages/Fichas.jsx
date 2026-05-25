@@ -184,7 +184,7 @@ function norm(s) {
             {/* Desktop table */}
             <div className="desktop-only">
               <div className="card card-flush">
-                <table className="dt">
+                <div className="dt-wrap"><table className="dt">
                   <thead>
                     <tr>
                       <th>Nome</th>
@@ -223,7 +223,7 @@ function norm(s) {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               </div>
             </div>
 

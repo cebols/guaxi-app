@@ -850,8 +850,8 @@ function ComparadorProdutos({ vendas, produtos }) {
           </div>
 
           {/* Tabela: produtos × semanas — sem scroll, responsiva */}
-          <div style={{ marginTop: 16 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+          <div style={{ marginTop: 16 }} className="dt-wrap">
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 480 }}>
               <colgroup>
                 <col style={{ width: '22%' }} />
                 {semanas.map((_, wi) => <col key={wi} style={{ width: `${78 / semanas.length}%` }} />)}
