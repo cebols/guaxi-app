@@ -489,11 +489,11 @@ BEGIN
 
   INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id)
   SELECT v_id,
-         v_item->>'produto_nome',
-         (v_item->>'quantidade')::numeric,
-         (v_item->>'preco_unit')::numeric,
+         elem->>'produto_nome',
+         (elem->>'quantidade')::numeric,
+         (elem->>'preco_unit')::numeric,
          p_user_id
-    FROM jsonb_array_elements(p_itens) AS v_item;
+    FROM jsonb_array_elements(p_itens) AS elem;
 
   RETURN v_id;
 END;

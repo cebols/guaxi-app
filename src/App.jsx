@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { useAuth } from './contexts/AuthContext'
 import { initConfig, syncConfigFromSupabase } from './hooks/useConfig'
+import { fixSubreceitasRetroativas, loadUserConfig, saveUserConfig } from './services/db'
 import Login from './pages/Login'
 
 const Onboarding   = lazy(() => import('./pages/Onboarding'))
@@ -145,6 +146,16 @@ export default function App() {
   useEffect(() => {
     initConfig(session?.user?.id ?? null)
     if (session?.user?.id) syncConfigFromSupabase()
+  }, [session?.user?.id])
+
+  useEffect(() => {
+    if (!session?.user?.id) return
+    loadUserConfig().then(cfg => {
+      if (cfg?.subreceitasFixApplied) return
+      fixSubreceitasRetroativas().then(n => {
+        saveUserConfig({ ...(cfg || {}), subreceitasFixApplied: true })
+      }).catch(() => {})
+    }).catch(() => {})
   }, [session?.user?.id])
 
   useEffect(() => {

@@ -526,6 +526,14 @@ export async function updateEstoqueMinProdutos(items) {
   )
 }
 
+export async function bulkUpdateSecoes(items) {
+  await Promise.all(
+    items.map(({ id, secao }) =>
+      supabase.from('produtos').update({ secao: secao || '' }).eq('id', id)
+    )
+  )
+}
+
 export async function updateEstoqueMinInsumos(items) {
   await Promise.all(
     items.map(({ id, estoqueMin }) =>
@@ -893,16 +901,35 @@ function computeDoses(lote, receitas, produtos) {
   return { dosesPerReceita, perItemContrib }
 }
 
+// Expande ingredientes de uma receita recursivamente (inclui subreceitas)
+function expandIngredients(receitas, rec, doses, depth = 0) {
+  if (depth > 5) return {}
+  const debitos = {}
+  for (const ing of (rec.ingredientes || [])) {
+    if (ing.insumoId) {
+      debitos[ing.insumoId] = (debitos[ing.insumoId] || 0) + ing.quantidade * doses
+    } else if (ing.subReceitaId) {
+      const subRec = (receitas || []).find(r => r.id === ing.subReceitaId)
+      if (!subRec) continue
+      const subBatches = (ing.quantidade * doses) / (subRec.rendimento || 1)
+      const subDeb = expandIngredients(receitas, subRec, subBatches, depth + 1)
+      for (const [id, q] of Object.entries(subDeb)) {
+        debitos[id] = (debitos[id] || 0) + q
+      }
+    }
+  }
+  return debitos
+}
+
 // Calcula débito total de insumos a partir de doses por receita
 function computeDebitos(dosesPerReceita, receitas) {
   const debitos = {}
   for (const [recIdStr, doses] of Object.entries(dosesPerReceita)) {
     const rec = (receitas || []).find(r => r.id === Number(recIdStr))
     if (!rec) continue
-    for (const ing of (rec.ingredientes || [])) {
-      if (ing.insumoId) {
-        debitos[ing.insumoId] = (debitos[ing.insumoId] || 0) + (ing.quantidade * doses)
-      }
+    const recDeb = expandIngredients(receitas, rec, doses)
+    for (const [id, q] of Object.entries(recDeb)) {
+      debitos[id] = (debitos[id] || 0) + q
     }
   }
   return debitos
@@ -955,13 +982,9 @@ export async function saveProducao(lote, receitas, produtos) {
       for (const [recIdStr, d] of Object.entries(contribDoses)) {
         const rec = receitas.find(r => r.id === Number(recIdStr))
         if (!rec) continue
-        const recDeb = {}
-        for (const ing of (rec.ingredientes || [])) {
-          if (ing.insumoId) {
-            const q = ing.quantidade * d
-            itemDebitos[ing.insumoId] = (itemDebitos[ing.insumoId] || 0) + q
-            recDeb[ing.insumoId] = (recDeb[ing.insumoId] || 0) + q
-          }
+        const recDeb = expandIngredients(receitas, rec, d)
+        for (const [insId, q] of Object.entries(recDeb)) {
+          itemDebitos[insId] = (itemDebitos[insId] || 0) + q
         }
         debitosPorReceita[recIdStr] = recDeb
       }
@@ -1046,13 +1069,9 @@ export async function addProducaoItens(producaoId, lote, receitas, produtos) {
     for (const [recIdStr, d] of Object.entries(contribDoses)) {
       const rec = receitas.find(r => r.id === Number(recIdStr))
       if (!rec) continue
-      const recDeb = {}
-      for (const ing of (rec.ingredientes || [])) {
-        if (ing.insumoId) {
-          const q = ing.quantidade * d
-          itemDebitos[ing.insumoId] = (itemDebitos[ing.insumoId] || 0) + q
-          recDeb[ing.insumoId] = (recDeb[ing.insumoId] || 0) + q
-        }
+      const recDeb = expandIngredients(receitas, rec, d)
+      for (const [insId, q] of Object.entries(recDeb)) {
+        itemDebitos[insId] = (itemDebitos[insId] || 0) + q
       }
       debitosPorReceita[recIdStr] = recDeb
     }
@@ -1157,6 +1176,68 @@ export function computeAjustesPendentes(producoes) {
     }
   }
   return { insumos, produtos, receitas }
+}
+
+// Corrige retroativamente todos os producao_itens que ignoraram subreceitas.
+// Aplica delta de débito de insumos para itens já checkados e atualiza snapshots.
+export async function fixSubreceitasRetroativas() {
+  const [producoes, receitas] = await Promise.all([
+    getProducoes(1000),
+    getReceitas(),
+  ])
+
+  const deltaInsumos = {}
+  const updates = []
+
+  for (const p of producoes) {
+    const checksSet = new Set((p.checks || []).map(String))
+    for (const item of p.itens) {
+      const snap = item.snapshot
+      if (!snap?.debitosPorReceita || !snap?.dosesContrib) continue
+
+      const newDebitosPorReceita = {}
+      let changed = false
+
+      for (const [recIdStr, oldDeb] of Object.entries(snap.debitosPorReceita)) {
+        const rec = receitas.find(r => r.id === Number(recIdStr))
+        if (!rec) { newDebitosPorReceita[recIdStr] = oldDeb; continue }
+
+        const doses = snap.dosesContrib[recIdStr] || 0
+        const newDeb = expandIngredients(receitas, rec, doses)
+        newDebitosPorReceita[recIdStr] = newDeb
+
+        if (checksSet.has(recIdStr)) {
+          // recipe already debited — compute delta to apply
+          const allIds = new Set([...Object.keys(newDeb), ...Object.keys(oldDeb || {})])
+          for (const insId of allIds) {
+            const diff = (newDeb[insId] || 0) - ((oldDeb || {})[insId] || 0)
+            if (Math.abs(diff) > 0.0001) {
+              deltaInsumos[insId] = (deltaInsumos[insId] || 0) + diff
+              changed = true
+            }
+          }
+        } else if (JSON.stringify(newDeb) !== JSON.stringify(oldDeb)) {
+          changed = true
+        }
+      }
+
+      if (changed) {
+        const newTotalDebitos = {}
+        for (const debs of Object.values(newDebitosPorReceita)) {
+          for (const [insId, q] of Object.entries(debs)) {
+            newTotalDebitos[insId] = (newTotalDebitos[insId] || 0) + q
+          }
+        }
+        updates.push({ id: item.id, snapshot: { ...snap, debitos: newTotalDebitos, debitosPorReceita: newDebitosPorReceita } })
+      }
+    }
+  }
+
+  if (Object.keys(deltaInsumos).length > 0) await aplicarDebitosInsumos(deltaInsumos, -1)
+  for (const upd of updates) {
+    await supabase.from('producao_itens').update({ snapshot: upd.snapshot }).eq('id', upd.id)
+  }
+  return updates.length
 }
 
 export async function getProducoes(limit = 30) {
