@@ -228,7 +228,19 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
       <div className="field-row">
         <div style={{ flex: 1 }}>
           <div className="field-label">Seção do cardápio</div>
-          <input className="field-input" style={{ marginBottom: 0 }} placeholder="ex: Bolos, Tortas, Doces…" value={form.secao} onChange={e => set('secao', e.target.value)} />
+          <input
+            className="field-input"
+            style={{ marginBottom: 0 }}
+            list="secoes-list"
+            placeholder="ex: Bolos, Tortas, Doces…"
+            value={form.secao}
+            onChange={e => set('secao', e.target.value)}
+          />
+          <datalist id="secoes-list">
+            {[...new Set((produtos || []).map(p => p.secao).filter(Boolean))].map(s => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
         </div>
       </div>
       <div className="field-label" style={{ marginTop: 10 }}>Descrição</div>
