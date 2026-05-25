@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getConfig, saveConfig, calcPrecos, getCustoSacolaDelivery, CONFIG_DEFAULTS } from '../hooks/useConfig'
-import { getVendas, getEncomendas, getEmbalagens } from '../services/db'
+import { getVendas, getEncomendas, getEmbalagens, loadUserConfig, saveUserConfig } from '../services/db'
 import { useAuth } from '../contexts/AuthContext'
 import { SpotlightHint } from '../components/SpotlightHint'
 
@@ -124,6 +124,30 @@ export default function Configuracoes() {
   const { data: vendas }      = useData(getVendas)
   const { data: encomendas }  = useData(getEncomendas)
   const { data: embalagens }  = useData(getEmbalagens)
+
+  const [deliveryCfg, setDeliveryCfg] = useState({ lojaCEP: '', lojaEndereco: '', freteGratis: 0, freteTiers: [] })
+  useEffect(() => {
+    loadUserConfig().then(cfg => {
+      if (cfg?.delivery) setDeliveryCfg(d => ({ ...d, ...cfg.delivery }))
+    }).catch(() => {})
+  }, [])
+
+  const setDel = (k, v) => setDeliveryCfg(d => ({ ...d, [k]: v }))
+  const addTier = () => setDeliveryCfg(d => ({ ...d, freteTiers: [...d.freteTiers, { ate: '', valor: '' }] }))
+  const removeTier = (i) => setDeliveryCfg(d => ({ ...d, freteTiers: d.freteTiers.filter((_, idx) => idx !== i) }))
+  const updateTier = (i, k, v) => setDeliveryCfg(d => ({ ...d, freteTiers: d.freteTiers.map((t, idx) => idx === i ? { ...t, [k]: v } : t) }))
+
+  const handleSaveDelivery = async () => {
+    const tiers = deliveryCfg.freteTiers
+      .filter(t => t.ate !== '' && t.valor !== '')
+      .map(t => ({ ate: parseFloat(t.ate) || 0, valor: parseFloat(t.valor) || 0 }))
+      .sort((a, b) => a.ate - b.ate)
+    const payload = { lojaCEP: deliveryCfg.lojaCEP, lojaEndereco: deliveryCfg.lojaEndereco, freteGratis: parseFloat(deliveryCfg.freteGratis) || 0, freteTiers: tiers }
+    const existing = await loadUserConfig()
+    await saveUserConfig({ ...(existing || {}), delivery: payload })
+    setDeliveryCfg(d => ({ ...d, freteTiers: tiers }))
+    show('Configuração de delivery salva!')
+  }
 
   const toggleEmb = (key, id) => setCfg(c => {
     const ids = c[key] || []
@@ -502,6 +526,69 @@ export default function Configuracoes() {
 
         <button className="btn-primary" onClick={handleSave}>Salvar configurações</button>
         <button className="btn-ghost" onClick={handleReset} style={{ marginTop: 8, fontSize: 13 }}>Restaurar padrão</button>
+
+        {/* ── Delivery / Frete ─────────────────────────────── */}
+        <div style={{ marginTop: 24 }}>
+          <span className="section-label">Delivery por distância</span>
+          <div className="card" style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
+              Configure o endereço da sua loja e as faixas de frete. O valor é calculado automaticamente pela distância de rota (OSRM) ao receber um pedido.
+            </div>
+            <label className="cfg-label">CEP da loja</label>
+            <input
+              value={deliveryCfg.lojaCEP}
+              onChange={e => setDel('lojaCEP', e.target.value)}
+              placeholder="00000-000"
+              maxLength={9}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
+            />
+            <label className="cfg-label">Endereço completo (opcional)</label>
+            <input
+              value={deliveryCfg.lojaEndereco}
+              onChange={e => setDel('lojaEndereco', e.target.value)}
+              placeholder="Rua..., número, cidade"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
+            />
+            <label className="cfg-label">Frete grátis acima de (R$, 0 = desativado)</label>
+            <input
+              type="number" min="0"
+              value={deliveryCfg.freteGratis}
+              onChange={e => setDel('freteGratis', e.target.value)}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span className="cfg-label" style={{ margin: 0 }}>Faixas de frete</span>
+              <button onClick={addTier} style={{ background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 10px', fontSize: 12, color: 'var(--teal)', cursor: 'pointer', fontWeight: 700 }}>+ Faixa</button>
+            </div>
+            {deliveryCfg.freteTiers.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>Nenhuma faixa — frete fixo ou desativado</div>
+            )}
+            {deliveryCfg.freteTiers.map((tier, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>até</span>
+                <input
+                  type="number" min="0"
+                  value={tier.ate}
+                  onChange={e => updateTier(i, 'ate', e.target.value)}
+                  placeholder="km"
+                  style={{ width: 64, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, textAlign: 'center' }}
+                />
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>km → R$</span>
+                <input
+                  type="number" min="0" step="0.5"
+                  value={tier.valor}
+                  onChange={e => updateTier(i, 'valor', e.target.value)}
+                  placeholder="0,00"
+                  style={{ width: 72, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, textAlign: 'center' }}
+                />
+                <button onClick={() => removeTier(i)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer', padding: '0 4px' }}>×</button>
+              </div>
+            ))}
+            <button onClick={handleSaveDelivery} style={{ width: '100%', marginTop: 10, padding: '10px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+              Salvar delivery
+            </button>
+          </div>
+        </div>
       </div>
 
       {toast && <div className="toast">{toast}</div>}

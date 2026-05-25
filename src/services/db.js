@@ -1562,6 +1562,14 @@ export async function getPublicProdutos(userId) {
   }))
 }
 
+export async function getPublicDeliveryConfig(userId) {
+  try {
+    const { data, error } = await supabase.rpc('get_delivery_config', { p_user_id: userId })
+    if (error) return null
+    return data || null
+  } catch { return null }
+}
+
 export async function submitPedidoExterno(userId, form, carrinho) {
   const itens = carrinho.map(it => ({
     produto_id:   it.produto.id,

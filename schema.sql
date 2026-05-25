@@ -500,3 +500,17 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.submit_pedido_externo TO anon;
+
+-- Expõe config de delivery publicamente (somente a chave 'delivery')
+CREATE OR REPLACE FUNCTION public.get_delivery_config(p_user_id uuid)
+RETURNS jsonb
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT COALESCE(config->'delivery', '{}'::jsonb)
+  FROM user_config
+  WHERE user_id = p_user_id
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_delivery_config TO anon;

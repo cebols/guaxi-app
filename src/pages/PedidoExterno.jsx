@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
-import { getPublicProdutos, submitPedidoExterno } from '../services/db'
+import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig } from '../services/db'
 
 const fmtR = (v) =>
   Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -150,6 +150,9 @@ export default function PedidoExterno() {
   })
   const [loadingCep, setLoadingCep] = useState(false)
   const [cepError, setCepError]     = useState('')
+  const [frete, setFrete]           = useState(null)
+  const [calculandoFrete, setCalcFrete] = useState(false)
+  const [deliveryCfg, setDeliveryCfg] = useState(null)
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -158,6 +161,9 @@ export default function PedidoExterno() {
     getPublicProdutos(userId)
       .then(setProdutos)
       .catch(e => setLoadError(e.message))
+    getPublicDeliveryConfig(userId)
+      .then(cfg => { if (cfg) setDeliveryCfg(cfg) })
+      .catch(() => {})
   }, [userId])
 
   const carrinhoItens = useMemo(() => {
@@ -199,6 +205,49 @@ export default function PedidoExterno() {
       setCepError('Erro ao buscar CEP')
     } finally {
       setLoadingCep(false)
+    }
+    calcularFrete(cep)
+  }
+
+  async function geocodeCep(cep) {
+    const clean = cep.replace(/\D/g, '')
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${clean}&country=BR&format=json&limit=1`)
+    const d = await r.json()
+    if (!d?.[0]) throw new Error('CEP não encontrado')
+    return { lat: parseFloat(d[0].lat), lon: parseFloat(d[0].lon) }
+  }
+
+  function applyFreteTiers(distKm, tiers) {
+    if (!tiers || tiers.length === 0) return 0
+    const sorted = [...tiers].sort((a, b) => a.ate - b.ate)
+    for (const tier of sorted) {
+      if (distKm <= tier.ate) return tier.valor
+    }
+    return sorted[sorted.length - 1].valor
+  }
+
+  async function calcularFrete(cepCliente) {
+    if (!deliveryCfg?.lojaCEP || !deliveryCfg?.freteTiers?.length) return
+    const clean = cepCliente.replace(/\D/g, '')
+    if (clean.length !== 8) return
+    setCalcFrete(true)
+    setFrete(null)
+    try {
+      const [origem, destino] = await Promise.all([
+        geocodeCep(deliveryCfg.lojaCEP),
+        geocodeCep(clean),
+      ])
+      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${origem.lon},${origem.lat};${destino.lon},${destino.lat}?overview=false`)
+      const d = await r.json()
+      if (d.code !== 'Ok') { setFrete(null); return }
+      const distKm = d.routes[0].distance / 1000
+      const valor = applyFreteTiers(distKm, deliveryCfg.freteTiers)
+      const freteGratis = deliveryCfg.freteGratis || 0
+      setFrete({ distKm, valor: freteGratis > 0 && total >= freteGratis ? 0 : valor })
+    } catch {
+      setFrete(null)
+    } finally {
+      setCalcFrete(false)
     }
   }
 
@@ -386,6 +435,22 @@ export default function PedidoExterno() {
                 </Field>
               )}
 
+              {/* Frete */}
+              {calculandoFrete && (
+                <div style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>Calculando frete...</div>
+              )}
+              {frete !== null && !calculandoFrete && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', background: '#1a1a1a', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
+                  <div>
+                    <div style={{ fontWeight: 600, color: '#e8e8e8' }}>Frete ({frete.distKm.toFixed(1)} km)</div>
+                    {frete.valor === 0 && deliveryCfg?.freteGratis > 0 && <div style={{ fontSize: 11, color: '#22b886' }}>Frete grátis acima de {fmtR(deliveryCfg.freteGratis)}</div>}
+                  </div>
+                  <div style={{ fontWeight: 700, color: frete.valor === 0 ? '#22b886' : '#e8e8e8' }}>
+                    {frete.valor === 0 ? 'Grátis' : fmtR(frete.valor)}
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 10 }}>
                 <Field label="Número" >
                   <Input placeholder="123" value={form.numero} onChange={e => setF('numero', e.target.value)} style={{ width: 100 }} />
@@ -426,7 +491,7 @@ export default function PedidoExterno() {
               opacity: (!form.nome || !form.telefone || submitting) ? 0.5 : 1,
             }}
           >
-            {submitting ? 'Enviando...' : `Enviar pedido · ${fmtR(total)}`}
+            {submitting ? 'Enviando...' : `Enviar pedido · ${fmtR(total + (form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0))}`}
           </button>
         </div>
       </div>
