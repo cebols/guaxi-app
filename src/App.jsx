@@ -3,6 +3,7 @@ import { useEffect, useState, lazy, Suspense } from 'react'
 import { useAuth } from './contexts/AuthContext'
 import { initConfig, syncConfigFromSupabase } from './hooks/useConfig'
 import { fixSubreceitasRetroativas, loadUserConfig, saveUserConfig } from './services/db'
+import { useRealtimePedidos } from './hooks/useRealtimePedidos'
 import Login from './pages/Login'
 
 const Onboarding   = lazy(() => import('./pages/Onboarding'))
@@ -162,6 +163,8 @@ export default function App() {
     setMenuOpen(false)
     window.scrollTo(0, 0)
   }, [location.pathname])
+
+  useRealtimePedidos(session?.user?.id, null)
 
   // Páginas públicas — acessíveis sem login.
   if (location.pathname.startsWith('/cardapio/')) {

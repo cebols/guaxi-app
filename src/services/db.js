@@ -1546,7 +1546,7 @@ export async function getCardapioPublico(id) {
 export async function getPublicProdutos(userId) {
   const { data, error } = await supabase
     .from('produtos')
-    .select('id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo')
+    .select('id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo, secao')
     .eq('user_id', userId)
     .gt('estoque_atual', 0)
     .order('nome')
@@ -1559,6 +1559,7 @@ export async function getPublicProdutos(userId) {
     estoqueAtual: r.estoque_atual,
     imagemUrl: r.imagem_url || null,
     tipo: r.tipo || 'produto',
+    secao: r.secao || '',
   }))
 }
 

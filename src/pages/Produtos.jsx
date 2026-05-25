@@ -660,7 +660,7 @@ export default function Produtos() {
   const [sheet, setSheet]     = useState(null)
   const [filtroTipo, setFiltroTipo] = useState('Todos')
   const { toast, show }       = useToast()
-  const { profile }           = useAuth()
+  const { profile, user }     = useAuth()
   const cfg                   = getConfig()
   const precosRef             = useRef(null)
 
@@ -752,8 +752,14 @@ export default function Produtos() {
             <button onClick={() => setSheet({ type: 'secoes' })} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               ≡ Seções
             </button>
-            <button onClick={() => setSheet({ type: 'cardapio' })} style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              📋 Cardápio
+            <button
+              onClick={() => {
+                const url = `${window.location.origin}/pedido/${user?.id}`
+                navigator.clipboard.writeText(url).then(() => show('Link copiado!')).catch(() => show(url))
+              }}
+              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              🔗 LinkForm
             </button>
             <button onClick={() => setSheet({ type: 'produto' })} style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               + Novo
@@ -919,17 +925,6 @@ export default function Produtos() {
           fornecedoresList={fornecedoresList}
           onSave={handleSave}
           onDelete={handleDelete}
-          onClose={() => setSheet(null)}
-        />
-      )}
-
-      {sheet?.type === 'cardapio' && (
-        <MontarCardapio
-          produtos={produtos || []}
-          nomeLoja={profile?.nomeLoja}
-          cfg={cfg}
-          custoSacola={custoSacola}
-          secoesOrdem={secoesOrdem}
           onClose={() => setSheet(null)}
         />
       )}

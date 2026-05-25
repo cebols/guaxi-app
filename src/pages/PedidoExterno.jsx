@@ -153,6 +153,7 @@ export default function PedidoExterno() {
   const [frete, setFrete]           = useState(null)
   const [calculandoFrete, setCalcFrete] = useState(false)
   const [deliveryCfg, setDeliveryCfg] = useState(null)
+  const [secoesOrdem, setSecoesOrdem] = useState([])
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -162,7 +163,16 @@ export default function PedidoExterno() {
       .then(setProdutos)
       .catch(e => setLoadError(e.message))
     getPublicDeliveryConfig(userId)
-      .then(cfg => { if (cfg) setDeliveryCfg(cfg) })
+      .then(cfg => {
+        if (!cfg) return
+        // cfg may be { delivery: {...}, secoesOrdem: [...] } or the flat delivery object
+        if (cfg.delivery) {
+          setDeliveryCfg(cfg.delivery)
+          setSecoesOrdem(cfg.secoesOrdem || [])
+        } else {
+          setDeliveryCfg(cfg)
+        }
+      })
       .catch(() => {})
   }, [userId])
 
@@ -393,7 +403,19 @@ export default function PedidoExterno() {
           </Field>
 
           <Field label="WhatsApp">
-            <Input type="tel" placeholder="(11) 99999-9999" value={form.telefone} onChange={e => setF('telefone', e.target.value)} />
+            <Input
+              type="tel"
+              inputMode="numeric"
+              placeholder="(11) 99999-9999"
+              value={form.telefone}
+              onChange={e => {
+                const digits = e.target.value.replace(/\D/g, '').slice(0, 11)
+                let fmt = digits
+                if (digits.length > 2) fmt = `(${digits.slice(0,2)}) ${digits.slice(2)}`
+                if (digits.length > 7) fmt = `(${digits.slice(0,2)}) ${digits.slice(2,7)}-${digits.slice(7)}`
+                setF('telefone', fmt)
+              }}
+            />
           </Field>
 
           {/* Entrega/Retirada toggle */}
@@ -509,6 +531,21 @@ export default function PedidoExterno() {
   // ── Catalog ───────────────────────────────────────────────────
   const carrinhoCount = Object.values(carrinho).reduce((s, q) => s + q, 0)
 
+  // Group produtos by secao, respecting secoesOrdem
+  const produtosPorSecao = useMemo(() => {
+    if (!produtos) return []
+    const semSecao = produtos.filter(p => !p.secao)
+    const comSecao = produtos.filter(p => p.secao)
+    const secaoSet = [...new Set(comSecao.map(p => p.secao))]
+    const ordered = [
+      ...secoesOrdem.filter(s => secaoSet.includes(s)),
+      ...secaoSet.filter(s => !secoesOrdem.includes(s)),
+    ]
+    const groups = ordered.map(sec => ({ secao: sec, items: comSecao.filter(p => p.secao === sec) }))
+    if (semSecao.length > 0) groups.push({ secao: null, items: semSecao })
+    return groups
+  }, [produtos, secoesOrdem])
+
   return (
     <div style={shell}>
       {/* Header */}
@@ -523,15 +560,26 @@ export default function PedidoExterno() {
           Nenhum produto disponível no momento.
         </div>
       ) : (
-        <div style={{ padding: '16px 16px 120px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-          {produtos.map(prod => (
-            <ProdutoCard
-              key={prod.id}
-              produto={prod}
-              qtd={carrinho[prod.id] || 0}
-              onAdd={() => addItem(prod)}
-              onRemove={() => removeItem(prod)}
-            />
+        <div style={{ padding: '16px 16px 120px' }}>
+          {produtosPorSecao.map(({ secao, items }) => (
+            <div key={secao || '__sem_secao'}>
+              {secao && (
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8, marginTop: 4 }}>
+                  {secao}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 16 }}>
+                {items.map(prod => (
+                  <ProdutoCard
+                    key={prod.id}
+                    produto={prod}
+                    qtd={carrinho[prod.id] || 0}
+                    onAdd={() => addItem(prod)}
+                    onRemove={() => removeItem(prod)}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}

@@ -503,14 +503,17 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.submit_pedido_externo TO anon;
 
--- Expõe config de delivery publicamente (somente a chave 'delivery')
+-- Expõe config pública: delivery + secoesOrdem
 CREATE OR REPLACE FUNCTION public.get_delivery_config(p_user_id uuid)
 RETURNS jsonb
 LANGUAGE sql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT COALESCE(config->'delivery', '{}'::jsonb)
+  SELECT jsonb_build_object(
+    'delivery', COALESCE(config->'delivery', '{}'::jsonb),
+    'secoesOrdem', COALESCE(config->'secoesOrdem', '[]'::jsonb)
+  )
   FROM user_config
   WHERE user_id = p_user_id
 $$;

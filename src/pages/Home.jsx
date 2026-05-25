@@ -238,7 +238,8 @@ function EncomendaCard({ enc, onUpdateStatus }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <span style={{ fontWeight: 600, fontSize: 15 }}>{enc.cliente}</span>
         <span style={{ fontSize: 12, color: isToday(enc.dataEntrega) ? 'var(--warn-text)' : 'var(--text-secondary)' }}>
-          {formatDate(enc.dataEntrega)}{isToday(enc.dataEntrega) ? ' · hoje' : ''}
+          {enc.dataEntrega ? formatDate(enc.dataEntrega) : '📱 Online'}
+          {isToday(enc.dataEntrega) ? ' · hoje' : ''}
         </span>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: enc.obs ? 4 : 8 }}>{itemStr}</div>
@@ -298,9 +299,15 @@ export default function Home() {
     .filter(e => {
       if (e.status === 'Cancelado') return false
       if (e.status === 'Entregue' && e.pgto === 'Pago') return false
+      if (!e.dataEntrega) return true
       return isUpcoming(e.dataEntrega)
     })
-    .sort((a, b) => new Date(a.dataEntrega) - new Date(b.dataEntrega))
+    .sort((a, b) => {
+      if (!a.dataEntrega && !b.dataEntrega) return 0
+      if (!a.dataEntrega) return -1
+      if (!b.dataEntrega) return 1
+      return new Date(a.dataEntrega) - new Date(b.dataEntrega)
+    })
     .slice(0, 8)
 
   const naoEntregues    = (encomendas || []).filter(e => e.status !== 'Cancelado' && e.status !== 'Entregue')
