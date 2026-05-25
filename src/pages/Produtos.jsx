@@ -43,13 +43,14 @@ function TipoBadge({ tipo }) {
   return <span style={{ marginLeft: 6, fontSize: 10, background: b.bg, color: b.color, borderRadius: 4, padding: '1px 5px', verticalAlign: 'middle' }}>{b.label}</span>
 }
 
-const FORM_EMPTY = { nome: '', tipo: 'produto', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '', imagemUrl: '' }
+const FORM_EMPTY = { nome: '', tipo: 'produto', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '', imagemUrl: '' }
 
 function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item
     ? {
         nome:        item.nome,
         tipo:        item.tipo        || 'produto',
+        descricao:   item.descricao   || '',
         custoDireto: item.custoDireto ?? '',
         fornecedor:  item.fornecedor  || '',
         whatsapp:    item.whatsapp    || '',
@@ -178,6 +179,17 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
           <input className="field-input" style={{ marginBottom: 0 }} placeholder="ex: Choux Craquelin" value={form.nome} onChange={e => set('nome', e.target.value)} />
         </div>
       </div>
+
+      {/* ── Descrição ─────────────────────────────────────── */}
+      <div className="field-label">Descrição <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(aparece no formulário de pedidos)</span></div>
+      <textarea
+        className="field-input"
+        rows={2}
+        style={{ resize: 'vertical', lineHeight: 1.5 }}
+        placeholder="ex: Recheado com creme de baunilha, cobertura de chocolate..."
+        value={form.descricao}
+        onChange={e => set('descricao', e.target.value)}
+      />
 
       {/* ── Tipo toggle ───────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>

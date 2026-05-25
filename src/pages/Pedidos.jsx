@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
+import { useAuth } from '../contexts/AuthContext'
 import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, deletePedido, adjustEstoqueProduto } from '../services/db'
 
 const STATUS_OPTS = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
@@ -686,6 +687,9 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
               </span>
             )}
             {hasAlert && <span style={{ fontSize: 10, color: '#f59e0b' }}>⚠️</span>}
+            {pedido.canal === 'FormExterno' && (
+              <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: 'var(--info-bg)', color: 'var(--info-text)', letterSpacing: '.04em' }}>ONLINE</span>
+            )}
             <span style={{ fontSize: 15, fontWeight: 700 }}>{pedido.cliente}</span>
           </div>
           {pedido.dataEntrega && dateChipStyle && (
@@ -1114,6 +1118,7 @@ function ProducaoView({ pedidos, produtos, receitas, onEstoqueUpdated }) {
 
 // ── Main page ─────────────────────────────────────────────────
 export default function Pedidos() {
+  const { user } = useAuth()
   const { data: pedidos,  loading: loadingPed, reload: reloadPedidos } = useData(getEncomendas)
   const { data: produtos, loading: loadingProd, reload: reloadProdutos } = useData(getProdutos)
   const { data: insumos  } = useData(getInsumos)
@@ -1211,9 +1216,23 @@ export default function Pedidos() {
       <div className="topbar">
         <div className="topbar-inner">
           <div className="topbar-title">Pedidos</div>
-          <button onClick={() => setMode('novo')} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-            + Novo
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {user?.id && (
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/pedido/${user.id}`
+                  navigator.clipboard.writeText(url).then(() => alert('Link copiado!'))
+                }}
+                style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                title="Copiar link do formulário de pedidos"
+              >
+                🔗 Link
+              </button>
+            )}
+            <button onClick={() => setMode('novo')} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+              + Novo
+            </button>
+          </div>
         </div>
       </div>
 

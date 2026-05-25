@@ -426,3 +426,76 @@ CREATE POLICY "cardapios public read" ON cardapios
 DROP POLICY IF EXISTS "cardapios owner write" ON cardapios;
 CREATE POLICY "cardapios owner write" ON cardapios
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- ── Formulário de Pedidos Externos ───────────────────────────
+
+-- Descrição dos produtos (usada no formulário público)
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS descricao text;
+
+-- Leitura pública de produtos (formulário de pedidos do cliente)
+DROP POLICY IF EXISTS "produtos public read" ON produtos;
+CREATE POLICY "produtos public read" ON produtos
+  FOR SELECT USING (true);
+
+-- Função segura para submeter pedido externo (roda como dono)
+CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
+  p_user_id    uuid,
+  p_cliente    text,
+  p_contato    text,
+  p_tipo_entrega text,
+  p_endereco   text,
+  p_obs        text,
+  p_itens      jsonb
+) RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_id       text;
+  v_last_id  text;
+  v_next_num int := 1;
+  v_total    numeric := 0;
+  v_item     jsonb;
+BEGIN
+  SELECT id INTO v_last_id
+    FROM encomendas
+   WHERE user_id = p_user_id
+   ORDER BY created_at DESC
+   LIMIT 1;
+
+  IF v_last_id IS NOT NULL THEN
+    v_next_num := COALESCE((regexp_match(v_last_id, 'PED-(\d+)'))[1]::int, 0) + 1;
+  END IF;
+  v_id := 'PED-' || lpad(v_next_num::text, 3, '0');
+
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_itens)
+  LOOP
+    v_total := v_total
+      + (v_item->>'preco_unit')::numeric
+      * (v_item->>'quantidade')::numeric;
+
+    UPDATE produtos
+       SET estoque_atual = GREATEST(0, COALESCE(estoque_atual, 0) - (v_item->>'quantidade')::numeric)
+     WHERE id = (v_item->>'produto_id')::bigint
+       AND user_id = p_user_id;
+  END LOOP;
+
+  INSERT INTO encomendas
+    (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, status, pgto)
+  VALUES
+    (v_id, p_user_id, p_cliente, p_contato, 'FormExterno', p_tipo_entrega, p_endereco, p_obs, v_total, 'Pendente', 'Aguardando');
+
+  INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id)
+  SELECT v_id,
+         v_item->>'produto_nome',
+         (v_item->>'quantidade')::numeric,
+         (v_item->>'preco_unit')::numeric,
+         p_user_id
+    FROM jsonb_array_elements(p_itens) AS v_item;
+
+  RETURN v_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.submit_pedido_externo TO anon;

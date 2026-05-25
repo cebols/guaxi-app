@@ -19,6 +19,7 @@ const MiseEnPlace       = lazy(() => import('./pages/MiseEnPlace'))
 const ProducaoTodo      = lazy(() => import('./pages/ProducaoTodo'))
 const ProducaoHistorico = lazy(() => import('./pages/ProducaoHistorico'))
 const CardapioPublico = lazy(() => import('./pages/CardapioPublico'))
+const PedidoExterno   = lazy(() => import('./pages/PedidoExterno'))
 
 function PageFallback() {
   return <div className="loading" style={{ minHeight: '60dvh' }}>Carregando...</div>
@@ -150,12 +151,21 @@ export default function App() {
     setMenuOpen(false)
   }, [location.pathname])
 
-  // Cardápio público — acessível sem login.
+  // Páginas públicas — acessíveis sem login.
   if (location.pathname.startsWith('/cardapio/')) {
     return (
       <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/cardapio/:id" element={<CardapioPublico />} />
+        </Routes>
+      </Suspense>
+    )
+  }
+  if (location.pathname.startsWith('/pedido/')) {
+    return (
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route path="/pedido/:userId" element={<PedidoExterno />} />
         </Routes>
       </Suspense>
     )

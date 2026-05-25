@@ -397,6 +397,7 @@ export async function getProdutos() {
     precoDireta: r.preco_direta ?? null,
     preco99:     r.preco_99     ?? null,
     precoIfood:  r.preco_ifood  ?? null,
+    descricao:    r.descricao   || '',
     estoqueAtual: r.estoque_atual ?? null,
     estoqueMin:   r.estoque_min  ?? 0,
     imagemUrl:   r.imagem_url || null,
@@ -447,6 +448,7 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     preco_ifood:    toNum(prod.precoIfood),
     estoque_min:    parseFloat(prod.estoqueMin) || 0,
     imagem_url:     prod.imagemUrl ?? undefined,
+    descricao:      prod.descricao ?? undefined,
   }
 
   const saved = await upsert('produtos', row, prod.id || null,
@@ -1454,4 +1456,45 @@ export async function getCardapioPublico(id) {
     comFotos: data.dados?.comFotos !== false,
     updatedAt: data.updated_at,
   }
+}
+
+// ── Pedido Externo (público, sem auth) ────────────────────────
+
+export async function getPublicProdutos(userId) {
+  const { data, error } = await supabase
+    .from('produtos')
+    .select('id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo')
+    .eq('user_id', userId)
+    .gt('estoque_atual', 0)
+    .order('nome')
+  if (error) throw error
+  return (data || []).map(r => ({
+    id: r.id,
+    nome: r.nome,
+    descricao: r.descricao || '',
+    precoDireta: r.preco_direta,
+    estoqueAtual: r.estoque_atual,
+    imagemUrl: r.imagem_url || null,
+    tipo: r.tipo || 'produto',
+  }))
+}
+
+export async function submitPedidoExterno(userId, form, carrinho) {
+  const itens = carrinho.map(it => ({
+    produto_id:   it.produto.id,
+    produto_nome: it.produto.nome,
+    quantidade:   it.qtd,
+    preco_unit:   it.produto.precoDireta || 0,
+  }))
+  const { data, error } = await supabase.rpc('submit_pedido_externo', {
+    p_user_id:     userId,
+    p_cliente:     form.nome,
+    p_contato:     form.telefone,
+    p_tipo_entrega: form.tipoEntrega,
+    p_endereco:    form.endereco || '',
+    p_obs:         form.obs || '',
+    p_itens:       itens,
+  })
+  if (error) throw error
+  return data
 }
