@@ -226,6 +226,7 @@ ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS whatsapp        text d
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS link_compra     text default '';
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS estoque_atual   numeric;
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS estoque_min     numeric default 0;
+ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS secao           text default '';
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS user_id         uuid default auth.uid() references auth.users(id) on delete cascade;
 
 ALTER TABLE produto_receitas     ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;

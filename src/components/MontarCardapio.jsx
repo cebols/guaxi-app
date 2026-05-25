@@ -33,8 +33,8 @@ export function MontarCardapio({ produtos, nomeLoja, cfg, custoSacola, onClose }
   const itensCardapio = useMemo(
     () => lista.filter(p => sel.includes(p.id)).map(p => ({
       nome: p.nome,
-      descricao: '',
-      categoria: '',
+      descricao: p.descricao || '',
+      categoria: p.secao || '',
       preco: precoFor(p),
       imagemUrl: p.imagemUrl || null,
     })),

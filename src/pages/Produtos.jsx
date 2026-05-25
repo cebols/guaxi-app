@@ -1,4 +1,6 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useCallback } from 'react'
+import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop'
+import 'react-image-crop/dist/ReactCrop.css'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
@@ -43,13 +45,32 @@ function TipoBadge({ tipo }) {
   return <span style={{ marginLeft: 6, fontSize: 10, background: b.bg, color: b.color, borderRadius: 4, padding: '1px 5px', verticalAlign: 'middle' }}>{b.label}</span>
 }
 
-const FORM_EMPTY = { nome: '', tipo: 'produto', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '', imagemUrl: '' }
+const CROP_ASPECT = 4 / 3
+
+async function cropToBlob(imgEl, pixelCrop) {
+  const scaleX = imgEl.naturalWidth / imgEl.width
+  const scaleY = imgEl.naturalHeight / imgEl.height
+  const canvas = document.createElement('canvas')
+  canvas.width  = Math.round(pixelCrop.width  * scaleX)
+  canvas.height = Math.round(pixelCrop.height * scaleY)
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(
+    imgEl,
+    pixelCrop.x * scaleX, pixelCrop.y * scaleY,
+    pixelCrop.width * scaleX, pixelCrop.height * scaleY,
+    0, 0, canvas.width, canvas.height,
+  )
+  return new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92))
+}
+
+const FORM_EMPTY = { nome: '', tipo: 'produto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '', imagemUrl: '' }
 
 function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item
     ? {
         nome:        item.nome,
         tipo:        item.tipo        || 'produto',
+        secao:       item.secao       || '',
         descricao:   item.descricao   || '',
         custoDireto: item.custoDireto ?? '',
         fornecedor:  item.fornecedor  || '',
@@ -83,20 +104,43 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const handleImgUpload = async (file) => {
+  // ── Image crop ───────────────────────────────────────────────
+  const [cropSrc, setCropSrc]             = useState(null)
+  const [crop, setCrop]                   = useState(null)
+  const [completedCrop, setCompletedCrop] = useState(null)
+  const cropImgRef = useRef(null)
+
+  const onCropImageLoad = useCallback((e) => {
+    const { width, height } = e.currentTarget
+    const c = centerCrop(makeAspectCrop({ unit: '%', width: 90 }, CROP_ASPECT, width, height), width, height)
+    setCrop(c)
+  }, [])
+
+  const openCrop = (file) => {
     if (!file) return
+    const url = URL.createObjectURL(file)
+    setCropSrc(url)
+    setCompletedCrop(null)
+  }
+
+  const confirmCrop = async () => {
+    if (!cropImgRef.current || !completedCrop) return
     setUploadingImg(true)
     try {
-      const ext = file.name.split('.').pop()
-      const path = `produtos/${Date.now()}.${ext}`
-      const url = await uploadImage(path, file)
+      const blob = await cropToBlob(cropImgRef.current, completedCrop)
+      const path = `produtos/${Date.now()}.jpg`
+      const url = await uploadImage(path, new File([blob], 'crop.jpg', { type: 'image/jpeg' }))
       set('imagemUrl', url)
+      URL.revokeObjectURL(cropSrc)
+      setCropSrc(null)
     } catch (e) {
       alert('Erro ao enviar imagem: ' + e.message)
     } finally {
       setUploadingImg(false)
     }
   }
+
+  const handleImgUpload = (file) => { if (file) openCrop(file) }
 
   const isAvulso = form.tipo === 'avulso'
   const isCombo  = form.tipo === 'combo'
@@ -180,8 +224,14 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
         </div>
       </div>
 
-      {/* ── Descrição ─────────────────────────────────────── */}
-      <div className="field-label">Descrição <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(aparece no formulário de pedidos)</span></div>
+      {/* ── Seção + Descrição ─────────────────────────────── */}
+      <div className="field-row">
+        <div style={{ flex: 1 }}>
+          <div className="field-label">Seção do cardápio</div>
+          <input className="field-input" style={{ marginBottom: 0 }} placeholder="ex: Bolos, Tortas, Doces…" value={form.secao} onChange={e => set('secao', e.target.value)} />
+        </div>
+      </div>
+      <div className="field-label" style={{ marginTop: 10 }}>Descrição</div>
       <textarea
         className="field-input"
         rows={2}
@@ -190,6 +240,43 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
         value={form.descricao}
         onChange={e => set('descricao', e.target.value)}
       />
+
+      {/* ── Crop modal ───────────────────────────────────── */}
+      {cropSrc && (
+        <>
+          <div onClick={() => setCropSrc(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 200 }} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+            zIndex: 201, background: 'var(--bg-card)', borderRadius: 16, padding: 20,
+            width: 'min(480px, 95vw)', maxHeight: '90dvh', overflow: 'auto',
+          }}>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Recortar imagem (4:3)</div>
+            <ReactCrop
+              crop={crop}
+              onChange={c => setCrop(c)}
+              onComplete={(px) => setCompletedCrop(px)}
+              aspect={CROP_ASPECT}
+              style={{ maxWidth: '100%' }}
+            >
+              <img
+                ref={cropImgRef}
+                src={cropSrc}
+                onLoad={onCropImageLoad}
+                style={{ maxWidth: '100%', maxHeight: '60dvh', display: 'block' }}
+                alt="crop"
+              />
+            </ReactCrop>
+            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+              <button onClick={() => setCropSrc(null)} style={{ flex: 1, padding: 11, borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
+                Cancelar
+              </button>
+              <button onClick={confirmCrop} disabled={!completedCrop || uploadingImg} style={{ flex: 2, padding: 11, borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#000', cursor: 'pointer', fontWeight: 700, fontSize: 14, opacity: (!completedCrop || uploadingImg) ? 0.5 : 1 }}>
+                {uploadingImg ? 'Salvando…' : 'Cortar e salvar'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── Tipo toggle ───────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>

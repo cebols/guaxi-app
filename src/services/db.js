@@ -398,6 +398,7 @@ export async function getProdutos() {
     preco99:     r.preco_99     ?? null,
     precoIfood:  r.preco_ifood  ?? null,
     descricao:    r.descricao   || '',
+    secao:        r.secao       || '',
     estoqueAtual: r.estoque_atual ?? null,
     estoqueMin:   r.estoque_min  ?? 0,
     imagemUrl:   r.imagem_url || null,
@@ -449,6 +450,7 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     estoque_min:    parseFloat(prod.estoqueMin) || 0,
     imagem_url:     prod.imagemUrl ?? undefined,
     descricao:      prod.descricao ?? undefined,
+    secao:          prod.secao     ?? undefined,
   }
 
   const saved = await upsert('produtos', row, prod.id || null,
