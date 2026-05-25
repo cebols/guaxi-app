@@ -474,14 +474,20 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
 // ─── ReciboCompra ────────────────────────────────────────────────────────────
 function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, onConfirmar, saving }) {
   const [openPicker, setOpenPicker] = useState(null)
+  const [precoEdit, setPrecoEdit] = useState({}) // itemId -> string (override)
+  const [editingPreco, setEditingPreco] = useState({}) // itemId -> bool
 
   const selecionados = itens.filter(i => parseFloat(qtds[i.id] || '0') > 0)
 
+  function getPreco(item) {
+    if (precoEdit[item.id] !== undefined) return parseFloat(precoEdit[item.id]) || 0
+    const sel = fornSel[item.id]
+    return sel?.custoUnit ?? item.custoUnit ?? 0
+  }
+
   const total = selecionados.reduce((sum, item) => {
     const qty = parseFloat(qtds[item.id] || '0')
-    const sel = fornSel[item.id]
-    const price = sel?.custoUnit ?? item.custoUnit ?? 0
-    return sum + qty * price
+    return sum + qty * getPreco(item)
   }, 0)
 
   return (
@@ -514,7 +520,24 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
                   </div>
                   <div style={{ flexShrink: 0, textAlign: 'right' }}>
                     <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 700 }}>+{fmtN(qty)} {item.unidade}</div>
-                    {sel?.custoUnit > 0 && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>R$ {fmt(sel.custoUnit * qty)}</div>}
+                    {editingPreco[item.id] ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, justifyContent: 'flex-end' }}>
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>R$</span>
+                        <input
+                          type="text" inputMode="decimal"
+                          value={precoEdit[item.id] ?? String(getPreco(item))}
+                          onChange={e => setPrecoEdit(p => ({ ...p, [item.id]: e.target.value }))}
+                          onBlur={() => setEditingPreco(s => ({ ...s, [item.id]: false }))}
+                          autoFocus
+                          style={{ width: 64, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--teal)', background: 'var(--bg-secondary)', color: 'var(--teal)', fontSize: 12, textAlign: 'right', fontWeight: 700 }}
+                        />
+                      </div>
+                    ) : (
+                      <button onClick={() => { setPrecoEdit(p => ({ ...p, [item.id]: p[item.id] ?? String(getPreco(item)) })); setEditingPreco(s => ({ ...s, [item.id]: true })) }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: getPreco(item) > 0 ? 'var(--text-secondary)' : 'var(--text-tertiary)', padding: 0, marginTop: 2 }}>
+                        {getPreco(item) > 0 ? `R$ ${fmt(getPreco(item) * qty)} ✎` : 'add preço ✎'}
+                      </button>
+                    )}
                   </div>
                 </div>
                 {opts.length > 0 && (
@@ -557,7 +580,7 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
         )}
         <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
           <button onClick={onVoltar} disabled={saving} style={{ flex: 1, padding: 12, borderRadius: 8, border: '1px solid #444', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>← Editar</button>
-          <button onClick={onConfirmar} disabled={saving} style={{ flex: 2, padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+          <button onClick={() => onConfirmar(fornSel, precoEdit)} disabled={saving} style={{ flex: 2, padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
             {saving ? 'Registrando...' : 'Confirmar compra'}
           </button>
         </div>
@@ -590,6 +613,16 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
   const temItens = todos.some(i => parseFloat(qtds[i.id] || '0') > 0)
   const qtdSelecionados = todos.filter(i => parseFloat(qtds[i.id] || '0') > 0).length
 
+  function preencherSugestoes() {
+    const novas = {}
+    todos.forEach(item => {
+      const falta = (item.estoqueMin || 0) - (item.estoqueAtual ?? 0)
+      if (falta > 0 && !qtds[item.id]) novas[item.id] = String(Math.ceil(falta))
+    })
+    if (Object.keys(novas).length === 0) return
+    setQtds(q => ({ ...q, ...novas }))
+  }
+
   async function handleQty(item, val) {
     setQtds(q => ({ ...q, [item.id]: val }))
     if (item._tipo === 'insumo' && parseFloat(val) > 0 && !fornOpts[item.id]) {
@@ -619,7 +652,7 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
           setFornSel={setFornSel}
           fornOpts={fornOpts}
           onVoltar={() => setShowRecibo(false)}
-          onConfirmar={() => onSalvar(qtds, fornSel, todos)}
+          onConfirmar={(fSel, pEdit) => onSalvar(qtds, fSel, todos, pEdit)}
           saving={saving}
         />
       </>
@@ -631,10 +664,13 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
       <div className="topbar">
         <div className="topbar-inner">
           <button onClick={onVoltar} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 22, cursor: 'pointer', padding: '0 8px 0 0', lineHeight: 1 }}>‹</button>
-          <div>
+          <div style={{ flex: 1 }}>
             <div className="topbar-title">Nova compra</div>
             <div className="topbar-sub">Registrar insumos ou embalagens comprados</div>
           </div>
+          <button onClick={preencherSugestoes} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 7, padding: '5px 10px', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            📋 Sugerir faltantes
+          </button>
         </div>
       </div>
 
@@ -988,7 +1024,7 @@ export default function Contagem() {
     finally { setSaving(false) }
   }
 
-  const handleNovaCompra = async (qtds, fornSel, todos) => {
+  const handleNovaCompra = async (qtds, fornSel, todos, precoEdit = {}) => {
     const hoje = new Date().toISOString().split('T')[0]
     const comprasPayload = []
     const insumosPayload = []
@@ -997,7 +1033,9 @@ export default function Contagem() {
       const qty = parseFloat(qtds[item.id] || '0')
       if (qty <= 0) return
       const sel = fornSel[item.id]
-      const precoUnit = sel?.custoUnit ?? item.custoUnit ?? 0
+      const precoUnit = precoEdit[item.id] !== undefined
+        ? (parseFloat(precoEdit[item.id]) || 0)
+        : (sel?.custoUnit ?? item.custoUnit ?? 0)
       comprasPayload.push({ tipo: item._tipo, item_id: item.id, item_nome: item.nome, unidade: item.unidade || '', quantidade: qty, preco_unit: precoUnit, total: qty * precoUnit, data: hoje })
       const novoEstoque = (item.estoqueAtual ?? 0) + qty
       if (item._tipo === 'insumo') insumosPayload.push({ id: item.id, estoqueAtual: novoEstoque })
