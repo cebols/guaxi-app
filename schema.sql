@@ -439,6 +439,7 @@ CREATE POLICY "produtos public read" ON produtos
   FOR SELECT USING (true);
 
 -- Função segura para submeter pedido externo (roda como dono)
+DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb);
 CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_user_id    uuid,
   p_cliente    text,
