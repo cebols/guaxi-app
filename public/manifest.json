@@ -3,7 +3,7 @@
   "short_name": "Confeitapp",
   "start_url": "/",
   "display": "standalone",
-  "orientation": "portrait",
+  "orientation": "any",
   "background_color": "#121212",
   "theme_color": "#121212",
   "icons": [

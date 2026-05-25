@@ -45,8 +45,9 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-button { cursor: pointer; font-family: var(--font); }
-input, select, textarea { font-family: var(--font); }
+button { cursor: pointer; font-family: var(--font); touch-action: manipulation; }
+input, select, textarea { font-family: var(--font); touch-action: manipulation; }
+a { touch-action: manipulation; }
 
 /* ── Layout ─────────────────────────────── */
 .app-shell {
@@ -636,9 +637,9 @@ input, select, textarea { font-family: var(--font); }
 .sidebar { display: none; }
 
 /* ═══════════════════════════════════════════
-   DESKTOP  ≥ 768px
+   TABLET + DESKTOP  ≥ 640px
    ═══════════════════════════════════════════ */
-@media (min-width: 768px) {
+@media (min-width: 640px) {
 
   /* Utilities */
   .desktop-only { display: block !important; }
@@ -665,7 +666,7 @@ input, select, textarea { font-family: var(--font); }
   .sidebar {
     display: flex;
     flex-direction: column;
-    width: 220px;
+    width: 200px;
     background: var(--bg-secondary);
     border-right: var(--border);
     position: sticky;
@@ -675,7 +676,7 @@ input, select, textarea { font-family: var(--font); }
     overflow: hidden;
   }
   .sidebar-logo {
-    padding: 20px 16px 16px;
+    padding: 18px 14px 14px;
     border-bottom: var(--border-light);
     display: flex;
     align-items: center;
@@ -701,7 +702,7 @@ input, select, textarea { font-family: var(--font); }
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 9px 12px;
+    padding: 11px 12px;
     border-radius: var(--radius-sm);
     border: none;
     background: transparent;
@@ -712,10 +713,11 @@ input, select, textarea { font-family: var(--font); }
     width: 100%;
     text-align: left;
     transition: background .1s, color .1s;
+    min-height: 44px;
   }
   .sidebar-item:hover { background: var(--bg-card); color: var(--text-primary); }
   .sidebar-item.active { background: var(--teal-light); color: var(--teal); }
-  .sidebar-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .sidebar-item svg { width: 20px; height: 20px; flex-shrink: 0; }
   .sidebar-footer {
     padding: 12px;
     border-top: var(--border-light);
@@ -741,14 +743,14 @@ input, select, textarea { font-family: var(--font); }
   /* ── Sheet → centered modal ───────────── */
   .sheet {
     top: 50%;
-    left: calc(220px + (100vw - 220px) / 2);
+    left: calc(200px + (100vw - 200px) / 2);
     right: auto;
     bottom: auto;
     transform: translate(-50%, -50%);
-    width: 540px;
-    max-width: calc(100vw - 260px);
+    width: min(600px, calc(100vw - 240px));
+    max-width: none;
     border-radius: var(--radius-lg);
-    max-height: 85dvh;
+    max-height: 88dvh;
     animation: fadein .15s ease;
   }
 
@@ -764,12 +766,12 @@ input, select, textarea { font-family: var(--font); }
     color: var(--text-tertiary);
     text-transform: uppercase;
     letter-spacing: .06em;
-    padding: 8px 14px;
+    padding: 10px 14px;
     border-bottom: var(--border);
     white-space: nowrap;
   }
   .dt td {
-    padding: 11px 14px;
+    padding: 13px 14px;
     font-size: 14px;
     border-bottom: var(--border-light);
     vertical-align: middle;
@@ -788,22 +790,25 @@ input, select, textarea { font-family: var(--font); }
   .page-inner {
     max-width: 1000px;
     margin: 0 auto;
-    padding: 0 24px 24px;
+    padding: 0 20px 24px;
   }
   .page-content {
-    max-width: 640px;
+    max-width: 680px;
     margin: 0 auto;
-    padding: 16px 24px 24px;
+    padding: 16px 20px 24px;
   }
   .topbar-inner {
     max-width: 1000px;
     margin: 0 auto;
-    padding: 14px 24px 12px;
+    padding: 14px 20px 12px;
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
   .topbar { padding: 0; display: block; }
+
+  /* ── Card rows: bigger tap targets on tablet ── */
+  .stock-row { min-height: 56px; }
 
   /* ── Two-column pedido form ───────────── */
   .pedido-grid {
@@ -812,4 +817,18 @@ input, select, textarea { font-family: var(--font); }
     gap: 0 32px;
     align-items: start;
   }
+}
+
+/* ═══════════════════════════════════════════
+   DESKTOP  ≥ 1024px  (wider sidebar + content)
+   ═══════════════════════════════════════════ */
+@media (min-width: 1024px) {
+  .sidebar { width: 240px; }
+  .sheet {
+    left: calc(240px + (100vw - 240px) / 2);
+    width: min(640px, calc(100vw - 280px));
+  }
+  .page-content { max-width: 720px; padding: 20px 32px 32px; }
+  .page-inner   { max-width: 1100px; padding: 0 32px 32px; }
+  .topbar-inner { max-width: 1100px; padding: 16px 32px 14px; }
 }
