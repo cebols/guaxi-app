@@ -175,7 +175,7 @@ export default function ProducaoTodo() {
 
   return (
     <>
-      <div className="topbar">
+      <div className="topbar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
         <div className="topbar-inner">
           <div>
             <div className="topbar-title">Produção</div>
@@ -196,26 +196,19 @@ export default function ProducaoTodo() {
             <button onClick={() => navigate('/mise-en-place')} className="btn-ghost" style={{ fontSize: 16, padding: '5px 10px' }}>←</button>
           </div>
         </div>
-      </div>
-
-      <div className="page-content">
-        {/* Progresso */}
-        <div className="card" style={{
-          padding: '12px 14px', marginBottom: 12,
-          position: 'sticky', top: 0, zIndex: 10,
-          backdropFilter: 'blur(8px)',
-          background: 'color-mix(in srgb, var(--bg-card) 92%, transparent)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{doneReceitas} de {totalReceitas} receita(s) feitas</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: pct === 100 ? 'var(--teal)' : 'var(--text-primary)' }}>{pct}%</div>
+        {/* Progresso — dentro do topbar para ficar sticky junto */}
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{doneReceitas} de {totalReceitas} receita(s)</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: pct === 100 ? 'var(--teal)' : 'var(--text-primary)' }}>{pct}%</div>
           </div>
-          <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{ height: 5, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct}%`, background: pct === 100 ? 'var(--teal)' : '#60a5fa', transition: 'width 0.3s' }} />
           </div>
         </div>
+      </div>
 
+      <div className="page-content">
         {/* O que foi pedido */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>O que foi pedido</div>
