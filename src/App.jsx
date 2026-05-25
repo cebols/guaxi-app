@@ -59,27 +59,37 @@ function isActive(path, pathname) {
   return path === '/' ? pathname === '/' : pathname.startsWith(path)
 }
 
-function Sidebar() {
+function Sidebar({ collapsed, onToggle }) {
   const { user, signOut } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const primeiroNome = user?.email?.split('@')[0] || ''
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
       <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">🍫</div>
-        <div className="sidebar-logo-name">Guaxi</div>
+        {!collapsed && <div className="sidebar-logo-icon">🍫</div>}
+        {!collapsed && <div className="sidebar-logo-name">Guaxi</div>}
+        <button
+          className="sidebar-toggle"
+          onClick={onToggle}
+          title={collapsed ? 'Expandir menu' : 'Recolher menu'}
+        >
+          {collapsed ? '›' : '‹'}
+        </button>
       </div>
       <nav className="sidebar-nav">
         {SIDEBAR_GROUPS.map(({ label, items }) => (
           <div key={label} style={{ marginBottom: 8 }}>
-            <div style={{
-              fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase',
-              letterSpacing: '0.08em', fontWeight: 700, padding: '14px 12px 6px',
-            }}>
-              {label}
-            </div>
+            {!collapsed && (
+              <div style={{
+                fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase',
+                letterSpacing: '0.08em', fontWeight: 700, padding: '14px 12px 6px',
+              }}>
+                {label}
+              </div>
+            )}
+            {collapsed && <div style={{ height: 10 }} />}
             {items.map(({ path, label: itemLabel, icon: Icon }) => {
               const active = isActive(path, location.pathname)
               return (
@@ -87,9 +97,10 @@ function Sidebar() {
                   key={path}
                   className={`sidebar-item ${active ? 'active' : ''}`}
                   onClick={() => navigate(path)}
+                  title={collapsed ? itemLabel : undefined}
                 >
                   <Icon />
-                  <span>{itemLabel}</span>
+                  {!collapsed && <span>{itemLabel}</span>}
                 </button>
               )
             })}
@@ -97,15 +108,27 @@ function Sidebar() {
         ))}
       </nav>
       <div className="sidebar-footer">
-        <div className="sidebar-user">
-          <div className="avatar" style={{ width: 28, height: 28, fontSize: 12, flexShrink: 0 }}>
-            {primeiroNome.charAt(0).toUpperCase()}
-          </div>
-          <span className="sidebar-user-email">{user?.email}</span>
-        </div>
-        <button className="btn-ghost" style={{ width: '100%', fontSize: 13, textAlign: 'center' }} onClick={signOut}>
-          Sair
-        </button>
+        {!collapsed ? (
+          <>
+            <div className="sidebar-user">
+              <div className="avatar" style={{ width: 28, height: 28, fontSize: 12, flexShrink: 0 }}>
+                {primeiroNome.charAt(0).toUpperCase()}
+              </div>
+              <span className="sidebar-user-email">{user?.email}</span>
+            </div>
+            <button className="btn-ghost" style={{ width: '100%', fontSize: 13, textAlign: 'center' }} onClick={signOut}>
+              Sair
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={signOut}
+            title="Sair"
+            style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '8px', display: 'flex', justifyContent: 'center', width: '100%' }}
+          >
+            <SairIcon />
+          </button>
+        )}
       </div>
     </aside>
   )
@@ -116,6 +139,7 @@ export default function App() {
   const location = useLocation()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   useEffect(() => {
     initConfig(session?.user?.id ?? null)
@@ -150,7 +174,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar />
+      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(s => !s)} />
 
       <div className="main-content">
         <Suspense fallback={<PageFallback />}>
