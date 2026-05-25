@@ -273,6 +273,7 @@ export default function Home() {
   const navigate = useNavigate()
   const { toast, show } = useToast()
   const [alertasOpen, setAlertasOpen]   = useState(false)
+  const [comprasOpen, setComprasOpen]   = useState(true)
   const [novoPedido, setNovoPedido]     = useState(false)
   const { data: encomendas, loading: loadEnc, reload: reloadEnc } = useData(getEncomendas)
   const { data: insumos,    loading: loadIns, reload: reloadIns } = useData(getInsumos)
@@ -592,6 +593,48 @@ export default function Home() {
               ))}
             </div>
           </>
+        )}
+
+        {criticos.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <button
+              onClick={() => setComprasOpen(o => !o)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 8px 0' }}
+            >
+              <span className="section-label" style={{ margin: 0, color: '#f59e0b' }}>Lista de compras</span>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <span className="badge badge-alert">{criticos.length} item{criticos.length !== 1 ? 's' : ''}</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 13, marginLeft: 2 }}>{comprasOpen ? '▲' : '▼'}</span>
+              </div>
+            </button>
+            {comprasOpen && (
+              <div className="card" style={{ padding: '8px 14px' }}>
+                {criticos.map((it, i) => {
+                  const falta = Math.max(0, (it.estoqueMin || 0) - (it.estoqueAtual || 0))
+                  const waLink = it.whatsapp ? `https://wa.me/55${it.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá! Preciso de ${it.nome}: ${falta}${it.unidade || 'un'}`)}` : null
+                  return (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: i < criticos.length - 1 ? '0.5px solid var(--border)' : 'none', fontSize: 12, gap: 8 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600 }}>{it.nome}</div>
+                        {it.fornecedor && <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{it.fornecedor}</div>}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                        <span style={{ fontWeight: 700, color: '#f59e0b' }}>+{falta} {it.unidade || 'un'}</span>
+                        {it.linkCompra && <a href={it.linkCompra} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: 'var(--teal)', textDecoration: 'none', padding: '2px 6px', border: '1px solid var(--teal)', borderRadius: 4 }}>Loja</a>}
+                        {waLink && <a href={waLink} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: '#fff', background: '#25d366', padding: '2px 6px', borderRadius: 4, textDecoration: 'none' }}>WA</a>}
+                      </div>
+                    </div>
+                  )
+                })}
+                <button onClick={() => {
+                  const txt = criticos.map(it => `${it.nome}: +${Math.max(0, (it.estoqueMin || 0) - (it.estoqueAtual || 0))} ${it.unidade || 'un'}`).join('\n')
+                  if (navigator.clipboard) navigator.clipboard.writeText('Lista de compras:\n' + txt)
+                }} style={{ width: '100%', marginTop: 8, padding: '8px', borderRadius: 8, border: '1px solid #f59e0b', background: 'transparent', color: '#f59e0b', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  📋 Copiar lista
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         {totalAlertas > 0 && (

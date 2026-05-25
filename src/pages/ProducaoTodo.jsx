@@ -209,6 +209,28 @@ export default function ProducaoTodo() {
       </div>
 
       <div className="page-content">
+        {/* Total a debitar — no topo */}
+        {debitosTotais.length > 0 && (
+          <div className="card" style={{ padding: 0, marginBottom: 12, overflow: 'hidden' }}>
+            <button onClick={() => setShowDebit(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
+                Total debitado do estoque {faltas.length > 0 && <span title="Itens faltando" style={{ color: '#f59e0b', marginLeft: 4 }}>⚠</span>}
+              </span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 14, transform: showDebit ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
+            </button>
+            {showDebit && (
+              <div style={{ padding: '0 14px 12px' }}>
+                {debitosTotais.map((it, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 }}>
+                    <span style={{ color: it.estoque != null && it.estoque < it.necessario ? '#ef4444' : 'var(--text-primary)' }}>{it.nome}</span>
+                    <span style={{ fontWeight: 600 }}>{fmtQtd(it.necessario)}{it.unidade}{it.estoque != null && it.estoque < it.necessario ? ' ⚠' : ''}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* O que foi pedido */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>O que foi pedido</div>
@@ -256,6 +278,28 @@ export default function ProducaoTodo() {
               </div>
             )
           })}
+          {/* Soma das unidades produzidas */}
+          {(() => {
+            const totais = {}
+            for (const item of prod.itens) {
+              if (item.tipo === 'produto') {
+                const key = 'un'
+                totais[key] = (totais[key] || 0) + (item.quantidade || 0)
+              } else {
+                const u = item.unidadeGera || 'un'
+                const qty = item.rendimentoTotal || 0
+                if (qty > 0) totais[u] = (totais[u] || 0) + qty
+              }
+            }
+            const entries = Object.entries(totais).filter(([, v]) => v > 0)
+            if (!entries.length) return null
+            return (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 2px', marginTop: 4, borderTop: '1px solid var(--border)', fontSize: 12, fontWeight: 700, color: 'var(--teal)' }}>
+                <span>Total a produzir</span>
+                <span>{entries.map(([u, v]) => `${fmtQtd(v)} ${u}`).join(' · ')}</span>
+              </div>
+            )
+          })()}
         </div>
 
         {/* Receitas a produzir */}
@@ -312,28 +356,6 @@ export default function ProducaoTodo() {
         })}
         {totalReceitas === 0 && (
           <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, padding: 20 }}>Nenhuma receita nesta produção</div>
-        )}
-
-        {/* Total a debitar */}
-        {debitosTotais.length > 0 && (
-          <div className="card" style={{ padding: 0, marginTop: 14, overflow: 'hidden' }}>
-            <button onClick={() => setShowDebit(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
-                Total debitado do estoque {faltas.length > 0 && <span title="Itens faltando" style={{ color: '#f59e0b', marginLeft: 4 }}>⚠</span>}
-              </span>
-              <span style={{ color: 'var(--text-secondary)', fontSize: 14, transform: showDebit ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
-            </button>
-            {showDebit && (
-              <div style={{ padding: '0 14px 12px' }}>
-                {debitosTotais.map((it, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 }}>
-                    <span style={{ color: it.estoque != null && it.estoque < it.necessario ? '#ef4444' : 'var(--text-primary)' }}>{it.nome}</span>
-                    <span style={{ fontWeight: 600 }}>{fmtQtd(it.necessario)}{it.unidade}{it.estoque != null && it.estoque < it.necessario ? ' ⚠' : ''}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         )}
 
         {/* Lista de compras sugerida */}

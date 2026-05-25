@@ -160,6 +160,7 @@ export default function App() {
 
   useEffect(() => {
     setMenuOpen(false)
+    window.scrollTo(0, 0)
   }, [location.pathname])
 
   // Páginas públicas — acessíveis sem login.
