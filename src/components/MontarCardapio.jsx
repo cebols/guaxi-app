@@ -11,7 +11,7 @@ const PRECO_OPTS = [
   { id: 'ifood',  label: 'iFood' },
 ]
 
-export function MontarCardapio({ produtos, nomeLoja, cfg, custoSacola, onClose }) {
+export function MontarCardapio({ produtos, nomeLoja, cfg, custoSacola, secoesOrdem = [], onClose }) {
   const [sel, setSel] = useState([])
   const [size, setSize] = useState('a4')
   const [comFotos, setComFotos] = useState(true)
@@ -30,16 +30,25 @@ export function MontarCardapio({ produtos, nomeLoja, cfg, custoSacola, onClose }
     return prod.precoIfood ?? precos.pIfood
   }
 
-  const itensCardapio = useMemo(
-    () => lista.filter(p => sel.includes(p.id)).map(p => ({
+  const itensCardapio = useMemo(() => {
+    const items = lista.filter(p => sel.includes(p.id)).map(p => ({
       nome: p.nome,
       descricao: p.descricao || '',
       categoria: p.secao || '',
       preco: precoFor(p),
       imagemUrl: p.imagemUrl || null,
-    })),
-    [sel, precoTipo, lista]
-  )
+    }))
+    if (secoesOrdem.length > 0) {
+      items.sort((a, b) => {
+        const ia = secoesOrdem.indexOf(a.categoria)
+        const ib = secoesOrdem.indexOf(b.categoria)
+        const ra = ia === -1 ? 999 : ia
+        const rb = ib === -1 ? 999 : ib
+        return ra - rb
+      })
+    }
+    return items
+  }, [sel, precoTipo, lista, secoesOrdem])
 
   const handleGerar = async () => {
     if (itensCardapio.length === 0) return

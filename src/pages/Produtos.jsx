@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from 'react'
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
 import { useData } from '../hooks/useData'
@@ -9,7 +9,8 @@ import { ItemThumb } from '../components/ItemThumb'
 import { getConfig, calcPrecos, getCustoSacolaDelivery } from '../hooks/useConfig'
 import {
   getProdutos, saveProduto, deleteProduto,
-  getReceitas, getEmbalagens, getInsumos,
+  getReceitas, getEmbalagens, getInsumos, bulkUpdateSecoes,
+  saveUserConfig, loadUserConfig,
 } from '../services/db'
 import { uploadImage } from '../services/storage'
 import { MontarCardapio } from '../components/MontarCardapio'
@@ -513,6 +514,149 @@ function subtext(prod) {
   ].join(' · ') || 'Sem composição'
 }
 
+function OrganizarSecoesSheet({ produtos, onSave, onClose }) {
+  // Build initial state: {produtoId -> secao}
+  const [secaoMap, setSecaoMap] = useState(() => {
+    const m = {}
+    for (const p of produtos) m[p.id] = p.secao || ''
+    return m
+  })
+
+  const secoes = useMemo(() => {
+    const set = new Set(Object.values(secaoMap).filter(Boolean))
+    return [...set].sort()
+  }, [secaoMap])
+
+  const [ordenacao, setOrdenacao] = useState(() => {
+    const set = new Set((produtos || []).map(p => p.secao || '').filter(Boolean))
+    return [...set].sort()
+  })
+
+  const [novaSecao, setNovaSecao] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  // Sync ordenacao when secoes change
+  const secoesSorted = useMemo(() => {
+    const inOrder = ordenacao.filter(s => secoes.includes(s))
+    const extras = secoes.filter(s => !inOrder.includes(s))
+    return [...inOrder, ...extras]
+  }, [ordenacao, secoes])
+
+  const moveSecao = (idx, dir) => {
+    const arr = [...secoesSorted]
+    const swapIdx = idx + dir
+    if (swapIdx < 0 || swapIdx >= arr.length) return
+    ;[arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]]
+    setOrdenacao(arr)
+  }
+
+  const addSecao = () => {
+    const s = novaSecao.trim()
+    if (!s || secoesSorted.includes(s)) { setNovaSecao(''); return }
+    setOrdenacao(o => [...o, s])
+    setNovaSecao('')
+  }
+
+  const removeSecao = (sec) => {
+    setOrdenacao(o => o.filter(s => s !== sec))
+    setSecaoMap(m => {
+      const n = { ...m }
+      for (const id of Object.keys(n)) if (n[id] === sec) n[id] = ''
+      return n
+    })
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const items = Object.entries(secaoMap).map(([id, secao]) => ({ id: Number(id), secao }))
+      await onSave(items, secoesSorted)
+      onClose()
+    } catch (e) {
+      alert('Erro: ' + e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const semSecao = produtos.filter(p => !secaoMap[p.id])
+  const [secaoFiltro, setSecaoFiltro] = useState(null)
+
+  const prodsFiltrados = secaoFiltro === null
+    ? produtos
+    : secaoFiltro === ''
+      ? semSecao
+      : produtos.filter(p => secaoMap[p.id] === secaoFiltro)
+
+  return (
+    <>
+      <div className="sheet-overlay" onClick={onClose} />
+      <div className="sheet" style={{ maxHeight: '90dvh', display: 'flex', flexDirection: 'column' }}>
+        <div className="sheet-title">
+          <span>Organizar Seções</span>
+          <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
+        </div>
+
+        {/* Seções ordenadas */}
+        <div style={{ padding: '0 16px 8px', flexShrink: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Ordem das seções</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+            {secoesSorted.map((sec, idx) => (
+              <div key={sec} style={{ display: 'flex', alignItems: 'center', gap: 4, background: secaoFiltro === sec ? 'var(--teal)' : 'var(--bg-secondary)', borderRadius: 8, padding: '4px 8px', border: '1px solid var(--border)' }}>
+                <button onClick={() => moveSecao(idx, -1)} disabled={idx === 0} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0 2px', fontSize: 12 }}>‹</button>
+                <button onClick={() => setSecaoFiltro(f => f === sec ? null : sec)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: secaoFiltro === sec ? '#fff' : 'var(--text-primary)', padding: 0 }}>{sec}</button>
+                <button onClick={() => moveSecao(idx, +1)} disabled={idx === secoesSorted.length - 1} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0 2px', fontSize: 12 }}>›</button>
+                <button onClick={() => removeSecao(sec)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 2px', fontSize: 13, lineHeight: 1 }}>×</button>
+              </div>
+            ))}
+            {semSecao.length > 0 && (
+              <button onClick={() => setSecaoFiltro(f => f === '' ? null : '')} style={{ background: secaoFiltro === '' ? '#334155' : 'transparent', border: '1px dashed var(--border)', borderRadius: 8, padding: '4px 10px', fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                Sem seção ({semSecao.length})
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              value={novaSecao}
+              onChange={e => setNovaSecao(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addSecao()}
+              placeholder="Nova seção…"
+              style={{ flex: 1, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13 }}
+            />
+            <button onClick={addSecao} style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+</button>
+          </div>
+        </div>
+
+        {/* Produtos */}
+        <div style={{ overflow: 'auto', flex: 1, padding: '0 16px' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+            Produtos {secaoFiltro !== null ? `· ${secaoFiltro || 'sem seção'}` : ''}
+          </div>
+          {prodsFiltrados.map(p => (
+            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '0.5px solid var(--border)', fontSize: 13 }}>
+              <span style={{ flex: 1, fontWeight: 600 }}>{p.nome}</span>
+              <select
+                value={secaoMap[p.id] || ''}
+                onChange={e => setSecaoMap(m => ({ ...m, [p.id]: e.target.value }))}
+                style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 12, maxWidth: 140 }}
+              >
+                <option value="">Sem seção</option>
+                {secoesSorted.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ padding: 16, flexShrink: 0 }}>
+          <button onClick={handleSave} disabled={saving} style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+            {saving ? 'Salvando…' : 'Salvar'}
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export default function Produtos() {
   const [sheet, setSheet]     = useState(null)
   const [filtroTipo, setFiltroTipo] = useState('Todos')
@@ -544,6 +688,11 @@ export default function Produtos() {
 
 
   const [duplicando, setDuplicando] = useState(null)
+  const [secoesOrdem, setSecoesOrdem] = useState([])
+
+  useEffect(() => {
+    loadUserConfig().then(cfg => { if (cfg?.secoesOrdem) setSecoesOrdem(cfg.secoesOrdem) }).catch(() => {})
+  }, [])
 
   const handleSave = async (prod, recItems, embItems) => {
     await saveProduto(prod, recItems, embItems)
@@ -554,6 +703,15 @@ export default function Produtos() {
     await deleteProduto(id)
     rProd()
     show('Excluído!')
+  }
+
+  const handleSaveSecoes = async (items, ordem) => {
+    await bulkUpdateSecoes(items)
+    const cfg = await loadUserConfig()
+    await saveUserConfig({ ...(cfg || {}), secoesOrdem: ordem })
+    setSecoesOrdem(ordem)
+    rProd()
+    show('Seções salvas!')
   }
   const handleDuplicar = async (prod, e) => {
     e?.stopPropagation()
@@ -592,6 +750,9 @@ export default function Produtos() {
         <div className="topbar-inner">
           <div className="topbar-title">Produtos</div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button onClick={() => setSheet({ type: 'secoes' })} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              ≡ Seções
+            </button>
             <button onClick={() => setSheet({ type: 'cardapio' })} style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               📋 Cardápio
             </button>
@@ -769,6 +930,15 @@ export default function Produtos() {
           nomeLoja={profile?.nomeLoja}
           cfg={cfg}
           custoSacola={custoSacola}
+          secoesOrdem={secoesOrdem}
+          onClose={() => setSheet(null)}
+        />
+      )}
+
+      {sheet?.type === 'secoes' && (
+        <OrganizarSecoesSheet
+          produtos={produtos || []}
+          onSave={handleSaveSecoes}
           onClose={() => setSheet(null)}
         />
       )}

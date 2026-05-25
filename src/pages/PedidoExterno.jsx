@@ -45,7 +45,7 @@ function ProdutoCard({ produto, qtd, onAdd, onRemove }) {
       flexDirection: 'column',
     }}>
       {/* Photo */}
-      <div style={{ position: 'relative', paddingTop: '66%', background: '#1a1a1a', flexShrink: 0 }}>
+      <div style={{ position: 'relative', paddingTop: '50%', background: '#1a1a1a', flexShrink: 0 }}>
         {produto.imagemUrl ? (
           <img
             src={produto.imagemUrl}
@@ -72,12 +72,12 @@ function ProdutoCard({ produto, qtd, onAdd, onRemove }) {
       </div>
 
       {/* Info */}
-      <div style={{ padding: '12px 14px 14px', flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <div style={{ fontSize: 15, fontWeight: 700 }}>{produto.nome}</div>
+      <div style={{ padding: '10px 12px 12px', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>{produto.nome}</div>
         {produto.descricao && (
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.45 }}>{produto.descricao}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{produto.descricao}</div>
         )}
-        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--teal)', marginTop: 'auto', paddingTop: 6 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal)', marginTop: 'auto', paddingTop: 4 }}>
           {fmtR(produto.precoDireta)}
         </div>
 
@@ -450,7 +450,7 @@ export default function PedidoExterno() {
           Nenhum produto disponível no momento.
         </div>
       ) : (
-        <div style={{ padding: '16px 16px 120px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+        <div style={{ padding: '16px 16px 120px', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
           {produtos.map(prod => (
             <ProdutoCard
               key={prod.id}
