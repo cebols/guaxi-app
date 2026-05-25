@@ -535,11 +535,10 @@ function OrganizarSecoesSheet({ produtos, onSave, onClose }) {
   const [novaSecao, setNovaSecao] = useState('')
   const [saving, setSaving] = useState(false)
 
-  // Sync ordenacao when secoes change
+  // All known sections: ordenacao first (preserves order + new ones), then extras from products
   const secoesSorted = useMemo(() => {
-    const inOrder = ordenacao.filter(s => secoes.includes(s))
-    const extras = secoes.filter(s => !inOrder.includes(s))
-    return [...inOrder, ...extras]
+    const extras = secoes.filter(s => !ordenacao.includes(s))
+    return [...ordenacao, ...extras]
   }, [ordenacao, secoes])
 
   const moveSecao = (idx, dir) => {

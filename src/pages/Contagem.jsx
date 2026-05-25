@@ -479,16 +479,16 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
 
   const selecionados = itens.filter(i => parseFloat(qtds[i.id] || '0') > 0)
 
-  function getPreco(item) {
+  // Returns total paid for this item (precoEdit stores total, not unit)
+  function getTotal(item) {
     if (precoEdit[item.id] !== undefined) return parseFloat(precoEdit[item.id]) || 0
+    const qty = parseFloat(qtds[item.id] || '0')
     const sel = fornSel[item.id]
-    return sel?.custoUnit ?? item.custoUnit ?? 0
+    const unitCost = sel?.custoUnit ?? item.custoUnit ?? 0
+    return unitCost * qty
   }
 
-  const total = selecionados.reduce((sum, item) => {
-    const qty = parseFloat(qtds[item.id] || '0')
-    return sum + qty * getPreco(item)
-  }, 0)
+  const total = selecionados.reduce((sum, item) => sum + getTotal(item), 0)
 
   return (
     <>
@@ -525,17 +525,17 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
                         <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>R$</span>
                         <input
                           type="text" inputMode="decimal"
-                          value={precoEdit[item.id] ?? String(getPreco(item))}
+                          value={precoEdit[item.id] ?? String(fmt(getTotal(item)))}
                           onChange={e => setPrecoEdit(p => ({ ...p, [item.id]: e.target.value }))}
                           onBlur={() => setEditingPreco(s => ({ ...s, [item.id]: false }))}
                           autoFocus
-                          style={{ width: 64, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--teal)', background: 'var(--bg-secondary)', color: 'var(--teal)', fontSize: 12, textAlign: 'right', fontWeight: 700 }}
+                          style={{ width: 72, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--teal)', background: 'var(--bg-secondary)', color: 'var(--teal)', fontSize: 12, textAlign: 'right', fontWeight: 700 }}
                         />
                       </div>
                     ) : (
-                      <button onClick={() => { setPrecoEdit(p => ({ ...p, [item.id]: p[item.id] ?? String(getPreco(item)) })); setEditingPreco(s => ({ ...s, [item.id]: true })) }}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: getPreco(item) > 0 ? 'var(--text-secondary)' : 'var(--text-tertiary)', padding: 0, marginTop: 2 }}>
-                        {getPreco(item) > 0 ? `R$ ${fmt(getPreco(item) * qty)} ✎` : 'add preço ✎'}
+                      <button onClick={() => { setPrecoEdit(p => ({ ...p, [item.id]: p[item.id] ?? String(fmt(getTotal(item))) })); setEditingPreco(s => ({ ...s, [item.id]: true })) }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: getTotal(item) > 0 ? 'var(--text-secondary)' : 'var(--text-tertiary)', padding: 0, marginTop: 2 }}>
+                        {getTotal(item) > 0 ? `R$ ${fmt(getTotal(item))} ✎` : 'total pago ✎'}
                       </button>
                     )}
                   </div>
@@ -1033,10 +1033,11 @@ export default function Contagem() {
       const qty = parseFloat(qtds[item.id] || '0')
       if (qty <= 0) return
       const sel = fornSel[item.id]
-      const precoUnit = precoEdit[item.id] !== undefined
+      const totalPago = precoEdit[item.id] !== undefined
         ? (parseFloat(precoEdit[item.id]) || 0)
-        : (sel?.custoUnit ?? item.custoUnit ?? 0)
-      comprasPayload.push({ tipo: item._tipo, item_id: item.id, item_nome: item.nome, unidade: item.unidade || '', quantidade: qty, preco_unit: precoUnit, total: qty * precoUnit, data: hoje })
+        : (sel?.custoUnit ?? item.custoUnit ?? 0) * qty
+      const precoUnit = qty > 0 ? totalPago / qty : 0
+      comprasPayload.push({ tipo: item._tipo, item_id: item.id, item_nome: item.nome, unidade: item.unidade || '', quantidade: qty, preco_unit: precoUnit, total: totalPago, data: hoje })
       const novoEstoque = (item.estoqueAtual ?? 0) + qty
       if (item._tipo === 'insumo') insumosPayload.push({ id: item.id, estoqueAtual: novoEstoque })
       else embalagensPayload.push({ id: item.id, estoqueAtual: novoEstoque })

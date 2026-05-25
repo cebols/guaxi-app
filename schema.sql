@@ -446,7 +446,8 @@ CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_tipo_entrega text,
   p_endereco   text,
   p_obs        text,
-  p_itens      jsonb
+  p_itens      jsonb,
+  p_frete      numeric default 0
 ) RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -483,9 +484,9 @@ BEGIN
   END LOOP;
 
   INSERT INTO encomendas
-    (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, status, pgto)
+    (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto)
   VALUES
-    (v_id, p_user_id, p_cliente, p_contato, 'FormExterno', p_tipo_entrega, p_endereco, p_obs, v_total, 'Pendente', 'Aguardando');
+    (v_id, p_user_id, p_cliente, p_contato, 'FormExterno', p_tipo_entrega, p_endereco, p_obs, v_total + COALESCE(p_frete, 0), COALESCE(p_frete, 0), 'Pendente', 'Aguardando');
 
   INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id)
   SELECT v_id,

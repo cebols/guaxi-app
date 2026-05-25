@@ -1570,7 +1570,7 @@ export async function getPublicDeliveryConfig(userId) {
   } catch { return null }
 }
 
-export async function submitPedidoExterno(userId, form, carrinho) {
+export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0) {
   const itens = carrinho.map(it => ({
     produto_id:   it.produto.id,
     produto_nome: it.produto.nome,
@@ -1585,6 +1585,7 @@ export async function submitPedidoExterno(userId, form, carrinho) {
     p_endereco:    form.endereco || '',
     p_obs:         form.obs || '',
     p_itens:       itens,
+    p_frete:       freteValor,
   })
   if (error) throw error
   return data

@@ -735,6 +735,12 @@ function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatu
               <span style={{ fontWeight: 600 }}>R$ {fmtR((it.precoUnit||0) * (it.quantidade||1))}</span>
             </div>
           ))}
+          {pedido.frete > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 12, color: 'var(--text-secondary)', borderTop: '1px solid #1e1e1e', marginTop: 2 }}>
+              <span>Frete</span>
+              <span style={{ fontWeight: 600 }}>R$ {fmtR(pedido.frete)}</span>
+            </div>
+          )}
           {pedido.canal && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>Canal: {pedido.canal}</div>}
           {hasAlert && (
             <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 6, background: '#3b2700', padding: '5px 8px', borderRadius: 6 }}>

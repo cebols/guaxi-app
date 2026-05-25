@@ -610,7 +610,7 @@ export default function Home() {
             {comprasOpen && (
               <div className="card" style={{ padding: '8px 14px' }}>
                 {criticos.map((it, i) => {
-                  const falta = Math.max(0, (it.estoqueMin || 0) - (it.estoqueAtual || 0))
+                  const falta = Math.ceil(Math.max(0, (it.estoqueMin || 0) - (it.estoqueAtual || 0)))
                   const waLink = it.whatsapp ? `https://wa.me/55${it.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá! Preciso de ${it.nome}: ${falta}${it.unidade || 'un'}`)}` : null
                   return (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: i < criticos.length - 1 ? '0.5px solid var(--border)' : 'none', fontSize: 12, gap: 8 }}>
@@ -627,7 +627,7 @@ export default function Home() {
                   )
                 })}
                 <button onClick={() => {
-                  const txt = criticos.map(it => `${it.nome}: +${Math.max(0, (it.estoqueMin || 0) - (it.estoqueAtual || 0))} ${it.unidade || 'un'}`).join('\n')
+                  const txt = criticos.map(it => `${it.nome}: +${Math.ceil(Math.max(0, (it.estoqueMin || 0) - (it.estoqueAtual || 0)))} ${it.unidade || 'un'}`).join('\n')
                   if (navigator.clipboard) navigator.clipboard.writeText('Lista de compras:\n' + txt)
                 }} style={{ width: '100%', marginTop: 8, padding: '8px', borderRadius: 8, border: '1px solid #f59e0b', background: 'transparent', color: '#f59e0b', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
                   📋 Copiar lista

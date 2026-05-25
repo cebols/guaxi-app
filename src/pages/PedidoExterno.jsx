@@ -261,9 +261,11 @@ export default function PedidoExterno() {
       ? [form.ruaBairro, form.numero, form.complemento, form.cidade].filter(Boolean).join(', ')
       : ''
 
+    const freteValor = form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0
+
     setSubmitting(true)
     try {
-      const id = await submitPedidoExterno(userId, { ...form, endereco }, carrinhoItens)
+      const id = await submitPedidoExterno(userId, { ...form, endereco }, carrinhoItens, freteValor)
       setPedidoId(id)
       setStep('confirm')
     } catch (e) {
@@ -329,9 +331,15 @@ export default function PedidoExterno() {
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 4px', fontWeight: 700, fontSize: 17 }}>
+            {frete && frete.valor > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 4px', fontSize: 13, color: '#999', borderTop: '1px solid #2a2a2a' }}>
+                <span>Frete ({frete.distKm.toFixed(1)} km)</span>
+                <span>{fmtR(frete.valor)}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 4px', fontWeight: 700, fontSize: 17, borderTop: frete && frete.valor > 0 ? '1px solid #2a2a2a' : 'none' }}>
               <span>Total</span>
-              <span style={{ color: '#22b886' }}>{fmtR(total)}</span>
+              <span style={{ color: '#22b886' }}>{fmtR(total + (frete ? frete.valor : 0))}</span>
             </div>
           </div>
 
@@ -453,7 +461,7 @@ export default function PedidoExterno() {
 
               <div style={{ display: 'flex', gap: 10 }}>
                 <Field label="Número" >
-                  <Input placeholder="123" value={form.numero} onChange={e => setF('numero', e.target.value)} style={{ width: 100 }} />
+                  <Input type="text" inputMode="numeric" placeholder="123" value={form.numero} onChange={e => setF('numero', e.target.value)} style={{ width: 100 }} />
                 </Field>
                 <div style={{ flex: 1 }}>
                   <Field label="Complemento">
