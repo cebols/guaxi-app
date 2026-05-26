@@ -1,26 +1,40 @@
 import { useState, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
-import { getEncomendas, getInsumos, getEmbalagens, getProdutos, updateStatusEncomenda, getCompras, getVendas, getProducoes, computeAjustesPendentes } from '../services/db'
+import { getEncomendas, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas } from '../services/db'
 import { getConfig, CONFIG_DEFAULTS } from '../hooks/useConfig'
 import { NovoPedidoSheet } from './Pedidos'
 import { useToast } from '../hooks/useToast'
 import { useNavigate } from 'react-router-dom'
 
-const STATUS_PROD = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
-const STATUS_PGTO = ['Aguardando', 'Pago', 'Atrasado']
+function ThermalChip({ icon, count, color, bg }) {
+  if (!count) return null
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      fontSize: 11, fontWeight: 600, color,
+      background: bg, borderRadius: 20, padding: '3px 8px',
+    }}>
+      {icon} {count}
+    </span>
+  )
+}
 
-const PROD_BADGE = {
-  'Pendente':   'badge-warn',
-  'Pronto':     'badge-info',
-  'Entregue':   'badge-teal',
-  'Cancelado':  '',
+function thermalOf(rec) {
+  if (!rec) return null
+  if (rec.tempoForno > 0 || rec.tempForno > 0) return 'forno'
+  if (rec.tipoResfriamento === 'congelador') return 'congelar'
+  if (rec.tipoResfriamento === 'geladeira')  return 'resfriar'
+  return null
 }
-const PGTO_BADGE = {
-  'Aguardando': 'badge-alert',
-  'Pago':       'badge-ok',
-  'Atrasado':   'badge-alert',
+
+function ThermalDot({ method }) {
+  if (method === 'forno')    return <span style={{ fontSize: 12 }}>🔥</span>
+  if (method === 'congelar') return <span style={{ fontSize: 12 }}>❄️</span>
+  if (method === 'resfriar') return <span style={{ fontSize: 12 }}>💧</span>
+  return null
 }
+
 
 function formatDate(val) {
   if (!val) return ''
@@ -51,49 +65,29 @@ function nivelEstoque(atual, min) {
   return 2
 }
 
-function StatusSelect({ value, options, badgeMap, onChange }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div style={{ position: 'relative', display: 'inline-block' }} onClick={e => e.stopPropagation()}>
-      <button
-        className={`badge ${badgeMap[value] || 'badge-warn'}`}
-        style={{ border: 'none', cursor: 'pointer', padding: '4px 10px' }}
-        onClick={() => setOpen(!open)}
-      >
-        {value} ▾
-      </button>
-      {open && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, zIndex: 50,
-          background: 'var(--bg-card)', border: '1px solid #333', borderRadius: 8,
-          boxShadow: '0 4px 12px rgba(0,0,0,.3)', marginTop: 4, minWidth: 140,
-          overflow: 'hidden',
-        }}>
-          {options.map(opt => (
-            <button
-              key={opt}
-              onClick={() => { onChange(opt); setOpen(false) }}
-              style={{
-                display: 'block', width: '100%', textAlign: 'left',
-                padding: '8px 12px', border: 'none',
-                background: opt === value ? '#333' : 'var(--bg-card)',
-                cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)',
-              }}
-            >
-              {opt}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
+
+
+function dateLabel(val) {
+  if (!val) return null
+  const today = new Date(); today.setHours(0,0,0,0)
+  const d = new Date(val + 'T00:00:00')
+  const diff = Math.round((d - today) / 86400000)
+  if (diff < 0)   return { text: 'Atrasado', color: 'var(--alert-text)', bg: 'var(--alert-bg)', pill: true }
+  if (diff === 0) return { text: 'Hoje',     color: 'var(--warn-text)',  bg: 'var(--warn-bg)',  pill: true }
+  if (diff === 1) return { text: 'Amanhã',   color: 'var(--text-secondary)', bg: null }
+  return {
+    text: d.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric' }).replace('.', ''),
+    color: 'var(--text-secondary)', bg: null,
+  }
 }
 
-function EncomendaCard({ enc, onUpdateStatus }) {
+function EncomendaCard({ enc }) {
   const navigate = useNavigate()
   const itemStr = (enc.itens || [])
-    .map(i => i.quantidade > 1 ? `${i.produto} x${i.quantidade}` : i.produto)
+    .map(i => i.quantidade > 1 ? `${i.produto} ×${i.quantidade}` : i.produto)
     .join(', ') || '—'
+  const dl = enc.dataEntrega ? dateLabel(enc.dataEntrega) : null
+
   return (
     <div
       onClick={() => navigate('/pedidos', { state: { openPedidoId: enc.id } })}
@@ -104,43 +98,23 @@ function EncomendaCard({ enc, onUpdateStatus }) {
         padding: '12px 14px',
         marginBottom: 6,
         cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontWeight: 600, fontSize: 14 }}>{enc.cliente}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)', marginBottom: 2 }}>{enc.cliente}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{itemStr}</div>
+      </div>
+      {dl && (
         <span style={{
-          fontSize: 12, fontWeight: 700,
-          color: isToday(enc.dataEntrega) ? 'var(--warn-text)' : 'var(--text-secondary)',
-          padding: '3px 8px', borderRadius: 6,
-          background: isToday(enc.dataEntrega) ? 'var(--warn-bg)' : 'transparent',
+          fontSize: 12, fontWeight: 700, flexShrink: 0,
+          color: dl.color,
+          ...(dl.pill ? { background: dl.bg, borderRadius: 6, padding: '3px 8px' } : {}),
         }}>
-          {enc.dataEntrega ? formatDate(enc.dataEntrega) : '📱 Online'}
-          {isToday(enc.dataEntrega) ? ' · hoje' : ''}
+          {dl.text}
         </span>
-      </div>
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: enc.obs ? 4 : 8 }}>{itemStr}</div>
-      {enc.obs && (
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {enc.obs}
-        </div>
       )}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <StatusSelect
-          value={enc.status}
-          options={STATUS_PROD}
-          badgeMap={PROD_BADGE}
-          onChange={(val) => {
-            const newPgto = val === 'Entregue' && enc.pgto !== 'Pago' ? 'Atrasado' : enc.pgto
-            onUpdateStatus(enc, val, newPgto)
-          }}
-        />
-        <StatusSelect
-          value={enc.pgto || 'Aguardando'}
-          options={STATUS_PGTO}
-          badgeMap={PGTO_BADGE}
-          onChange={(val) => onUpdateStatus(enc, enc.status, val)}
-        />
-      </div>
+      {!dl && <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0 }}>📱 Online</span>}
     </div>
   )
 }
@@ -155,6 +129,7 @@ export default function Home() {
   const { data: embalagens, loading: loadEmb, reload: reloadEmb } = useData(getEmbalagens)
   const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
   const { data: producoes } = useData(getProducoes)
+  const { data: receitas }  = useData(getReceitas)
   const ajustes = useMemo(() => computeAjustesPendentes(producoes || []), [producoes])
 
   const aplicarAjuste = (itens, map) => {
@@ -169,6 +144,12 @@ export default function Home() {
   const reloadAll = () => { reloadEnc(); reloadIns(); reloadEmb(); reloadProd() }
 
   // Active mise en place
+  const receitaMap = useMemo(() => {
+    const m = {}
+    for (const r of (receitas || [])) m[r.id] = r
+    return m
+  }, [receitas])
+
   const ultimaProducaoAtiva = useMemo(() => {
     for (const prod of (producoes || [])) {
       const receitaIds = new Set(
@@ -182,14 +163,28 @@ export default function Home() {
       const checkedSet = new Set((prod.checks || []).map(String))
       const done = [...receitaIds].filter(id => checkedSet.has(id)).length
       if (total > 0 && done < total) {
+        // Build pending checklist items with thermal method
         const pendingItems = prod.itens
-          .filter(i => !checkedSet.has(String(i.receitaId || '')))
-          .map(i => i.nome).filter(Boolean).slice(0, 3)
-        return { ...prod, total, done, pct: Math.round(done / total * 100), pendingItems }
+          .filter(i => i.tipo === 'receita' && !checkedSet.has(String(i.receitaId || '')))
+          .map(i => {
+            const rec = receitaMap[i.receitaId]
+            return {
+              nome: i.nome,
+              qtd: i.rendimentoTotal,
+              unidade: i.unidadeGera || 'un',
+              thermal: thermalOf(rec),
+            }
+          })
+          .filter(i => i.nome)
+        // Thermal summary
+        const fornoCount    = pendingItems.filter(i => i.thermal === 'forno').length
+        const congelarCount = pendingItems.filter(i => i.thermal === 'congelar').length
+        const resfriarCount = pendingItems.filter(i => i.thermal === 'resfriar').length
+        return { ...prod, total, done, pct: Math.round(done / total * 100), pendingItems, fornoCount, congelarCount, resfriarCount }
       }
     }
     return null
-  }, [producoes])
+  }, [producoes, receitaMap])
 
   const proximas = (encomendas || [])
     .filter(e => {
@@ -243,16 +238,6 @@ export default function Home() {
   const diaSemana = hoje.toLocaleDateString('pt-BR', { weekday: 'long' })
   const dataStr = hoje.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })
   const primeiroNome = user?.user_metadata?.given_name || user?.user_metadata?.full_name?.split(' ')[0] || user?.email?.split('@')[0] || 'você'
-
-  const handleUpdateStatus = async (enc, novoStatus, novoPgto) => {
-    try {
-      await updateStatusEncomenda(enc.id, novoStatus, novoPgto)
-      show(`${enc.cliente}: ${novoStatus} · ${novoPgto}`)
-      reloadEnc()
-    } catch (e) {
-      show('Erro ao atualizar: ' + e.message)
-    }
-  }
 
   return (
     <>
@@ -352,20 +337,15 @@ export default function Home() {
               textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8,
             }}>Produção ativa</div>
             <div
-              onClick={() => navigate('/mise-en-place')}
-              style={{
-                background: 'var(--bg-card)',
-                borderRadius: 14,
-                border: '0.5px solid var(--border-light-color)',
-                overflow: 'hidden',
-                cursor: 'pointer',
-              }}
+              onClick={() => navigate(`/producao/${ultimaProducaoAtiva.id}`)}
+              style={{ background: 'var(--bg-card)', borderRadius: 14, border: '0.5px solid var(--border-light-color)', overflow: 'hidden', cursor: 'pointer' }}
             >
-              <div style={{ padding: '14px 14px 12px', borderBottom: '0.5px solid var(--border-light-color)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              {/* Header row */}
+              <div style={{ padding: '14px 14px 10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
-                      Mise en Place
+                      Mise en Place #{ultimaProducaoAtiva.id}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
                       {ultimaProducaoAtiva.done} de {ultimaProducaoAtiva.total} prontos
@@ -375,34 +355,50 @@ export default function Home() {
                     {ultimaProducaoAtiva.pct}%
                   </div>
                 </div>
+                {/* Progress bar */}
                 <div style={{ height: 4, borderRadius: 2, background: 'var(--border-light-color)', marginTop: 10, overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%', width: `${ultimaProducaoAtiva.pct}%`, borderRadius: 2,
-                    background: 'linear-gradient(90deg, var(--teal), #28d9a0)',
-                    transition: 'width .4s ease',
-                  }}/>
+                  <div style={{ height: '100%', width: `${ultimaProducaoAtiva.pct}%`, borderRadius: 2, background: 'linear-gradient(90deg, var(--teal), #28d9a0)', transition: 'width .4s ease' }}/>
                 </div>
+                {/* Thermal summary chips */}
+                {(ultimaProducaoAtiva.fornoCount > 0 || ultimaProducaoAtiva.congelarCount > 0 || ultimaProducaoAtiva.resfriarCount > 0) && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    <ThermalChip icon="🔥" count={ultimaProducaoAtiva.fornoCount}    color="#f97316" bg="rgba(249,115,22,0.12)" />
+                    <ThermalChip icon="❄️" count={ultimaProducaoAtiva.congelarCount} color="#60a5fa" bg="rgba(96,165,250,0.12)" />
+                    <ThermalChip icon="💧" count={ultimaProducaoAtiva.resfriarCount} color="#2dd4bf" bg="rgba(45,212,191,0.12)" />
+                  </div>
+                )}
               </div>
-              {ultimaProducaoAtiva.pendingItems?.length > 0 && (
-                <div style={{ padding: '8px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {ultimaProducaoAtiva.pendingItems.map((nome, i) => (
-                    <span key={i} style={{
-                      fontSize: 11, color: 'var(--text-secondary)', background: 'var(--bg-secondary)',
-                      borderRadius: 6, padding: '2px 7px', border: '0.5px solid var(--border-light-color)',
-                    }}>{nome}</span>
+
+              {/* Checklist preview */}
+              {ultimaProducaoAtiva.pendingItems.length > 0 && (
+                <div style={{ borderTop: '0.5px solid var(--border-light-color)', padding: '8px 14px 0' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+                    Pendentes ({ultimaProducaoAtiva.total - ultimaProducaoAtiva.done})
+                  </div>
+                  {ultimaProducaoAtiva.pendingItems.slice(0, 5).map((item, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: i < Math.min(ultimaProducaoAtiva.pendingItems.length, 5) - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
+                      <div style={{ width: 16, height: 16, borderRadius: 4, border: '1.5px solid var(--border-light-color)', flexShrink: 0 }} />
+                      <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{item.nome}</span>
+                      {item.thermal && <ThermalDot method={item.thermal} />}
+                      {item.qtd > 0 && <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{item.qtd} {item.unidade}</span>}
+                    </div>
                   ))}
-                  {ultimaProducaoAtiva.total - ultimaProducaoAtiva.done > 3 && (
-                    <span style={{ fontSize: 11, color: 'var(--text-tertiary)', padding: '2px 7px' }}>
-                      +{ultimaProducaoAtiva.total - ultimaProducaoAtiva.done - ultimaProducaoAtiva.pendingItems.length} mais
-                    </span>
-                  )}
                 </div>
               )}
-              <div style={{ padding: '10px 14px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  {new Date(ultimaProducaoAtiva.createdAt).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
-                </span>
-                <span style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>Continuar →</span>
+
+              {/* Footer */}
+              <div style={{ padding: '10px 14px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
+                {ultimaProducaoAtiva.pendingItems.length > 5 && (
+                  <span style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>
+                    + {ultimaProducaoAtiva.pendingItems.length - 5} itens · Ver tudo →
+                  </span>
+                )}
+                {ultimaProducaoAtiva.pendingItems.length <= 5 && (
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                    {new Date(ultimaProducaoAtiva.createdAt).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
+                  </span>
+                )}
+                <span style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600, marginLeft: 'auto' }}>Continuar →</span>
               </div>
             </div>
           </div>
@@ -430,7 +426,7 @@ export default function Home() {
             </div>
           ) : (
             proximas.map(enc => (
-              <EncomendaCard key={enc.id} enc={enc} onUpdateStatus={handleUpdateStatus} />
+              <EncomendaCard key={enc.id} enc={enc} />
             ))
           )}
         </div>

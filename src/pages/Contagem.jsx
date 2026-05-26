@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes } from '../services/db'
@@ -902,7 +902,8 @@ export default function Contagem() {
   const { toast, show } = useToast()
   const navigate = useNavigate()
 
-  const [vista, setVista]   = useState(null) // null | 'contagem' | 'compra' | 'consultar'
+  const location = useLocation()
+  const [vista, setVista]   = useState(() => location.state?.startCount ? 'contagem' : null)
   const [tab, setTab]       = useState('insumos')
   const [busca, setBusca]   = useState('')
   const [filtroContagem, setFiltroContagem] = useState('todos')

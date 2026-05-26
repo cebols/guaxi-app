@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { useEffect, useState, lazy, Suspense } from 'react'
+import { useEffect, useState, lazy, Suspense, useRef } from 'react'
 import { useAuth } from './contexts/AuthContext'
 import { initConfig, syncConfigFromSupabase } from './hooks/useConfig'
 import { fixSubreceitasRetroativas, loadUserConfig, saveUserConfig } from './services/db'
@@ -145,12 +145,12 @@ function Sidebar({ collapsed, onToggle }) {
 
 function CreateSheet({ open, onClose, navigate }) {
   const items = [
-    { icon: '📋', label: 'Pedido', desc: 'Nova encomenda', path: '/pedidos', state: { openNew: true } },
-    { icon: '💰', label: 'Venda', desc: 'Registrar venda avulsa', path: '/vendas' },
-    { icon: '📄', label: 'Receita', desc: 'Nova receita ou subreceita', path: '/fichas/nova' },
-    { icon: '📦', label: 'Produto', desc: 'Receita + embalagem → preço', path: '/produtos', state: { openNew: true } },
-    { icon: '🧂', label: 'Insumo', desc: 'Ingrediente ou embalagem', path: '/cadastros' },
-    { icon: '📊', label: 'Contagem', desc: 'Contagem de estoque', path: '/contagem' },
+    { icon: '📋', label: 'Pedido',   desc: 'Nova encomenda',          path: '/pedidos',    state: { openNew: true } },
+    { icon: '💰', label: 'Venda',    desc: 'Registrar venda avulsa',  path: '/vendas',     state: { openLancamento: true } },
+    { icon: '📄', label: 'Receita',  desc: 'Nova receita ou subreceita', path: '/fichas/nova' },
+    { icon: '📦', label: 'Produto',  desc: 'Receita + embalagem → preço', path: '/produtos', state: { openNew: true } },
+    { icon: '🧂', label: 'Insumo',   desc: 'Ingrediente ou embalagem', path: '/cadastros', state: { openNew: true } },
+    { icon: '📊', label: 'Contagem', desc: 'Contagem de estoque',     path: '/contagem',   state: { startCount: true } },
   ]
   return (
     <>
@@ -231,6 +231,23 @@ export default function App() {
   }, [location.pathname])
 
   useRealtimePedidos(session?.user?.id, null)
+
+  // Swipe right from left edge → go back
+  const touchStartX = useRef(0)
+  useEffect(() => {
+    const onStart = (e) => { touchStartX.current = e.touches[0].clientX }
+    const onEnd   = (e) => {
+      if (touchStartX.current < 30 && e.changedTouches[0].clientX - touchStartX.current > 60) {
+        navigate(-1)
+      }
+    }
+    document.addEventListener('touchstart', onStart, { passive: true })
+    document.addEventListener('touchend',   onEnd,   { passive: true })
+    return () => {
+      document.removeEventListener('touchstart', onStart)
+      document.removeEventListener('touchend',   onEnd)
+    }
+  }, [navigate])
 
   // Páginas públicas — acessíveis sem login.
   if (location.pathname.startsWith('/cardapio/')) {

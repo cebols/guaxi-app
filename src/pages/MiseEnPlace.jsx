@@ -6,6 +6,35 @@ import {
   saveProducao, getProducoes, computeAjustesPendentes,
 } from '../services/db'
 
+function ThermalIcon({ rec }) {
+  if (!rec) return null
+  if (Number(rec.tempoForno) > 0) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+        <path d="M12 2C11.45 2 11 2.45 11 3v10.27A4 4 0 0 0 8 17a4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-3-3.86V3c0-.55-.45-1-1-1z" fill="#f97316"/>
+        <path d="M9 5h2M9 8h2M9 11h2" stroke="#f97316" strokeWidth="1.5" strokeLinecap="round"/>
+      </svg>
+    )
+  }
+  if (rec.tipoResfriamento === 'congelador') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+        <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M19.07 4.93 4.93 19.07" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round"/>
+        <circle cx="12" cy="12" r="2" fill="#60a5fa"/>
+      </svg>
+    )
+  }
+  if (rec.tipoResfriamento === 'geladeira') {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+        <path d="M12 2C9.5 2 7 4 7 7c0 3.5 5 11 5 11s5-7.5 5-11c0-3-2.5-5-5-5z" fill="#2dd4bf"/>
+        <circle cx="12" cy="7.5" r="2" fill="#fff" fillOpacity=".7"/>
+      </svg>
+    )
+  }
+  return null
+}
+
 function norm(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 }
@@ -313,6 +342,7 @@ export default function MiseEnPlace() {
                       {item.tipo === 'produto' ? 'PRODUTO' : 'RECEITA'}
                     </span>
                     <span style={{ fontSize: 13, fontWeight: 600 }}>{item.nome}</span>
+                    {item.tipo === 'receita' && <ThermalIcon rec={(receitas || []).find(r => r.id === item.id)} />}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{item.sub}</div>
                 </div>

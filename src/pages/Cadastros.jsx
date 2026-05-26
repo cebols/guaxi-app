@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'react'
+import { useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
@@ -750,8 +751,9 @@ function ListaComprasView({ insumos, embalagens }) {
 }
 
 export default function Cadastros() {
+  const location = useLocation()
   const [tab, setTab] = useState('insumos')
-  const [sheet, setSheet] = useState(null)
+  const [sheet, setSheet] = useState(() => location.state?.openNew ? { type: 'insumo' } : null)
   const [busca, setBusca] = useState('')
   const [filtroCat, setFiltroCat] = useState('')
   const [importando, setImportando] = useState(false)

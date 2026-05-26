@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
@@ -1046,9 +1047,10 @@ function ResultadoCard({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalR
 }
 
 export default function Vendas() {
+  const location = useLocation()
   const [periodo, setPeriodo]           = useState('mes')
   const [tab, setTab]                   = useState('inicio')
-  const [sheet, setSheet]               = useState(null)
+  const [sheet, setSheet]               = useState(() => location.state?.openLancamento ? { type: 'rapido' } : null)
   const [expandedDate, setExpandedDate] = useState(null)
   const [filtroHistPeriodo, setFiltroHistPeriodo] = useState('all')
   const [customInicio, setCustomInicio] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0] })
