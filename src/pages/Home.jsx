@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
-import { getEncomendas, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas } from '../services/db'
+import { getEncomendas, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas, updateProducaoChecks } from '../services/db'
 import { getConfig, CONFIG_DEFAULTS } from '../hooks/useConfig'
 import { NovoPedidoSheet } from './Pedidos'
 import { useToast } from '../hooks/useToast'
@@ -124,11 +124,12 @@ export default function Home() {
   const navigate = useNavigate()
   const { toast, show } = useToast()
   const [novoPedido, setNovoPedido] = useState(false)
+  const [localChecks, setLocalChecks] = useState(null) // { producaoId, checks: Set }
   const { data: encomendas, loading: loadEnc, reload: reloadEnc } = useData(getEncomendas)
   const { data: insumos,    loading: loadIns, reload: reloadIns } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb, reload: reloadEmb } = useData(getEmbalagens)
   const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
-  const { data: producoes } = useData(getProducoes)
+  const { data: producoes, reload: reloadProducoes } = useData(getProducoes)
   const { data: receitas }  = useData(getReceitas)
   const ajustes = useMemo(() => computeAjustesPendentes(producoes || []), [producoes])
 
@@ -142,6 +143,27 @@ export default function Home() {
   }
 
   const reloadAll = () => { reloadEnc(); reloadIns(); reloadEmb(); reloadProd() }
+
+  const toggleCheck = useCallback(async (producaoId, receitaId) => {
+    const key = String(receitaId)
+    setLocalChecks(prev => {
+      const base = prev?.producaoId === producaoId ? new Set(prev.checks) : new Set(
+        (producoes || []).find(p => p.id === producaoId)?.checks?.map(String) || []
+      )
+      if (base.has(key)) base.delete(key)
+      else base.add(key)
+      return { producaoId, checks: base }
+    })
+    try {
+      const prod = (producoes || []).find(p => p.id === producaoId)
+      const current = new Set((prod?.checks || []).map(String))
+      if (current.has(key)) current.delete(key)
+      else current.add(key)
+      await updateProducaoChecks(producaoId, Array.from(current))
+    } catch {
+      reloadProducoes()
+    }
+  }, [producoes, reloadProducoes])
 
   // Active mise en place
   const receitaMap = useMemo(() => {
@@ -160,7 +182,9 @@ export default function Home() {
         )
       )
       const total = receitaIds.size
-      const checkedSet = new Set((prod.checks || []).map(String))
+      const checkedSet = localChecks?.producaoId === prod.id
+        ? localChecks.checks
+        : new Set((prod.checks || []).map(String))
       const done = [...receitaIds].filter(id => checkedSet.has(id)).length
       if (total > 0 && done < total) {
         // Build a lookup: receitaId (string) -> { nome, qtd, unidade }
@@ -178,28 +202,34 @@ export default function Home() {
             recipeInfoMap[rid].qtd += doses * (receitaMap[Number(rid)]?.rendimento || 0)
           }
         }
-        const pendingItems = [...receitaIds]
-          .filter(id => !checkedSet.has(id))
+        // All items: unchecked first, then checked (so strikes go to bottom)
+        const allItems = [
+          ...[...receitaIds].filter(id => !checkedSet.has(id)),
+          ...[...receitaIds].filter(id => checkedSet.has(id)),
+        ]
           .map(id => {
             const info = recipeInfoMap[id]
             const rec  = receitaMap[Number(id)]
             return {
+              id,
               nome: info?.nome || rec?.nome || '',
               qtd: info?.qtd || 0,
               unidade: info?.unidade || rec?.unidadeGera || 'un',
               thermal: thermalOf(rec),
+              checked: checkedSet.has(id),
             }
           })
           .filter(i => i.nome)
-        // Thermal summary
+        const pendingItems = allItems.filter(i => !i.checked) // for footer count
+        // Thermal summary (pending only)
         const fornoCount    = pendingItems.filter(i => i.thermal === 'forno').length
         const congelarCount = pendingItems.filter(i => i.thermal === 'congelar').length
         const resfriarCount = pendingItems.filter(i => i.thermal === 'resfriar').length
-        return { ...prod, total, done, pct: Math.round(done / total * 100), pendingItems, fornoCount, congelarCount, resfriarCount }
+        return { ...prod, total, done, pct: Math.round(done / total * 100), allItems, pendingItems, fornoCount, congelarCount, resfriarCount }
       }
     }
     return null
-  }, [producoes, receitaMap])
+  }, [producoes, receitaMap, localChecks])
 
   const proximas = (encomendas || [])
     .filter(e => {
@@ -385,17 +415,33 @@ export default function Home() {
               </div>
 
               {/* Checklist preview */}
-              {ultimaProducaoAtiva.pendingItems.length > 0 && (
+              {ultimaProducaoAtiva.allItems.length > 0 && (
                 <div style={{ borderTop: '0.5px solid var(--border-light-color)', padding: '8px 14px 0' }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
                     Pendentes ({ultimaProducaoAtiva.total - ultimaProducaoAtiva.done})
                   </div>
-                  {ultimaProducaoAtiva.pendingItems.slice(0, 5).map((item, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: i < Math.min(ultimaProducaoAtiva.pendingItems.length, 5) - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
-                      <div style={{ width: 16, height: 16, borderRadius: 4, border: '1.5px solid var(--border-light-color)', flexShrink: 0 }} />
-                      <span style={{ flex: 1, fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{item.nome}</span>
-                      {item.thermal && <ThermalDot method={item.thermal} />}
-                      {item.qtd > 0 && <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{item.qtd} {item.unidade}</span>}
+                  {ultimaProducaoAtiva.allItems.slice(0, 5).map((item, i) => (
+                    <div
+                      key={item.id}
+                      onClick={e => { e.stopPropagation(); toggleCheck(ultimaProducaoAtiva.id, item.id) }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 0', borderBottom: i < Math.min(ultimaProducaoAtiva.allItems.length, 5) - 1 ? '0.5px solid var(--border-light-color)' : 'none', cursor: 'pointer' }}
+                    >
+                      <div style={{
+                        width: 18, height: 18, borderRadius: 5, flexShrink: 0,
+                        border: item.checked ? 'none' : '1.5px solid var(--border-light-color)',
+                        background: item.checked ? 'var(--teal)' : 'transparent',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'background .15s, border .15s',
+                      }}>
+                        {item.checked && (
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                            <path d="M2 5l2.5 2.5L8 3" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </div>
+                      <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: item.checked ? 'var(--text-tertiary)' : 'var(--text-primary)', textDecoration: item.checked ? 'line-through' : 'none', transition: 'color .15s' }}>{item.nome}</span>
+                      {!item.checked && item.thermal && <ThermalDot method={item.thermal} />}
+                      {!item.checked && item.qtd > 0 && <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{Math.round(item.qtd)} {item.unidade}</span>}
                     </div>
                   ))}
                 </div>
@@ -403,12 +449,12 @@ export default function Home() {
 
               {/* Footer */}
               <div style={{ padding: '10px 14px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
-                {ultimaProducaoAtiva.pendingItems.length > 5 && (
+                {ultimaProducaoAtiva.allItems.length > 5 && (
                   <span style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>
-                    + {ultimaProducaoAtiva.pendingItems.length - 5} itens · Ver tudo →
+                    + {ultimaProducaoAtiva.allItems.length - 5} itens · Ver tudo →
                   </span>
                 )}
-                {ultimaProducaoAtiva.pendingItems.length <= 5 && (
+                {ultimaProducaoAtiva.allItems.length <= 5 && (
                   <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                     {new Date(ultimaProducaoAtiva.createdAt).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
                   </span>
