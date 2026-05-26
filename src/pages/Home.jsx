@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
 import { getEncomendas, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas, updateProducaoChecks } from '../services/db'
@@ -20,18 +20,21 @@ function ThermalChip({ icon, count, color, bg }) {
   )
 }
 
+function parseSteps(instrucoes) {
+  if (!instrucoes) return []
+  try { const p = JSON.parse(instrucoes); return Array.isArray(p) ? p : [] }
+  catch { return [] }
+}
+
 function thermalOf(rec) {
   if (!rec) return null
-  if (rec.tempoForno > 0 || rec.tempForno > 0) return 'forno'
-  if (rec.tipoResfriamento === 'congelador') return 'congelar'
-  if (rec.tipoResfriamento === 'geladeira')  return 'resfriar'
+  const steps = parseSteps(rec.instrucoes)
+  if (steps.some(s => s.tipo === 'ferver')) return 'ferver'
   return null
 }
 
 function ThermalDot({ method }) {
-  if (method === 'forno')    return <span style={{ fontSize: 12 }}>🔥</span>
-  if (method === 'congelar') return <span style={{ fontSize: 12 }}>❄️</span>
-  if (method === 'resfriar') return <span style={{ fontSize: 12 }}>💧</span>
+  if (method === 'ferver') return <span style={{ fontSize: 12 }}>🍲</span>
   return null
 }
 
@@ -125,6 +128,7 @@ export default function Home() {
   const { toast, show } = useToast()
   const [novoPedido, setNovoPedido] = useState(false)
   const [localChecks, setLocalChecks] = useState(null) // { producaoId, checks: Set }
+  const checksRef = useRef(null) // mesma estrutura, evita closure stale
   const { data: encomendas, loading: loadEnc, reload: reloadEnc } = useData(getEncomendas)
   const { data: insumos,    loading: loadIns, reload: reloadIns } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb, reload: reloadEmb } = useData(getEmbalagens)
@@ -146,21 +150,19 @@ export default function Home() {
 
   const toggleCheck = useCallback(async (producaoId, receitaId) => {
     const key = String(receitaId)
-    setLocalChecks(prev => {
-      const base = prev?.producaoId === producaoId ? new Set(prev.checks) : new Set(
-        (producoes || []).find(p => p.id === producaoId)?.checks?.map(String) || []
-      )
-      if (base.has(key)) base.delete(key)
-      else base.add(key)
-      return { producaoId, checks: base }
-    })
+    // Sempre lê do ref para evitar closure stale em clicks rápidos
+    const prevSet = checksRef.current?.producaoId === producaoId
+      ? new Set(checksRef.current.checks)
+      : new Set((producoes || []).find(p => p.id === producaoId)?.checks?.map(String) || [])
+    if (prevSet.has(key)) prevSet.delete(key)
+    else prevSet.add(key)
+    checksRef.current = { producaoId, checks: prevSet }
+    setLocalChecks({ producaoId, checks: new Set(prevSet) })
     try {
-      const prod = (producoes || []).find(p => p.id === producaoId)
-      const current = new Set((prod?.checks || []).map(String))
-      if (current.has(key)) current.delete(key)
-      else current.add(key)
-      await updateProducaoChecks(producaoId, Array.from(current))
+      await updateProducaoChecks(producaoId, Array.from(prevSet))
     } catch {
+      checksRef.current = null
+      setLocalChecks(null)
       reloadProducoes()
     }
   }, [producoes, reloadProducoes])
@@ -202,11 +204,8 @@ export default function Home() {
             recipeInfoMap[rid].qtd += doses * (receitaMap[Number(rid)]?.rendimento || 0)
           }
         }
-        // All items: unchecked first, then checked (so strikes go to bottom)
-        const allItems = [
-          ...[...receitaIds].filter(id => !checkedSet.has(id)),
-          ...[...receitaIds].filter(id => checkedSet.has(id)),
-        ]
+        // Mantém ordem original, checked fica na posição e fica riscado
+        const allItems = [...receitaIds]
           .map(id => {
             const info = recipeInfoMap[id]
             const rec  = receitaMap[Number(id)]
@@ -221,11 +220,8 @@ export default function Home() {
           })
           .filter(i => i.nome)
         const pendingItems = allItems.filter(i => !i.checked) // for footer count
-        // Thermal summary (pending only)
-        const fornoCount    = pendingItems.filter(i => i.thermal === 'forno').length
-        const congelarCount = pendingItems.filter(i => i.thermal === 'congelar').length
-        const resfriarCount = pendingItems.filter(i => i.thermal === 'resfriar').length
-        return { ...prod, total, done, pct: Math.round(done / total * 100), allItems, pendingItems, fornoCount, congelarCount, resfriarCount }
+        const ferverCount = pendingItems.filter(i => i.thermal === 'ferver').length
+        return { ...prod, total, done, pct: Math.round(done / total * 100), allItems, pendingItems, ferverCount }
       }
     }
     return null
@@ -405,11 +401,9 @@ export default function Home() {
                   <div style={{ height: '100%', width: `${ultimaProducaoAtiva.pct}%`, borderRadius: 2, background: 'linear-gradient(90deg, var(--teal), #28d9a0)', transition: 'width .4s ease' }}/>
                 </div>
                 {/* Thermal summary chips */}
-                {(ultimaProducaoAtiva.fornoCount > 0 || ultimaProducaoAtiva.congelarCount > 0 || ultimaProducaoAtiva.resfriarCount > 0) && (
-                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                    <ThermalChip icon="🔥" count={ultimaProducaoAtiva.fornoCount}    color="#f97316" bg="rgba(249,115,22,0.12)" />
-                    <ThermalChip icon="❄️" count={ultimaProducaoAtiva.congelarCount} color="#60a5fa" bg="rgba(96,165,250,0.12)" />
-                    <ThermalChip icon="💧" count={ultimaProducaoAtiva.resfriarCount} color="#2dd4bf" bg="rgba(45,212,191,0.12)" />
+                {ultimaProducaoAtiva.ferverCount > 0 && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                    <ThermalChip icon="🍲" count={ultimaProducaoAtiva.ferverCount} color="#fb923c" bg="rgba(251,146,60,0.12)" />
                   </div>
                 )}
               </div>

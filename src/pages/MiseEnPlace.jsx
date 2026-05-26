@@ -6,31 +6,17 @@ import {
   saveProducao, getProducoes, computeAjustesPendentes,
 } from '../services/db'
 
+function parseStepsMEP(instrucoes) {
+  if (!instrucoes) return []
+  try { const p = JSON.parse(instrucoes); return Array.isArray(p) ? p : [] }
+  catch { return [] }
+}
+
 function ThermalIcon({ rec }) {
   if (!rec) return null
-  if (Number(rec.tempoForno) > 0) {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-        <path d="M12 2C11.45 2 11 2.45 11 3v10.27A4 4 0 0 0 8 17a4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-3-3.86V3c0-.55-.45-1-1-1z" fill="#f97316"/>
-        <path d="M9 5h2M9 8h2M9 11h2" stroke="#f97316" strokeWidth="1.5" strokeLinecap="round"/>
-      </svg>
-    )
-  }
-  if (rec.tipoResfriamento === 'congelador') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-        <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M19.07 4.93 4.93 19.07" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round"/>
-        <circle cx="12" cy="12" r="2" fill="#60a5fa"/>
-      </svg>
-    )
-  }
-  if (rec.tipoResfriamento === 'geladeira') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-        <path d="M12 2C9.5 2 7 4 7 7c0 3.5 5 11 5 11s5-7.5 5-11c0-3-2.5-5-5-5z" fill="#2dd4bf"/>
-        <circle cx="12" cy="7.5" r="2" fill="#fff" fillOpacity=".7"/>
-      </svg>
-    )
+  const steps = parseStepsMEP(rec.instrucoes)
+  if (steps.some(s => s.tipo === 'ferver')) {
+    return <span style={{ fontSize: 13, flexShrink: 0 }}>🍲</span>
   }
   return null
 }
@@ -82,9 +68,8 @@ export default function MiseEnPlace() {
 
   function thermalOfRec(rec) {
     if (!rec) return null
-    if (Number(rec.tempoForno) > 0 || Number(rec.tempForno) > 0) return 'forno'
-    if (rec.tipoResfriamento === 'congelador') return 'congelar'
-    if (rec.tipoResfriamento === 'geladeira')  return 'resfriar'
+    const steps = parseStepsMEP(rec.instrucoes)
+    if (steps.some(s => s.tipo === 'ferver')) return 'ferver'
     return null
   }
 
@@ -334,9 +319,7 @@ export default function MiseEnPlace() {
         </div>
         <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
           {[
-            { k: 'forno',    l: '🔥 Forno',    color: '#f97316', bg: 'rgba(249,115,22,0.15)', border: '#f97316' },
-            { k: 'congelar', l: '❄️ Congelar', color: '#60a5fa', bg: 'rgba(96,165,250,0.15)', border: '#60a5fa' },
-            { k: 'resfriar', l: '💧 Resfriar', color: '#2dd4bf', bg: 'rgba(45,212,191,0.15)', border: '#2dd4bf' },
+            { k: 'ferver', l: '🍲 Ferver', color: '#fb923c', bg: 'rgba(251,146,60,0.15)', border: '#fb923c' },
           ].map(t => {
             const active = filtroThermal === t.k
             return (
