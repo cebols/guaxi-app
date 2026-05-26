@@ -237,10 +237,11 @@ export default function PedidoExterno() {
 
   async function geocodeCep(cep) {
     const clean = cep.replace(/\D/g, '')
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?postalcode=${clean}&country=BR&format=json&limit=1`)
+    const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${clean}`)
+    if (!r.ok) throw new Error('CEP não encontrado')
     const d = await r.json()
-    if (!d?.[0]) throw new Error('CEP não encontrado')
-    return { lat: parseFloat(d[0].lat), lon: parseFloat(d[0].lon) }
+    if (!d.latitude || !d.longitude) throw new Error('Coordenadas indisponíveis para este CEP')
+    return { lat: d.latitude, lon: d.longitude }
   }
 
   function applyFreteTiers(distKm, tiers) {
