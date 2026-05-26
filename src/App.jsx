@@ -15,6 +15,7 @@ const Cozinha      = lazy(() => import('./pages/Cozinha'))
 const ReceitaForm  = lazy(() => import('./pages/ReceitaForm'))
 const Cadastros    = lazy(() => import('./pages/Cadastros'))
 const Configuracoes = lazy(() => import('./pages/Configuracoes'))
+const Perfil        = lazy(() => import('./pages/Perfil'))
 const Produtos     = lazy(() => import('./pages/Produtos'))
 const Vendas       = lazy(() => import('./pages/Vendas'))
 const MiseEnPlace       = lazy(() => import('./pages/MiseEnPlace'))
@@ -48,6 +49,7 @@ const MENU_GROUPS = [
       { path: '/produtos',      label: 'Produtos',        sub: 'Cardápio e preços',         icon: ProdutosIcon },
       { path: '/cadastros',     label: 'Insumos',         sub: 'Ingredientes e embalagens', icon: CadastrosIcon },
       { path: '/configuracoes', label: 'Preços e custos', sub: 'Precificação e margens',    icon: ConfigIcon },
+      { path: '/perfil',        label: 'Perfil',          sub: 'Dados da loja e conta',     icon: PerfilIcon },
     ],
   },
 ]
@@ -218,6 +220,7 @@ export default function App() {
             <Route path="/mise-en-place/historico" element={<ProducaoHistorico />} />
             <Route path="/producao/:id"            element={<ProducaoTodo />} />
             <Route path="/configuracoes"       element={<Configuracoes />} />
+            <Route path="/perfil"             element={<Perfil />} />
             <Route path="*"                    element={<Navigate to="/" />} />
           </Routes>
         </Suspense>
@@ -393,6 +396,12 @@ function MenuIcon() {
     <line x1="3" y1="6"  x2="21" y2="6"/>
     <line x1="3" y1="12" x2="21" y2="12"/>
     <line x1="3" y1="18" x2="21" y2="18"/>
+  </svg>
+}
+function PerfilIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+    <circle cx="12" cy="7" r="4"/>
   </svg>
 }
 function SairIcon() {
