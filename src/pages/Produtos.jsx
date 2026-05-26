@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
 import { useData } from '../hooks/useData'
@@ -223,7 +224,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
       <div className="sheet-overlay" onClick={onClose} />
       <div style={{
         position: 'fixed', inset: 0, zIndex: 120,
-        background: 'var(--bg)', display: 'flex', flexDirection: 'column',
+        background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column',
       }}>
         {/* Header */}
         <div style={{
@@ -710,7 +711,14 @@ function OrganizarSecoesSheet({ produtos, onSave, onClose }) {
 
 export default function Produtos() {
   const [sheet, setSheet]     = useState(null)
+  const location              = useLocation()
   const [filtroTipo, setFiltroTipo] = useState('Todos')
+
+  useEffect(() => {
+    if (location.state?.openNew) {
+      setSheet({ type: 'produto' })
+    }
+  }, [])
   const { toast, show }       = useToast()
   const { profile, user }     = useAuth()
   const cfg                   = getConfig()

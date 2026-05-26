@@ -54,7 +54,7 @@ function nivelEstoque(atual, min) {
 function StatusSelect({ value, options, badgeMap, onChange }) {
   const [open, setOpen] = useState(false)
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
+    <div style={{ position: 'relative', display: 'inline-block' }} onClick={e => e.stopPropagation()}>
       <button
         className={`badge ${badgeMap[value] || 'badge-warn'}`}
         style={{ border: 'none', cursor: 'pointer', padding: '4px 10px' }}
@@ -90,17 +90,22 @@ function StatusSelect({ value, options, badgeMap, onChange }) {
 }
 
 function EncomendaCard({ enc, onUpdateStatus }) {
+  const navigate = useNavigate()
   const itemStr = (enc.itens || [])
     .map(i => i.quantidade > 1 ? `${i.produto} x${i.quantidade}` : i.produto)
     .join(', ') || '—'
   return (
-    <div style={{
-      background: 'var(--bg-card)',
-      border: '0.5px solid var(--border-light-color)',
-      borderRadius: 12,
-      padding: '12px 14px',
-      marginBottom: 6,
-    }}>
+    <div
+      onClick={() => navigate('/pedidos', { state: { openPedidoId: enc.id } })}
+      style={{
+        background: 'var(--bg-card)',
+        border: '0.5px solid var(--border-light-color)',
+        borderRadius: 12,
+        padding: '12px 14px',
+        marginBottom: 6,
+        cursor: 'pointer',
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <span style={{ fontWeight: 600, fontSize: 14 }}>{enc.cliente}</span>
         <span style={{
@@ -174,8 +179,14 @@ export default function Home() {
         )
       )
       const total = receitaIds.size
-      const done = (prod.checks || []).filter(c => receitaIds.has(String(c))).length
-      if (total > 0 && done < total) return { ...prod, total, done, pct: Math.round(done / total * 100) }
+      const checkedSet = new Set((prod.checks || []).map(String))
+      const done = [...receitaIds].filter(id => checkedSet.has(id)).length
+      if (total > 0 && done < total) {
+        const pendingItems = prod.itens
+          .filter(i => !checkedSet.has(String(i.receitaId || '')))
+          .map(i => i.nome).filter(Boolean).slice(0, 3)
+        return { ...prod, total, done, pct: Math.round(done / total * 100), pendingItems }
+      }
     }
     return null
   }, [producoes])
@@ -372,6 +383,21 @@ export default function Home() {
                   }}/>
                 </div>
               </div>
+              {ultimaProducaoAtiva.pendingItems?.length > 0 && (
+                <div style={{ padding: '8px 14px 0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {ultimaProducaoAtiva.pendingItems.map((nome, i) => (
+                    <span key={i} style={{
+                      fontSize: 11, color: 'var(--text-secondary)', background: 'var(--bg-secondary)',
+                      borderRadius: 6, padding: '2px 7px', border: '0.5px solid var(--border-light-color)',
+                    }}>{nome}</span>
+                  ))}
+                  {ultimaProducaoAtiva.total - ultimaProducaoAtiva.done > 3 && (
+                    <span style={{ fontSize: 11, color: 'var(--text-tertiary)', padding: '2px 7px' }}>
+                      +{ultimaProducaoAtiva.total - ultimaProducaoAtiva.done - ultimaProducaoAtiva.pendingItems.length} mais
+                    </span>
+                  )}
+                </div>
+              )}
               <div style={{ padding: '10px 14px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                   {new Date(ultimaProducaoAtiva.createdAt).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}

@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { useLocation, useNavigate as useRRNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
@@ -765,6 +766,7 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const [pgto, setPgto]               = useState(pedido.pgto)
   const [tipoEntrega, setTipoEntrega] = useState(pedido.tipoEntrega || 'Retirada')
   const [frete, setFrete]             = useState(pedido.frete > 0 ? String(pedido.frete) : '')
+  const [dataEntrega, setDataEntrega] = useState(pedido.dataEntrega || '')
   const [saving, setSaving]           = useState(false)
   const [confirm, setConfirm]         = useState(false)
 
@@ -784,7 +786,7 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const handleSave = async () => {
     setSaving(true)
     try {
-      await updateStatusEncomenda(pedido.id, status, pgto, tipoEntrega, frete, totalAtual)
+      await updateStatusEncomenda(pedido.id, status, pgto, tipoEntrega, frete, totalAtual, dataEntrega)
       show('Salvo!')
       setTimeout(() => { onSaved(); onBack() }, 700)
     } catch (e) {
@@ -810,18 +812,13 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
 
-        {/* Data entrega chip */}
-        {pedido.dataEntrega && (() => {
-          const urg = urgency(pedido.dataEntrega)
-          const color = urg?.color || 'var(--text-secondary)'
-          const bg    = urg?.bg    || 'var(--bg-secondary)'
-          return (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: bg, borderRadius: 8, padding: '6px 12px', marginBottom: 12 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color }}>📅 {fmtDate(pedido.dataEntrega)}</span>
-              {urg && <span style={{ fontSize: 11, fontWeight: 700, color, opacity: 0.8 }}>· {urg.label}</span>}
-            </div>
-          )
-        })()}
+        {/* Data entrega — editável */}
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 8 }}>
+            Data de entrega
+          </div>
+          <DateChipsForm value={dataEntrega} onChange={setDataEntrega} />
+        </div>
 
         {/* Status pipeline */}
         <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
@@ -1125,6 +1122,8 @@ function ProducaoView({ pedidos, produtos, receitas, onEstoqueUpdated }) {
 // ── Main page ─────────────────────────────────────────────────
 export default function Pedidos() {
   const { user } = useAuth()
+  const location = useLocation()
+  const navTo    = useRRNavigate()
   const { data: pedidos,  loading: loadingPed, reload: reloadPedidos } = useData(getEncomendas)
   const { data: produtos, loading: loadingProd, reload: reloadProdutos } = useData(getProdutos)
   const { data: insumos  } = useData(getInsumos)
@@ -1132,6 +1131,25 @@ export default function Pedidos() {
   const { data: clientes, reload: reloadClientes } = useData(getClientes)
 
   const [mode, setMode]               = useState('list')
+
+  const handledState = useRef(false)
+  useEffect(() => {
+    if (handledState.current) return
+    if (location.state?.openNew) {
+      handledState.current = true
+      setMode('novo')
+      navTo(location.pathname, { replace: true, state: null })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (handledState.current || !location.state?.openPedidoId || !pedidos) return
+    const ped = pedidos.find(p => p.id === location.state.openPedidoId)
+    if (!ped) return
+    handledState.current = true
+    setMode(ped)
+    navTo(location.pathname, { replace: true, state: null })
+  }, [pedidos])
   const [filtroUrgencia, setFiltroUrgencia] = useState(() => localStorage.getItem('pedidos_filtro') || 'todos')
   const [filtroStatus, setFiltroStatus]     = useState(['Pendente', 'Pronto'])
   const [aba, setAba]                 = useState('pedidos')

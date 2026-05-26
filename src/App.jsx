@@ -145,10 +145,10 @@ function Sidebar({ collapsed, onToggle }) {
 
 function CreateSheet({ open, onClose, navigate }) {
   const items = [
-    { icon: '📋', label: 'Pedido', desc: 'Nova encomenda', path: '/pedidos' },
+    { icon: '📋', label: 'Pedido', desc: 'Nova encomenda', path: '/pedidos', state: { openNew: true } },
     { icon: '💰', label: 'Venda', desc: 'Registrar venda avulsa', path: '/vendas' },
     { icon: '📄', label: 'Receita', desc: 'Nova receita ou subreceita', path: '/fichas/nova' },
-    { icon: '📦', label: 'Produto', desc: 'Receita + embalagem → preço', path: '/produtos' },
+    { icon: '📦', label: 'Produto', desc: 'Receita + embalagem → preço', path: '/produtos', state: { openNew: true } },
     { icon: '🧂', label: 'Insumo', desc: 'Ingrediente ou embalagem', path: '/cadastros' },
     { icon: '📊', label: 'Contagem', desc: 'Contagem de estoque', path: '/contagem' },
   ]
@@ -175,7 +175,7 @@ function CreateSheet({ open, onClose, navigate }) {
         {items.map((item, i) => (
           <button
             key={i}
-            onClick={() => { onClose(); navigate(item.path) }}
+            onClick={() => { onClose(); navigate(item.path, item.state ? { state: item.state } : undefined) }}
             style={{
               display: 'flex', alignItems: 'center', gap: 12,
               padding: '10px 0', cursor: 'pointer',
