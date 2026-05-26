@@ -240,7 +240,8 @@ ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS frete        numeric d
 ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS data_pago    date;
 
-ALTER TABLE encomenda_itens      ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE encomenda_itens      ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE encomenda_itens      ADD COLUMN IF NOT EXISTS produto_id  bigint references produtos(id) on delete set null;
 ALTER TABLE clientes             ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE compras              ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE vendas               ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
@@ -489,12 +490,13 @@ BEGIN
   VALUES
     (v_id, p_user_id, p_cliente, p_contato, 'FormExterno', p_tipo_entrega, p_endereco, p_obs, v_total + COALESCE(p_frete, 0), COALESCE(p_frete, 0), 'Pendente', 'Aguardando');
 
-  INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id)
+  INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id, produto_id)
   SELECT v_id,
          elem->>'produto_nome',
          (elem->>'quantidade')::numeric,
          (elem->>'preco_unit')::numeric,
-         p_user_id
+         p_user_id,
+         (elem->>'produto_id')::bigint
     FROM jsonb_array_elements(p_itens) AS elem;
 
   RETURN v_id;
@@ -519,3 +521,34 @@ AS $$
 $$;
 
 GRANT EXECUTE ON FUNCTION public.get_delivery_config TO anon;
+
+-- Deleta pedido e devolve estoque se canal = FormExterno
+CREATE OR REPLACE FUNCTION public.delete_pedido(p_id text, p_user_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_canal text;
+  v_item  record;
+BEGIN
+  SELECT canal INTO v_canal FROM encomendas WHERE id = p_id AND user_id = p_user_id;
+  IF NOT FOUND THEN RETURN; END IF;
+
+  IF v_canal = 'FormExterno' THEN
+    FOR v_item IN
+      SELECT produto_id, quantidade FROM encomenda_itens
+      WHERE encomenda_id = p_id AND produto_id IS NOT NULL
+    LOOP
+      UPDATE produtos
+         SET estoque_atual = COALESCE(estoque_atual, 0) + v_item.quantidade
+       WHERE id = v_item.produto_id AND user_id = p_user_id;
+    END LOOP;
+  END IF;
+
+  DELETE FROM encomendas WHERE id = p_id AND user_id = p_user_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.delete_pedido TO authenticated;

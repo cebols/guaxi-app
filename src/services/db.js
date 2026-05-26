@@ -672,8 +672,8 @@ export async function savePedido(pedido, itens) {
 }
 
 export async function deletePedido(id) {
-  await supabase.from('encomenda_itens').delete().eq('encomenda_id', id)
-  const { error } = await supabase.from('encomendas').delete().eq('id', id)
+  const { data: { user } } = await supabase.auth.getUser()
+  const { error } = await supabase.rpc('delete_pedido', { p_id: id, p_user_id: user.id })
   if (error) throw error
 }
 
