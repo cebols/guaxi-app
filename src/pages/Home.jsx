@@ -398,8 +398,10 @@ export default function Home() {
     const s = e.dataEntrega || e.createdAt
     return s ? new Date(s + 'T00:00:00') : null
   }
-  const enc7  = (encomendas || []).filter(e => { const d = encDate(e); return e.status !== 'Cancelado' && d && d >= enc7cut }).reduce((s, e) => s + (e.valor || 0), 0)
-  const enc7p = (encomendas || []).filter(e => { const d = encDate(e); return e.status !== 'Cancelado' && d && d >= enc14cut && d < enc7cut }).reduce((s, e) => s + (e.valor || 0), 0)
+  // FormExterno só conta como faturamento quando pago
+  const encFaturavel = (e) => e.canal !== 'FormExterno' || e.pgto === 'Pago'
+  const enc7  = (encomendas || []).filter(e => { const d = encDate(e); return e.status !== 'Cancelado' && encFaturavel(e) && d && d >= enc7cut }).reduce((s, e) => s + (e.valor || 0), 0)
+  const enc7p = (encomendas || []).filter(e => { const d = encDate(e); return e.status !== 'Cancelado' && encFaturavel(e) && d && d >= enc14cut && d < enc7cut }).reduce((s, e) => s + (e.valor || 0), 0)
   const fatLiquido7  = vendas7.reduce((a, b) => a + b, 0) + enc7
   const fatLiquido7p = vendas7p.reduce((a, b) => a + b, 0) + enc7p
   const fatLiquidoDiff = fatLiquido7p !== 0 ? Math.round(((fatLiquido7 - fatLiquido7p) / Math.abs(fatLiquido7p)) * 100) : null
