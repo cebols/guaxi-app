@@ -1516,28 +1516,9 @@ export default function Vendas() {
                     if (item._tipo === 'pedido') return s + (item.valor || (item.itens || []).reduce((ss, i) => ss + i.quantidade * (i.precoUnit || 0), 0))
                     return s + item.quantidade * item.precoUnit
                   }, 0)
-                  const linhas = items.flatMap(item => {
-                    if (item._tipo === 'pedido') {
-                      return (item.itens || []).map(it => ({
-                        key: `${item.id}-${it.produto}`,
-                        nome: it.produto,
-                        quantidade: it.quantidade,
-                        precoUnit: it.precoUnit || 0,
-                        platColor: PLAT_COLOR[CANAL_TO_PLAT[item.canal] || 'Direta'] || 'var(--teal)',
-                        canal: item.canal,
-                      }))
-                    }
-                    return [{
-                      key: item.id,
-                      nome: item.produtoNome,
-                      quantidade: item.quantidade,
-                      precoUnit: item.precoUnit,
-                      platColor: PLAT_COLOR[item.plataforma] || 'var(--teal)',
-                      canal: item.plataforma,
-                      canDelete: true,
-                      id: item.id,
-                    }]
-                  }).sort((a, b) => a.canal.localeCompare(b.canal) || a.nome.localeCompare(b.nome))
+                  // Separate vendas avulsas and pedidos (keep pedidos grouped)
+                  const vendasAvulsas = items.filter(i => i._tipo === 'venda')
+                  const pedidosGrupo  = items.filter(i => i._tipo === 'pedido')
                   const dow = DOW[new Date(data + 'T12:00:00').getDay()]
                   const isOpen = expandedDate === data
                   return (
@@ -1555,19 +1536,39 @@ export default function Vendas() {
                       </button>
                       {isOpen && (
                         <div style={{ background: 'var(--bg-tertiary)', border: '1px solid #2a2a2a', borderTop: 'none', borderRadius: '0 0 9px 9px', padding: '0 14px' }}>
-                          {linhas.map((linha, li) => (
-                            <div key={linha.key} style={{ display: 'flex', alignItems: 'center', padding: '8px 0', borderBottom: li < linhas.length - 1 ? '1px solid #1e1e1e' : 'none', gap: 8 }}>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{linha.nome}</span>
-                              </div>
-                              <span style={{ fontSize: 10, color: linha.platColor, flexShrink: 0 }}>{linha.quantidade} un · {linha.canal}</span>
-                              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', flexShrink: 0 }}>{fmtR(linha.quantidade * linha.precoUnit)}</span>
-                              {linha.canDelete && (
-                                <button onClick={() => handleDelete(linha.id)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: '0 2px', flexShrink: 0 }}>×</button>
-                              )}
+                          {/* Vendas avulsas */}
+                          {vendasAvulsas.map((v, li) => (
+                            <div key={v.id} style={{ display: 'flex', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1e1e1e', gap: 8 }}>
+                              <div style={{ flex: 1 }}><span style={{ fontSize: 12, fontWeight: 600 }}>{v.produtoNome}</span></div>
+                              <span style={{ fontSize: 10, color: PLAT_COLOR[v.plataforma] || 'var(--teal)', flexShrink: 0 }}>{v.quantidade} un · {v.plataforma}</span>
+                              <span style={{ fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{fmtR(v.quantidade * v.precoUnit)}</span>
+                              <button onClick={() => handleDelete(v.id)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: '0 2px', flexShrink: 0 }}>×</button>
                             </div>
                           ))}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: '1px solid #2a2a2a' }}>
+                          {/* Pedidos agrupados por cliente */}
+                          {pedidosGrupo.map(pedido => {
+                            const pedTotal = pedido.valor || (pedido.itens || []).reduce((s, i) => s + i.quantidade * (i.precoUnit || 0), 0)
+                            const platColor = PLAT_COLOR[CANAL_TO_PLAT[pedido.canal] || 'Direta'] || 'var(--teal)'
+                            return (
+                              <div key={pedido.id} style={{ borderBottom: '1px solid #1e1e1e', paddingBottom: 6, marginBottom: 2 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', padding: '8px 0 4px', gap: 8 }}>
+                                  <div style={{ flex: 1 }}>
+                                    <span style={{ fontSize: 12, fontWeight: 700 }}>{pedido.cliente}</span>
+                                    <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 6 }}>{pedido.id}</span>
+                                  </div>
+                                  <span style={{ fontSize: 10, color: platColor, flexShrink: 0 }}>{pedido.canal}</span>
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal)', flexShrink: 0 }}>{fmtR(pedTotal)}</span>
+                                </div>
+                                {(pedido.itens || []).map(it => (
+                                  <div key={it.produto} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0 3px 12px' }}>
+                                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{it.produto}</span>
+                                    <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{it.quantidade} × {fmtR(it.precoUnit || 0)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )
+                          })}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
                             <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Total do dia</span>
                             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)' }}>{fmtR(totalDia)}</span>
                           </div>

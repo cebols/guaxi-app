@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
-export function useRealtimePedidos(userId, onNovoPedido) {
-  const channelRef = useRef(null)
+const notifiedIds = new Set()
 
+export function useRealtimePedidos(userId, onNovoPedido) {
   useEffect(() => {
     if (!userId) return
 
@@ -11,7 +11,6 @@ export function useRealtimePedidos(userId, onNovoPedido) {
       Notification.requestPermission()
     }
 
-    // Sem filter= para não depender de Realtime row filtering do Supabase
     const channel = supabase
       .channel(`encomendas_${userId}`)
       .on(
@@ -19,8 +18,11 @@ export function useRealtimePedidos(userId, onNovoPedido) {
         { event: 'INSERT', schema: 'public', table: 'encomendas' },
         (payload) => {
           const enc = payload.new
-          // Filtra pelo user do admin logado
           if (enc.user_id !== userId) return
+          // Deduplica — Supabase pode entregar o evento mais de uma vez
+          if (notifiedIds.has(enc.id)) return
+          notifiedIds.add(enc.id)
+          setTimeout(() => notifiedIds.delete(enc.id), 15000)
 
           if (onNovoPedido) onNovoPedido(enc)
 
@@ -32,13 +34,7 @@ export function useRealtimePedidos(userId, onNovoPedido) {
           }
         }
       )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('[Realtime] encomendas conectado')
-        }
-      })
-
-    channelRef.current = channel
+      .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
