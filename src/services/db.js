@@ -1487,6 +1487,7 @@ export async function getProfile(userId) {
     canais: data.canais || ['direto'],
     onboardingDone: data.onboarding_done || false,
     checklistDismissed: data.checklist_dismissed || false,
+    avatarUrl: data.avatar_url || null,
   }
 }
 
@@ -1498,6 +1499,7 @@ export async function upsertProfile(userId, profile) {
     canais: profile.canais || ['direto'],
     onboarding_done: profile.onboardingDone || false,
     checklist_dismissed: profile.checklistDismissed || false,
+    avatar_url: profile.avatarUrl ?? undefined,
   }, { onConflict: 'user_id' })
   if (error) throw error
 }

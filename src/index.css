@@ -529,10 +529,11 @@ a { touch-action: manipulation; }
 /* ── Avatar ──────────────────────────────── */
 .avatar {
   width: 32px; height: 32px;
-  border-radius: 50%;
+  border-radius: 10px;
   background: var(--teal-light);
   display: flex; align-items: center; justify-content: center;
   font-size: 13px; font-weight: 600; color: var(--teal-text);
+  overflow: hidden;
 }
 
 /* ── Bottom sheet / drawer ───────────────── */

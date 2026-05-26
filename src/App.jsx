@@ -65,7 +65,7 @@ function isActive(path, pathname) {
 }
 
 function Sidebar({ collapsed, onToggle }) {
-  const { user, signOut } = useAuth()
+  const { user, signOut, profile } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const primeiroNome = user?.email?.split('@')[0] || ''
@@ -117,7 +117,9 @@ function Sidebar({ collapsed, onToggle }) {
           <>
             <div className="sidebar-user">
               <div className="avatar" style={{ width: 28, height: 28, fontSize: 12, flexShrink: 0 }}>
-                {primeiroNome.charAt(0).toUpperCase()}
+                {profile?.avatarUrl
+                  ? <img src={profile.avatarUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : primeiroNome.charAt(0).toUpperCase()}
               </div>
               <span className="sidebar-user-email">{user?.email}</span>
             </div>

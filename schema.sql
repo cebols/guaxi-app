@@ -382,6 +382,8 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url text;
+
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "profiles_own" ON profiles;
