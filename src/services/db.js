@@ -586,6 +586,7 @@ export async function getEncomendas() {
   return data.map(r => ({
     id: r.id,
     dataEntrega: r.data_entrega,
+    createdAt: r.created_at ? r.created_at.slice(0, 10) : null,
     cliente: r.cliente,
     contato: r.contato || '',
     canal: r.canal || 'WhatsApp',

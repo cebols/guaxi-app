@@ -394,8 +394,12 @@ export default function Home() {
 
   const enc7cut  = new Date(); enc7cut.setDate(enc7cut.getDate() - 7); enc7cut.setHours(0,0,0,0)
   const enc14cut = new Date(); enc14cut.setDate(enc14cut.getDate() - 14); enc14cut.setHours(0,0,0,0)
-  const enc7  = (encomendas || []).filter(e => e.status !== 'Cancelado' && e.dataEntrega && new Date(e.dataEntrega + 'T00:00:00') >= enc7cut).reduce((s, e) => s + (e.valor || 0), 0)
-  const enc7p = (encomendas || []).filter(e => e.status !== 'Cancelado' && e.dataEntrega && new Date(e.dataEntrega + 'T00:00:00') >= enc14cut && new Date(e.dataEntrega + 'T00:00:00') < enc7cut).reduce((s, e) => s + (e.valor || 0), 0)
+  const encDate = (e) => {
+    const s = e.dataEntrega || e.createdAt
+    return s ? new Date(s + 'T00:00:00') : null
+  }
+  const enc7  = (encomendas || []).filter(e => { const d = encDate(e); return e.status !== 'Cancelado' && d && d >= enc7cut }).reduce((s, e) => s + (e.valor || 0), 0)
+  const enc7p = (encomendas || []).filter(e => { const d = encDate(e); return e.status !== 'Cancelado' && d && d >= enc14cut && d < enc7cut }).reduce((s, e) => s + (e.valor || 0), 0)
   const fatLiquido7  = vendas7.reduce((a, b) => a + b, 0) + enc7
   const fatLiquido7p = vendas7p.reduce((a, b) => a + b, 0) + enc7p
   const fatLiquidoDiff = fatLiquido7p !== 0 ? Math.round(((fatLiquido7 - fatLiquido7p) / Math.abs(fatLiquido7p)) * 100) : null

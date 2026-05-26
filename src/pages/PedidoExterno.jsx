@@ -574,13 +574,48 @@ export default function PedidoExterno() {
   // ── Catalog ───────────────────────────────────────────────────
   const carrinhoCount = Object.values(carrinho).reduce((s, q) => s + q, 0)
 
+  const secoes = produtosPorSecao.filter(g => g.secao).map(g => g.secao)
+  const [secaoAtiva, setSecaoAtiva] = useState(null)
+
+  const scrollToSecao = (secao) => {
+    const el = document.getElementById(`secao-${secao}`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setSecaoAtiva(secao)
+  }
+
   return (
     <div style={shell}>
       {/* Header */}
-      <div style={{ padding: '20px 20px 16px', borderBottom: '1px solid #1e1e1e' }}>
+      <div style={{ padding: '20px 20px 10px', borderBottom: '1px solid #1e1e1e' }}>
         <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 2 }}>Fazer pedido</div>
         <div style={{ fontSize: 13, color: '#666' }}>Escolha os produtos abaixo</div>
       </div>
+
+      {/* Section nav */}
+      {secoes.length > 1 && (
+        <div style={{
+          position: 'sticky', top: 0, zIndex: 10,
+          background: '#121212', borderBottom: '1px solid #1e1e1e',
+          overflowX: 'auto', display: 'flex', gap: 8, padding: '10px 16px',
+          scrollbarWidth: 'none',
+        }}>
+          {secoes.map(sec => (
+            <button
+              key={sec}
+              onClick={() => scrollToSecao(sec)}
+              style={{
+                flexShrink: 0, padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
+                border: `1.5px solid ${secaoAtiva === sec ? '#22b886' : '#333'}`,
+                background: secaoAtiva === sec ? 'rgba(34,184,134,.15)' : 'transparent',
+                color: secaoAtiva === sec ? '#22b886' : '#999',
+                cursor: 'pointer', whiteSpace: 'nowrap',
+              }}
+            >
+              {sec}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Grid */}
       {produtos.length === 0 ? (
@@ -590,9 +625,9 @@ export default function PedidoExterno() {
       ) : (
         <div style={{ padding: '16px 16px 120px' }}>
           {produtosPorSecao.map(({ secao, items }) => (
-            <div key={secao || '__sem_secao'}>
+            <div key={secao || '__sem_secao'} id={secao ? `secao-${secao}` : undefined}>
               {secao && (
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8, marginTop: 4 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8, marginTop: 4 }}>
                   {secao}
                 </div>
               )}

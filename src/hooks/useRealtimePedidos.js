@@ -7,25 +7,21 @@ export function useRealtimePedidos(userId, onNovoPedido) {
   useEffect(() => {
     if (!userId) return
 
-    async function requestPermission() {
-      if ('Notification' in window && Notification.permission === 'default') {
-        await Notification.requestPermission()
-      }
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission()
     }
-    requestPermission()
 
+    // Sem filter= para não depender de Realtime row filtering do Supabase
     const channel = supabase
-      .channel(`pedidos_${userId}`)
+      .channel(`encomendas_${userId}`)
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'encomendas',
-          filter: `user_id=eq.${userId}`,
-        },
+        { event: 'INSERT', schema: 'public', table: 'encomendas' },
         (payload) => {
           const enc = payload.new
+          // Filtra pelo user do admin logado
+          if (enc.user_id !== userId) return
+
           if (onNovoPedido) onNovoPedido(enc)
 
           if ('Notification' in window && Notification.permission === 'granted') {
@@ -36,7 +32,11 @@ export function useRealtimePedidos(userId, onNovoPedido) {
           }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[Realtime] encomendas conectado')
+        }
+      })
 
     channelRef.current = channel
 
