@@ -204,277 +204,329 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
     } catch (e) { alert(e.message) } finally { setSaving(false) }
   }
 
+  const blockStyle = {
+    background: 'var(--bg-card)', borderRadius: 12,
+    border: '0.5px solid var(--border-light-color)',
+    padding: 14, marginBottom: 8,
+  }
+  const blockTitle = {
+    fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)',
+    textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10,
+  }
+  const fieldLabel = {
+    fontSize: 10, color: 'var(--text-secondary)', fontWeight: 600,
+    marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em',
+  }
+
   return (
-    <Sheet title={item ? 'Editar produto' : 'Novo produto'} onClose={onClose}>
-      {/* ── Foto ─────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          <ItemThumb url={form.imagemUrl} nome={form.nome || '?'} size={64} radius={10} />
-          <label style={{
-            position: 'absolute', inset: 0, borderRadius: 10, cursor: 'pointer',
-            background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 18,
-          }}>
-            {uploadingImg ? '⏳' : '📷'}
-            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleImgUpload(e.target.files[0])} />
-          </label>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div className="field-label">Nome *</div>
-          <input className="field-input" style={{ marginBottom: 0 }} placeholder="ex: Choux Craquelin" value={form.nome} onChange={e => set('nome', e.target.value)} />
-        </div>
-      </div>
-
-      {/* ── Seção + Descrição ─────────────────────────────── */}
-      <div className="field-row">
-        <div style={{ flex: 1 }}>
-          <div className="field-label">Seção do cardápio</div>
-          <input
-            className="field-input"
-            style={{ marginBottom: 0 }}
-            list="secoes-list"
-            placeholder="ex: Bolos, Tortas, Doces…"
-            value={form.secao}
-            onChange={e => set('secao', e.target.value)}
-          />
-          <datalist id="secoes-list">
-            {[...new Set((produtos || []).map(p => p.secao).filter(Boolean))].map(s => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
-        </div>
-      </div>
-      <div className="field-label" style={{ marginTop: 10 }}>Descrição</div>
-      <textarea
-        className="field-input"
-        rows={2}
-        style={{ resize: 'vertical', lineHeight: 1.5 }}
-        placeholder="ex: Recheado com creme de baunilha, cobertura de chocolate..."
-        value={form.descricao}
-        onChange={e => set('descricao', e.target.value)}
-      />
-
-      {/* ── Crop modal ───────────────────────────────────── */}
-      {cropSrc && (
-        <>
-          <div onClick={() => setCropSrc(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 200 }} />
-          <div style={{
-            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-            zIndex: 201, background: 'var(--bg-card)', borderRadius: 16, padding: 20,
-            width: 'min(480px, 95vw)', maxHeight: '90dvh', overflow: 'auto',
-          }}>
-            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Recortar imagem (4:3)</div>
-            <ReactCrop
-              crop={crop}
-              onChange={c => setCrop(c)}
-              onComplete={(px) => setCompletedCrop(px)}
-              aspect={CROP_ASPECT}
-              style={{ maxWidth: '100%' }}
-            >
-              <img
-                ref={cropImgRef}
-                src={cropSrc}
-                onLoad={onCropImageLoad}
-                style={{ maxWidth: '100%', maxHeight: '60dvh', display: 'block' }}
-                alt="crop"
-              />
-            </ReactCrop>
-            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-              <button onClick={() => setCropSrc(null)} style={{ flex: 1, padding: 11, borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
-                Cancelar
-              </button>
-              <button onClick={confirmCrop} disabled={!completedCrop || uploadingImg} style={{ flex: 2, padding: 11, borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#000', cursor: 'pointer', fontWeight: 700, fontSize: 14, opacity: (!completedCrop || uploadingImg) ? 0.5 : 1 }}>
-                {uploadingImg ? 'Salvando…' : 'Cortar e salvar'}
-              </button>
-            </div>
+    <>
+      <div className="sheet-overlay" onClick={onClose} />
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 120,
+        background: 'var(--bg)', display: 'flex', flexDirection: 'column',
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '14px 16px 12px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          borderBottom: '0.5px solid var(--border-light-color)',
+          flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M12 4l-6 6 6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)' }}>
+              {item ? 'Editar produto' : 'Novo produto'}
+            </span>
           </div>
-        </>
-      )}
-
-      {/* ── Tipo toggle ───────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        {Object.entries(TIPO_LABELS).map(([val, label]) => (
-          <button key={val} onClick={() => set('tipo', val)} style={{
-            flex: 1, padding: '7px 0', borderRadius: 8, fontSize: 13, cursor: 'pointer',
-            border: `1px solid ${form.tipo === val ? 'var(--teal)' : 'var(--border)'}`,
-            background: form.tipo === val ? 'var(--teal-light)' : 'transparent',
-            color: form.tipo === val ? 'var(--teal)' : 'var(--text-secondary)',
-            fontWeight: form.tipo === val ? 600 : 400,
+          <button onClick={handle} disabled={saving || !form.nome} style={{
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+            fontSize: 14, fontWeight: 600, color: saving || !form.nome ? 'var(--text-tertiary)' : 'var(--teal)',
           }}>
-            {label}
+            {saving ? 'Salvando…' : 'Salvar'}
           </button>
-        ))}
-      </div>
-
-      {/* ── Avulso ───────────────────────────────────────── */}
-      {isAvulso && (
-        <>
-          <div className="field-label">Custo de aquisição (R$/un)</div>
-          <input className="field-input" type="text" inputMode="decimal" min="0" step="0.10" placeholder="ex: 3.50"
-            value={form.custoDireto} onChange={e => set('custoDireto', e.target.value)} />
-
-          <div className="field-label">Fornecedor</div>
-          <input className="field-input" list="forn-prod-list" placeholder="Nome do fornecedor" value={form.fornecedor}
-            onChange={e => {
-              const val = e.target.value
-              set('fornecedor', val)
-              const match = (fornecedoresList || []).find(f => f.nome === val)
-              if (match) set('whatsapp', match.whatsapp || '')
-            }} />
-          <datalist id="forn-prod-list">{(fornecedoresList || []).map(f => <option key={f.nome} value={f.nome} />)}</datalist>
-
-          <div className="field-row">
-            <div>
-              <div className="field-label">WhatsApp</div>
-              <input className="field-input" placeholder="11 99999-9999" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
-            </div>
-            <div>
-              <div className="field-label">Link de compra</div>
-              <input className="field-input" placeholder="https://..." value={form.linkCompra} onChange={e => set('linkCompra', e.target.value)} />
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* ── Combo ─────────────────────────────────────────── */}
-      {isCombo && (
-        <>
-          <div className="section-label" style={{ marginTop: 4 }}>Componentes do combo</div>
-          <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 4 }}>
-            {comboRows.map((row, i) => {
-              const lineCost = (row.custoUnit || 0) * (parseFloat(row.quantidade) || 1)
-              return (
-                <div key={i} style={{ padding: '6px 0', borderBottom: i < comboRows.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <input
-                      className="field-input"
-                      style={{ flex: '1 1 140px', minWidth: 100, marginBottom: 0, fontSize: 13 }}
-                      list="combo-prod-list"
-                      placeholder="Produto"
-                      value={row.nome}
-                      onChange={e => handleComboSelect(i, e.target.value)}
-                    />
-                    <input className="item-qty" type="text" inputMode="decimal" min="1" step="1" placeholder="Qtd"
-                      value={row.quantidade} onChange={e => setComboField(i, 'quantidade', e.target.value)} />
-                    {comboRows.length > 1 && <button className="item-rm" onClick={() => removeCombo(i)}>&#215;</button>}
-                  </div>
-                  {lineCost > 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 2, paddingLeft: 2 }}>
-                      {fmtR(row.custoUnit)}/un × {row.quantidade} = <strong>{fmtR(lineCost)}</strong>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-          <datalist id="combo-prod-list">
-            {(produtos || []).filter(p => p.id !== item?.id).map(p => <option key={p.id} value={p.nome} />)}
-          </datalist>
-          <button className="btn-add-item" onClick={addCombo}>+ produto</button>
-        </>
-      )}
-
-      {/* ── Produzido: receitas + embalagens ─────────────── */}
-      {!isAvulso && !isCombo && (
-        <>
-          <div className="section-label" style={{ marginTop: 4 }}>Composição — Receitas</div>
-          <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 4 }}>
-            {recRows.map((row, i) => {
-              const lineCost = (row.custoUnid || 0) * (parseFloat(row.quantidade) || 1)
-              return (
-                <div key={i} style={{ padding: '6px 0', borderBottom: i < recRows.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <input className="field-input" style={{ flex: '1 1 140px', minWidth: 100, marginBottom: 0, fontSize: 13 }}
-                      list="receitas-list" placeholder="Receita" value={row.nome} onChange={e => handleRecSelect(i, e.target.value)} />
-                    <input className="item-qty" type="text" inputMode="decimal" min="0" step="0.5" placeholder="Qtd"
-                      value={row.quantidade} onChange={e => setRecField(i, 'quantidade', e.target.value)} />
-                    <input className="item-qty" style={{ width: 52, textAlign: 'left', fontSize: 12 }}
-                      placeholder="un" value={row.unidade} onChange={e => setRecField(i, 'unidade', e.target.value)} />
-                    {recRows.length > 1 && <button className="item-rm" onClick={() => removeRec(i)}>&#215;</button>}
-                  </div>
-                  {lineCost > 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 2, paddingLeft: 2 }}>
-                      R$ {row.custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{row.unidade} × {row.quantidade} = <strong>R$ {lineCost.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</strong>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-          <datalist id="receitas-list">{(receitas || []).map(r => <option key={r.id} value={r.nome} />)}</datalist>
-          <button className="btn-add-item" onClick={addRec}>+ receita</button>
-
-          <div className="section-label" style={{ marginTop: 8 }}>Composição — Embalagens</div>
-          <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 4 }}>
-            {embRows.map((row, i) => {
-              const lineCost = (row.custoUnit || 0) * (parseFloat(row.quantidade) || 1)
-              return (
-                <div key={i} style={{ padding: '6px 0', borderBottom: i < embRows.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <input className="field-input" style={{ flex: 3, marginBottom: 0, fontSize: 13 }}
-                      list="embalagens-list" placeholder="Embalagem" value={row.nome} onChange={e => handleEmbSelect(i, e.target.value)} />
-                    <input className="item-qty" type="text" inputMode="decimal" min="0" step="1" placeholder="Qtd"
-                      value={row.quantidade} onChange={e => setEmbField(i, 'quantidade', e.target.value)} />
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', minWidth: 28 }}>un</span>
-                    {embRows.length > 1 && <button className="item-rm" onClick={() => removeEmb(i)}>&#215;</button>}
-                  </div>
-                  {lineCost > 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 2, paddingLeft: 2 }}>
-                      {fmtR(row.custoUnit)}/un × {row.quantidade} = <strong>{fmtR(lineCost)}</strong>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-          <datalist id="embalagens-list">{(embalagens || []).map(e => <option key={e.id} value={e.nome} />)}</datalist>
-          <button className="btn-add-item" onClick={addEmb}>+ embalagem</button>
-        </>
-      )}
-
-      {/* ── Custo summary + preços ────────────────────────── */}
-      {custoTotal > 0 && (
-        <div style={{ margin: '12px 0 4px', padding: '10px 14px', background: 'var(--teal-light)', borderRadius: 8 }}>
-          <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 4 }}>
-            Custo total: <strong>R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-            Sugerido → <span style={{ color: PLAT_COLOR.Direta }}>Direta {fmtR(precos.base)}</span>
-            {' · '}<span style={{ color: PLAT_COLOR['99Food'] }}>99Food {fmtR(precos.p99)}</span>
-            {' · '}<span style={{ color: PLAT_COLOR.iFood }}>iFood {fmtR(precos.pIfood)}</span>
-          </div>
         </div>
-      )}
 
-      <div className="section-label" style={{ marginTop: 10 }}>Preços praticados por plataforma</div>
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-        Deixe em branco para usar o preço sugerido.
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        {platFields.map(({ key, label, sugerido, color }) => (
-          <div key={key} style={{ flex: 1 }}>
-            <div className="field-label" style={{ color, marginBottom: 4 }}>{label}</div>
-            <input className="field-input" type="text" inputMode="decimal" min="0" step="0.50"
-              placeholder={custoTotal > 0 ? fmtR(sugerido).replace('R$ ', '') : '—'}
-              value={form[key]} onChange={e => set(key, e.target.value)} style={{ fontSize: 13 }} />
+        {/* Scrollable content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 100px', WebkitOverflowScrolling: 'touch' }}>
+
+          {/* Block 1: Identidade */}
+          <div style={blockStyle}>
+            <div style={blockTitle}>Identidade</div>
+
+            {/* Foto + Nome */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <ItemThumb url={form.imagemUrl} nome={form.nome || '?'} size={56} radius={10} />
+                <label style={{
+                  position: 'absolute', inset: 0, borderRadius: 10, cursor: 'pointer',
+                  background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 16,
+                }}>
+                  {uploadingImg ? '⏳' : '📷'}
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleImgUpload(e.target.files[0])} />
+                </label>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={fieldLabel}>Nome *</div>
+                <input className="field-input" style={{ marginBottom: 0 }} placeholder="ex: Choux Craquelin" value={form.nome} onChange={e => set('nome', e.target.value)} />
+              </div>
+            </div>
+
+            {/* Seção */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={fieldLabel}>Seção do cardápio</div>
+              <input
+                className="field-input"
+                style={{ marginBottom: 0 }}
+                list="secoes-list"
+                placeholder="ex: Bolos, Tortas, Doces…"
+                value={form.secao}
+                onChange={e => set('secao', e.target.value)}
+              />
+              <datalist id="secoes-list">
+                {[...new Set((produtos || []).map(p => p.secao).filter(Boolean))].map(s => (
+                  <option key={s} value={s} />
+                ))}
+              </datalist>
+            </div>
+
+            {/* Tipo segmented */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={fieldLabel}>Tipo</div>
+              <div style={{ display: 'flex', background: 'var(--bg-input)', borderRadius: 8, padding: 2, border: '0.5px solid var(--border-light-color)' }}>
+                {Object.entries(TIPO_LABELS).map(([val, label]) => (
+                  <div key={val} onClick={() => set('tipo', val)} style={{
+                    flex: 1, padding: '7px 0', borderRadius: 6, textAlign: 'center',
+                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    background: form.tipo === val ? 'var(--teal)' : 'transparent',
+                    color: form.tipo === val ? '#fff' : 'var(--text-tertiary)',
+                    transition: 'all .15s ease',
+                  }}>{label}</div>
+                ))}
+              </div>
+            </div>
+
+            {/* Descrição */}
+            <div>
+              <div style={fieldLabel}>Descrição</div>
+              <textarea
+                className="field-input"
+                rows={2}
+                style={{ resize: 'vertical', lineHeight: 1.5, marginBottom: 0 }}
+                placeholder="ex: Recheado com creme de baunilha…"
+                value={form.descricao}
+                onChange={e => set('descricao', e.target.value)}
+              />
+            </div>
           </div>
-        ))}
+
+          {/* Block 2: Composição */}
+          <div style={blockStyle}>
+            <div style={blockTitle}>Composição</div>
+
+            {/* Avulso */}
+            {isAvulso && (
+              <>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={fieldLabel}>Custo de aquisição (R$/un)</div>
+                  <input className="field-input" style={{ marginBottom: 0 }} type="text" inputMode="decimal" placeholder="ex: 3.50"
+                    value={form.custoDireto} onChange={e => set('custoDireto', e.target.value)} />
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={fieldLabel}>Fornecedor</div>
+                  <input className="field-input" style={{ marginBottom: 0 }} list="forn-prod-list" placeholder="Nome do fornecedor" value={form.fornecedor}
+                    onChange={e => {
+                      const v = e.target.value
+                      set('fornecedor', v)
+                      const match = (fornecedoresList || []).find(f => f.nome === v)
+                      if (match) set('whatsapp', match.whatsapp || '')
+                    }} />
+                  <datalist id="forn-prod-list">{(fornecedoresList || []).map(f => <option key={f.nome} value={f.nome} />)}</datalist>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={fieldLabel}>WhatsApp</div>
+                    <input className="field-input" style={{ marginBottom: 0 }} placeholder="11 99999-9999" value={form.whatsapp} onChange={e => set('whatsapp', e.target.value)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={fieldLabel}>Link de compra</div>
+                    <input className="field-input" style={{ marginBottom: 0 }} placeholder="https://..." value={form.linkCompra} onChange={e => set('linkCompra', e.target.value)} />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Combo */}
+            {isCombo && (
+              <>
+                <div style={fieldLabel}>Componentes do combo</div>
+                {comboRows.map((row, i) => {
+                  const lineCost = (row.custoUnit || 0) * (parseFloat(row.quantidade) || 1)
+                  return (
+                    <div key={i} style={{ padding: '8px 0', borderBottom: i < comboRows.length - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input className="field-input" style={{ flex: 1, marginBottom: 0, fontSize: 13 }}
+                          list="combo-prod-list" placeholder="Produto" value={row.nome}
+                          onChange={e => handleComboSelect(i, e.target.value)} />
+                        <input className="item-qty" type="text" inputMode="decimal" placeholder="Qtd"
+                          value={row.quantidade} onChange={e => setComboField(i, 'quantidade', e.target.value)} />
+                        {comboRows.length > 1 && <button className="item-rm" onClick={() => removeCombo(i)}>&#215;</button>}
+                      </div>
+                      {lineCost > 0 && <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 3 }}>{fmtR(row.custoUnit)}/un × {row.quantidade} = <strong>{fmtR(lineCost)}</strong></div>}
+                    </div>
+                  )
+                })}
+                <datalist id="combo-prod-list">{(produtos || []).filter(p => p.id !== item?.id).map(p => <option key={p.id} value={p.nome} />)}</datalist>
+                <button className="btn-add-item" style={{ marginTop: 6 }} onClick={addCombo}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 3v8M3 7h8" stroke="var(--teal)" strokeWidth="1.4" strokeLinecap="round"/></svg>
+                  Adicionar produto
+                </button>
+              </>
+            )}
+
+            {/* Produzido: receitas + embalagens */}
+            {!isAvulso && !isCombo && (
+              <>
+                <div style={fieldLabel}>Receitas</div>
+                {recRows.map((row, i) => {
+                  const lineCost = (row.custoUnid || 0) * (parseFloat(row.quantidade) || 1)
+                  return (
+                    <div key={i} style={{ padding: '8px 0', borderBottom: i < recRows.length - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input className="field-input" style={{ flex: 1, marginBottom: 0, fontSize: 13 }}
+                          list="receitas-list" placeholder="Receita" value={row.nome} onChange={e => handleRecSelect(i, e.target.value)} />
+                        <input className="item-qty" type="text" inputMode="decimal" placeholder="Qtd"
+                          value={row.quantidade} onChange={e => setRecField(i, 'quantidade', e.target.value)} />
+                        <input className="item-qty" style={{ width: 46, fontSize: 12 }}
+                          placeholder="un" value={row.unidade} onChange={e => setRecField(i, 'unidade', e.target.value)} />
+                        {recRows.length > 1 && <button className="item-rm" onClick={() => removeRec(i)}>&#215;</button>}
+                      </div>
+                      {lineCost > 0 && <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 3 }}>R$ {row.custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{row.unidade} × {row.quantidade} = <strong>R$ {lineCost.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</strong></div>}
+                    </div>
+                  )
+                })}
+                <datalist id="receitas-list">{(receitas || []).map(r => <option key={r.id} value={r.nome} />)}</datalist>
+                <button className="btn-add-item" style={{ marginTop: 6 }} onClick={addRec}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 3v8M3 7h8" stroke="var(--teal)" strokeWidth="1.4" strokeLinecap="round"/></svg>
+                  Adicionar receita
+                </button>
+
+                <div style={{ ...fieldLabel, marginTop: 14 }}>Embalagens</div>
+                {embRows.map((row, i) => {
+                  const lineCost = (row.custoUnit || 0) * (parseFloat(row.quantidade) || 1)
+                  return (
+                    <div key={i} style={{ padding: '8px 0', borderBottom: i < embRows.length - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input className="field-input" style={{ flex: 1, marginBottom: 0, fontSize: 13 }}
+                          list="embalagens-list" placeholder="Embalagem" value={row.nome} onChange={e => handleEmbSelect(i, e.target.value)} />
+                        <input className="item-qty" type="text" inputMode="decimal" placeholder="Qtd"
+                          value={row.quantidade} onChange={e => setEmbField(i, 'quantidade', e.target.value)} />
+                        {embRows.length > 1 && <button className="item-rm" onClick={() => removeEmb(i)}>&#215;</button>}
+                      </div>
+                      {lineCost > 0 && <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 3 }}>{fmtR(row.custoUnit)}/un × {row.quantidade} = <strong>{fmtR(lineCost)}</strong></div>}
+                    </div>
+                  )
+                })}
+                <datalist id="embalagens-list">{(embalagens || []).map(e => <option key={e.id} value={e.nome} />)}</datalist>
+                <button className="btn-add-item" style={{ marginTop: 6 }} onClick={addEmb}>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 3v8M3 7h8" stroke="var(--teal)" strokeWidth="1.4" strokeLinecap="round"/></svg>
+                  Adicionar embalagem
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Block 3: Preços e Estoque */}
+          <div style={blockStyle}>
+            <div style={blockTitle}>Preços e Estoque</div>
+
+            {/* Custo total summary */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '8px 10px', borderRadius: 8, background: 'var(--teal-light)',
+              border: '0.5px solid rgba(34,184,134,0.13)', marginBottom: 12,
+            }}>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Custo total</span>
+              <span style={{ fontSize: 14, color: 'var(--teal)', fontWeight: 700 }}>
+                {custoTotal > 0 ? fmtR(custoTotal) : '—'}
+              </span>
+            </div>
+
+            {/* Preço de venda */}
+            <div style={{ ...fieldLabel, marginBottom: 6 }}>Preço de venda</div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+              {platFields.map(({ key, label, sugerido, color }) => (
+                <div key={key} style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color, fontWeight: 600, marginBottom: 3 }}>{label}</div>
+                  <input className="field-input" type="text" inputMode="decimal"
+                    placeholder={custoTotal > 0 ? fmtR(sugerido).replace('R$ ', '') : '—'}
+                    value={form[key]} onChange={e => set(key, e.target.value)}
+                    style={{ fontSize: 14, fontWeight: 600, textAlign: 'center', marginBottom: 0 }} />
+                  {custoTotal > 0 && (
+                    <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textAlign: 'center', marginTop: 2 }}>
+                      sug. {fmtR(sugerido).replace('R$ ', '')}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Estoque mínimo */}
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Estoque mínimo</span>
+              <input type="text" inputMode="decimal"
+                placeholder="—"
+                value={form.estoqueMin}
+                onChange={e => set('estoqueMin', e.target.value)}
+                style={{
+                  padding: '6px 14px', borderRadius: 6, background: 'var(--bg-input)',
+                  border: '0.5px solid var(--border-light-color)', fontSize: 14, color: 'var(--text-primary)',
+                  fontWeight: 600, width: 64, textAlign: 'center',
+                }} />
+            </div>
+          </div>
+
+          {/* Delete */}
+          {item && (
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+              <button
+                onClick={() => { if (confirm('Excluir produto?')) onDelete(item.id).then(onClose).catch(e => alert(e.message)) }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--alert-text)', opacity: 0.75 }}
+              >
+                Excluir produto
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Crop modal */}
+        {cropSrc && (
+          <>
+            <div onClick={() => setCropSrc(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 200 }} />
+            <div style={{
+              position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+              zIndex: 201, background: 'var(--bg-card)', borderRadius: 16, padding: 20,
+              width: 'min(480px, 95vw)', maxHeight: '90dvh', overflow: 'auto',
+            }}>
+              <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12 }}>Recortar imagem (4:3)</div>
+              <ReactCrop crop={crop} onChange={c => setCrop(c)} onComplete={(px) => setCompletedCrop(px)} aspect={CROP_ASPECT} style={{ maxWidth: '100%' }}>
+                <img ref={cropImgRef} src={cropSrc} onLoad={onCropImageLoad} style={{ maxWidth: '100%', maxHeight: '60dvh', display: 'block' }} alt="crop" />
+              </ReactCrop>
+              <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                <button onClick={() => setCropSrc(null)} style={{ flex: 1, padding: 11, borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>Cancelar</button>
+                <button onClick={confirmCrop} disabled={!completedCrop || uploadingImg} style={{ flex: 2, padding: 11, borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#000', cursor: 'pointer', fontWeight: 700, fontSize: 14, opacity: (!completedCrop || uploadingImg) ? 0.5 : 1 }}>
+                  {uploadingImg ? 'Salvando…' : 'Cortar e salvar'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
-
-      <div className="section-label" style={{ marginTop: 10 }}>Estoque mínimo</div>
-      <input className="field-input" type="text" inputMode="decimal" min="0" step="1"
-        placeholder="ex: 5 (deixe em branco para sem mínimo)"
-        value={form.estoqueMin} onChange={e => set('estoqueMin', e.target.value)} />
-
-      <button className="btn-primary" onClick={handle} disabled={saving || !form.nome}>
-        {saving ? 'Salvando...' : item ? 'Atualizar' : 'Criar produto'}
-      </button>
-      {item && (
-        <button className="btn-danger" onClick={() => { if (confirm('Excluir?')) onDelete(item.id).then(onClose).catch(e => alert(e.message)) }}>
-          Excluir
-        </button>
-      )}
-    </Sheet>
+    </>
   )
 }
 
@@ -913,8 +965,6 @@ export default function Produtos() {
           </div>
         )}
       </div>
-
-      <button className="fab mobile-only" onClick={() => setSheet({ type: 'produto' })}>+</button>
 
       {sheet?.type === 'produto' && (
         <ProdutoForm
