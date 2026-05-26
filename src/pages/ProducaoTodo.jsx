@@ -17,10 +17,18 @@ function parseSteps(instrucoes) {
   catch { return [] }
 }
 
-function thermalOfRec(rec) {
-  if (!rec) return null
-  if (parseSteps(rec.instrucoes).some(s => s.tipo === 'ferver')) return 'ferver'
-  return null
+const THERMAL_TYPES = [
+  { key: 'ferver',   steps: ['ferver'],   icon: '🍲', label: 'Ferver',   color: '#fb923c' },
+  { key: 'assar',    steps: ['assar'],    icon: '🔥', label: 'Forno',    color: '#f97316' },
+  { key: 'resfriar', steps: ['resfriar'], icon: '💧', label: 'Resfriar', color: '#2dd4bf' },
+  { key: 'congelar', steps: ['congelar'], icon: '❄️', label: 'Congelar', color: '#60a5fa' },
+]
+
+function thermalOfRec(rec, key) {
+  if (!rec) return false
+  const tipos = new Set(parseSteps(rec.instrucoes).map(s => s.tipo))
+  const t = THERMAL_TYPES.find(x => x.key === key)
+  return t ? t.steps.some(s => tipos.has(s)) : false
 }
 
 function fmtQtd(v) {
@@ -191,9 +199,14 @@ export default function ProducaoTodo() {
     <>
       <div className="topbar" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
         <div className="topbar-inner">
-          <div>
-            <div className="topbar-title">Produção</div>
-            <div className="topbar-sub">{fmtDate(prod.createdAt)}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            <div>
+              <div className="topbar-title">Produção</div>
+              <div className="topbar-sub">{fmtDate(prod.createdAt)}</div>
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => { setEditMode(e => !e); setQtdEdits({}) }} style={{
@@ -207,7 +220,6 @@ export default function ProducaoTodo() {
             <button onClick={() => setConfirmDel(true)} style={{ background: 'none', border: '1px solid #7f1d1d', color: '#ef4444', borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
               🗑️
             </button>
-            <button onClick={() => navigate('/mise-en-place')} className="btn-ghost" style={{ fontSize: 16, padding: '5px 10px' }}>←</button>
           </div>
         </div>
         {/* Progresso — dentro do topbar para ficar sticky junto */}
@@ -327,23 +339,23 @@ export default function ProducaoTodo() {
         {/* Receitas a produzir */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>Receitas a produzir</div>
-          {[{ k: 'ferver', l: '🍲 Ferver', color: '#fb923c', bg: 'rgba(251,146,60,0.15)', border: '#fb923c' }].map(t => {
-            const active = filtroThermal === t.k
+          {THERMAL_TYPES.map(t => {
+            const active = filtroThermal === t.key
             return (
-              <button key={t.k} onClick={() => setFiltroThermal(active ? null : t.k)} style={{
+              <button key={t.key} onClick={() => setFiltroThermal(active ? null : t.key)} style={{
                 padding: '4px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer',
-                border: `1px solid ${active ? t.border : 'var(--border-light-color)'}`,
-                background: active ? t.bg : 'transparent',
+                border: `1px solid ${active ? t.color : 'var(--border-light-color)'}`,
+                background: active ? `${t.color}22` : 'transparent',
                 color: active ? t.color : 'var(--text-secondary)',
                 fontWeight: active ? 700 : 400,
-              }}>{t.l}</button>
+              }}>{t.icon} {t.label}</button>
             )
           })}
         </div>
         {Object.entries(dosesPerReceita).map(([recIdStr, doses]) => {
           const rec = (receitas || []).find(r => r.id === Number(recIdStr))
           if (!rec || doses <= 0) return null
-          if (filtroThermal && thermalOfRec(rec) !== filtroThermal) return null
+          if (filtroThermal && !thermalOfRec(rec, filtroThermal)) return null
           const isChecked = checks.has(recIdStr)
           const isExpanded = !!expandReceita[recIdStr]
           const fp = rec.fatorPerda || 0

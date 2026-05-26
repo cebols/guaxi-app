@@ -6,19 +6,34 @@ import {
   saveProducao, getProducoes, computeAjustesPendentes,
 } from '../services/db'
 
+const THERMAL_TYPES = [
+  { key: 'ferver',   steps: ['ferver'],           icon: '🍲', label: 'Ferver',   color: '#fb923c' },
+  { key: 'assar',    steps: ['assar'],             icon: '🔥', label: 'Forno',    color: '#f97316' },
+  { key: 'resfriar', steps: ['resfriar'],          icon: '💧', label: 'Resfriar', color: '#2dd4bf' },
+  { key: 'congelar', steps: ['congelar'],          icon: '❄️', label: 'Congelar', color: '#60a5fa' },
+]
+
 function parseStepsMEP(instrucoes) {
   if (!instrucoes) return []
   try { const p = JSON.parse(instrucoes); return Array.isArray(p) ? p : [] }
   catch { return [] }
 }
 
-function ThermalIcon({ rec }) {
-  if (!rec) return null
+function thermalsOf(rec) {
+  if (!rec) return []
   const steps = parseStepsMEP(rec.instrucoes)
-  if (steps.some(s => s.tipo === 'ferver')) {
-    return <span style={{ fontSize: 13, flexShrink: 0 }}>🍲</span>
-  }
-  return null
+  const tipos = new Set(steps.map(s => s.tipo))
+  return THERMAL_TYPES.filter(t => t.steps.some(s => tipos.has(s)))
+}
+
+function ThermalIcon({ rec }) {
+  const ts = thermalsOf(rec)
+  if (!ts.length) return null
+  return (
+    <span style={{ display: 'inline-flex', gap: 2, flexShrink: 0 }}>
+      {ts.map(t => <span key={t.key} style={{ fontSize: 13 }}>{t.icon}</span>)}
+    </span>
+  )
 }
 
 function norm(s) {
@@ -66,18 +81,15 @@ export default function MiseEnPlace() {
 
   const inLote = (tipo, id) => lote.some(x => x.tipo === tipo && x.refId === id)
 
-  function thermalOfRec(rec) {
-    if (!rec) return null
-    const steps = parseStepsMEP(rec.instrucoes)
-    if (steps.some(s => s.tipo === 'ferver')) return 'ferver'
-    return null
+  function recHasThermal(rec, key) {
+    return thermalsOf(rec).some(t => t.key === key)
   }
 
   const filtrados = useMemo(() => {
     const q = norm(busca)
     let recs = (receitas || []).filter(r => norm(r.nome).includes(q))
-      .map(r => ({ tipo: 'receita', id: r.id, nome: r.nome, sub: `${r.tipo !== 'Outro' ? r.tipo + ' · ' : ''}rende ${fmtQtd(r.rendimento)} ${r.unidadeGera}`, thermal: thermalOfRec(r) }))
-    if (filtroThermal) recs = recs.filter(r => r.thermal === filtroThermal)
+      .map(r => ({ tipo: 'receita', id: r.id, nome: r.nome, sub: `${r.tipo !== 'Outro' ? r.tipo + ' · ' : ''}rende ${fmtQtd(r.rendimento)} ${r.unidadeGera}` }))
+    if (filtroThermal) recs = recs.filter(r => recHasThermal((receitas || []).find(rx => rx.id === r.id), filtroThermal))
     const prods = (produtos || []).filter(p => p.tipo !== 'avulso' && norm(p.nome).includes(q))
       .map(p => ({ tipo: 'produto', id: p.id, nome: p.nome, sub: `${(p.receitas || []).length} receita(s)` }))
     if (filtroTipo === 'receitas') return recs
@@ -317,19 +329,17 @@ export default function MiseEnPlace() {
             }}>{t.l}</button>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-          {[
-            { k: 'ferver', l: '🍲 Ferver', color: '#fb923c', bg: 'rgba(251,146,60,0.15)', border: '#fb923c' },
-          ].map(t => {
-            const active = filtroThermal === t.k
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+          {THERMAL_TYPES.map(t => {
+            const active = filtroThermal === t.key
             return (
-              <button key={t.k} onClick={() => setFiltroThermal(active ? null : t.k)} style={{
+              <button key={t.key} onClick={() => setFiltroThermal(active ? null : t.key)} style={{
                 padding: '5px 11px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
-                border: `1px solid ${active ? t.border : 'var(--border-light-color)'}`,
-                background: active ? t.bg : 'transparent',
+                border: `1px solid ${active ? t.color : 'var(--border-light-color)'}`,
+                background: active ? `${t.color}22` : 'transparent',
                 color: active ? t.color : 'var(--text-secondary)',
                 fontWeight: active ? 700 : 400,
-              }}>{t.l}</button>
+              }}>{t.icon} {t.label}</button>
             )
           })}
         </div>

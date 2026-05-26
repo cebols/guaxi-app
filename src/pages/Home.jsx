@@ -20,22 +20,32 @@ function ThermalChip({ icon, count, color, bg }) {
   )
 }
 
+const THERMAL_TYPES_HOME = [
+  { key: 'ferver',   steps: ['ferver'],   icon: '🍲', color: '#fb923c' },
+  { key: 'assar',    steps: ['assar'],    icon: '🔥', color: '#f97316' },
+  { key: 'resfriar', steps: ['resfriar'], icon: '💧', color: '#2dd4bf' },
+  { key: 'congelar', steps: ['congelar'], icon: '❄️', color: '#60a5fa' },
+]
+
 function parseSteps(instrucoes) {
   if (!instrucoes) return []
   try { const p = JSON.parse(instrucoes); return Array.isArray(p) ? p : [] }
   catch { return [] }
 }
 
-function thermalOf(rec) {
-  if (!rec) return null
-  const steps = parseSteps(rec.instrucoes)
-  if (steps.some(s => s.tipo === 'ferver')) return 'ferver'
-  return null
+function thermalsOfHome(rec) {
+  if (!rec) return []
+  const tipos = new Set(parseSteps(rec.instrucoes).map(s => s.tipo))
+  return THERMAL_TYPES_HOME.filter(t => t.steps.some(s => tipos.has(s)))
 }
 
-function ThermalDot({ method }) {
-  if (method === 'ferver') return <span style={{ fontSize: 12 }}>🍲</span>
-  return null
+function ThermalDots({ thermals }) {
+  if (!thermals?.length) return null
+  return (
+    <span style={{ display: 'inline-flex', gap: 1 }}>
+      {thermals.map(t => <span key={t.key} style={{ fontSize: 12 }}>{t.icon}</span>)}
+    </span>
+  )
 }
 
 
@@ -214,14 +224,15 @@ export default function Home() {
               nome: info?.nome || rec?.nome || '',
               qtd: info?.qtd || 0,
               unidade: info?.unidade || rec?.unidadeGera || 'un',
-              thermal: thermalOf(rec),
+              thermals: thermalsOfHome(rec),
               checked: checkedSet.has(id),
             }
           })
           .filter(i => i.nome)
-        const pendingItems = allItems.filter(i => !i.checked) // for footer count
-        const ferverCount = pendingItems.filter(i => i.thermal === 'ferver').length
-        return { ...prod, total, done, pct: Math.round(done / total * 100), allItems, pendingItems, ferverCount }
+        const pendingItems = allItems.filter(i => !i.checked)
+        const thermalCounts = {}
+        for (const item of pendingItems) for (const t of (item.thermals || [])) thermalCounts[t.key] = (thermalCounts[t.key] || 0) + 1
+        return { ...prod, total, done, pct: Math.round(done / total * 100), allItems, pendingItems, thermalCounts }
       }
     }
     return null
@@ -401,9 +412,11 @@ export default function Home() {
                   <div style={{ height: '100%', width: `${ultimaProducaoAtiva.pct}%`, borderRadius: 2, background: 'linear-gradient(90deg, var(--teal), #28d9a0)', transition: 'width .4s ease' }}/>
                 </div>
                 {/* Thermal summary chips */}
-                {ultimaProducaoAtiva.ferverCount > 0 && (
-                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                    <ThermalChip icon="🍲" count={ultimaProducaoAtiva.ferverCount} color="#fb923c" bg="rgba(251,146,60,0.12)" />
+                {Object.keys(ultimaProducaoAtiva.thermalCounts || {}).length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    {THERMAL_TYPES_HOME.map(t => (
+                      <ThermalChip key={t.key} icon={t.icon} count={ultimaProducaoAtiva.thermalCounts[t.key]} color={t.color} bg={`${t.color}1a`} />
+                    ))}
                   </div>
                 )}
               </div>
@@ -434,7 +447,7 @@ export default function Home() {
                         )}
                       </div>
                       <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: item.checked ? 'var(--text-tertiary)' : 'var(--text-primary)', textDecoration: item.checked ? 'line-through' : 'none', transition: 'color .15s' }}>{item.nome}</span>
-                      {!item.checked && item.thermal && <ThermalDot method={item.thermal} />}
+                      {!item.checked && <ThermalDots thermals={item.thermals} />}
                       {!item.checked && item.qtd > 0 && <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{Math.round(item.qtd)} {item.unidade}</span>}
                     </div>
                   ))}

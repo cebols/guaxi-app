@@ -122,9 +122,14 @@ export default function Cozinha() {
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <div>
-            <div className="topbar-title">{loading ? '...' : (receita?.nome || 'Receita')}</div>
-            <div className="topbar-sub">Modo cozinha</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            <div>
+              <div className="topbar-title">{loading ? '...' : (receita?.nome || 'Receita')}</div>
+              <div className="topbar-sub">Modo cozinha</div>
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button onClick={() => navigate(`/fichas/${id}/editar`)} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--text-secondary)' }}>✏️ Editar</button>
@@ -149,7 +154,6 @@ export default function Cozinha() {
                 </>
               )}
             </div>
-            <button className="btn-ghost" onClick={() => navigate('/fichas')} style={{ fontSize: 16, padding: '5px 10px' }}>←</button>
           </div>
           {confirmExcluir && (
             <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)' }}>
