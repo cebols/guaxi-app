@@ -1,7 +1,7 @@
 import { useState, useMemo, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
-import { getReceitas, deleteReceitas, saveReceita, getInsumos } from '../services/db'
+import { getReceitas, deleteReceitas, saveReceita, getInsumos, getProdutos } from '../services/db'
 import { ItemThumb } from '../components/ItemThumb'
 
 const ImportarExcel = lazy(() => import('./ImportarExcel'))
@@ -40,6 +40,21 @@ export default function Fichas() {
   const [importandoImg, setImportandoImg] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [createSheet, setCreateSheet] = useState(false)
+  const [catOpen, setCatOpen] = useState(false)
+
+  const { data: produtos } = useData(getProdutos)
+
+  // receitaId → [product names that use it]
+  const usadoEmMap = useMemo(() => {
+    const map = {}
+    for (const p of (produtos || [])) {
+      for (const r of (p.receitas || [])) {
+        if (!map[r.receitaId]) map[r.receitaId] = []
+        if (!map[r.receitaId].includes(p.nome)) map[r.receitaId].push(p.nome)
+      }
+    }
+    return map
+  }, [produtos])
 
   async function handleGerarPDF() {
     const selecionadas = (receitas || []).filter(r => exportSel.includes(r.id))
@@ -145,27 +160,79 @@ function norm(s) {
 
       <div className="page-inner">
         <div style={{ padding: '12px 0 4px' }}>
-          <div className="search-wrap" style={{ marginBottom: 8 }}>
-            <span className="search-icon">&#9906;</span>
+          {/* Search */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '10px 12px', borderRadius: 12,
+            background: 'var(--bg-card)', border: '0.5px solid var(--border-light-color)',
+            marginBottom: 8,
+          }}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+              <circle cx="7" cy="7" r="5" stroke="var(--text-tertiary)" strokeWidth="1.5"/>
+              <path d="M11 11l3 3" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
             <input
-              className="search-input"
-              placeholder="Buscar receita..."
               value={busca}
               onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar receita..."
+              style={{
+                background: 'none', border: 'none', outline: 'none',
+                fontSize: 14, color: 'var(--text-primary)', flex: 1,
+              }}
             />
+            {busca && (
+              <button onClick={() => setBusca('')} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 12, padding: 0 }}>✕</button>
+            )}
           </div>
+
+          {/* Category dropdown */}
           {tiposDisponiveis.length > 1 && (
-            <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto' }}>
-              {['todos', ...tiposDisponiveis].map(t => (
-                <button key={t} onClick={() => setFiltroTipo(t)} style={{
-                  padding: '4px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                  border: '1px solid',
-                  borderColor: filtroTipo === t ? 'var(--teal)' : 'var(--border)',
-                  background:  filtroTipo === t ? 'var(--teal-light)' : 'transparent',
-                  color:       filtroTipo === t ? 'var(--teal)' : 'var(--text-secondary)',
-                  cursor: 'pointer', whiteSpace: 'nowrap',
-                }}>{t === 'todos' ? 'Todos' : t}</button>
-              ))}
+            <div style={{ position: 'relative', marginBottom: 10 }}>
+              <button
+                onClick={() => setCatOpen(o => !o)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  width: '100%', padding: '10px 12px', borderRadius: 12,
+                  background: 'var(--bg-card)',
+                  border: `0.5px solid ${filtroTipo !== 'todos' ? 'var(--teal)' : 'var(--border-light-color)'}`,
+                  cursor: 'pointer', color: filtroTipo !== 'todos' ? 'var(--teal)' : 'var(--text-secondary)',
+                  fontSize: 13, fontWeight: filtroTipo !== 'todos' ? 600 : 400,
+                }}
+              >
+                <span>{filtroTipo === 'todos' ? 'Filtrar por categoria' : filtroTipo}</span>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ transform: catOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}>
+                  <path d="M3 5l4 4 4-4" stroke="var(--text-tertiary)" strokeWidth="1.4" strokeLinecap="round"/>
+                </svg>
+              </button>
+              {catOpen && (
+                <>
+                  <div style={{ position: 'fixed', inset: 0, zIndex: 8 }} onClick={() => setCatOpen(false)} />
+                  <div style={{
+                    position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 9,
+                    marginTop: 4, background: 'var(--bg-card)', borderRadius: 12,
+                    border: '0.5px solid var(--border-light-color)',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.4)', maxHeight: 240, overflowY: 'auto',
+                  }}>
+                    {['todos', ...tiposDisponiveis].map((t, i) => (
+                      <button key={t} onClick={() => { setFiltroTipo(t); setCatOpen(false) }} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        width: '100%', padding: '11px 14px', background: 'none', border: 'none',
+                        borderBottom: i < tiposDisponiveis.length ? '0.5px solid var(--border-light-color)' : 'none',
+                        cursor: 'pointer', fontSize: 13,
+                        color: filtroTipo === t ? 'var(--teal)' : 'var(--text-primary)',
+                        fontWeight: filtroTipo === t ? 600 : 400,
+                      }}>
+                        <span>{t === 'todos' ? 'Todas' : t}</span>
+                        {filtroTipo === t && (
+                          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                            <path d="M3 7l3 3 5-5" stroke="var(--teal)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -228,28 +295,47 @@ function norm(s) {
             </div>
 
             {/* Mobile cards */}
-            <div className="mobile-only" style={{ padding: '0 16px' }}>
-              {filtradas.map(r => (
-                <div key={r.id} className="card" style={{ cursor: 'pointer', marginBottom: 8 }} onClick={() => navigate(`/fichas/${r.id}`)}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                    <ItemThumb url={r.imagemUrl} nome={r.nome} size={48} radius={8} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{r.nome}</div>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        {r.custoUnid > 0 && (
-                          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal)' }}>R$ {fmt(r.custoUnid)}/un</span>
-                        )}
-                        {r.rendimento > 0 && (
-                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{r.rendimento} {r.unidadeGera || 'un'}</span>
-                        )}
-                        {r.tipo && <span className={`badge ${TIPO_COLOR[r.tipo] || ''}`}>{r.tipo}</span>}
-                      </div>
+            <div className="mobile-only">
+              {filtradas.map(r => {
+                const usadoEm = usadoEmMap[r.id] || []
+                return (
+                  <div
+                    key={r.id}
+                    onClick={() => navigate(`/fichas/${r.id}`)}
+                    style={{
+                      background: 'var(--bg-card)',
+                      border: '0.5px solid var(--border-light-color)',
+                      borderRadius: 12,
+                      padding: '12px 14px',
+                      marginBottom: 6,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', flex: 1 }}>{r.nome}</span>
+                      {r.rendimento > 0 && (
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)', flexShrink: 0 }}>{r.rendimento} {r.unidadeGera || 'un'}</span>
+                      )}
                     </div>
-                    <button onClick={e => { e.stopPropagation(); navigate(`/fichas/${r.id}/editar`) }}
-                      style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 16, cursor: 'pointer', padding: '2px 4px', flexShrink: 0 }}>✏️</button>
+                    {usadoEm.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', marginTop: 7 }}>
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                          <path d="M4 6h4M6 4l2 2-2 2" stroke="var(--text-tertiary)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        {usadoEm.slice(0, 3).map((p, pi) => (
+                          <span key={pi} style={{
+                            fontSize: 10, padding: '2px 7px', borderRadius: 5,
+                            background: 'var(--bg-secondary)', color: 'var(--text-secondary)',
+                          }}>{p}</span>
+                        ))}
+                        {usadoEm.length > 3 && (
+                          <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>+{usadoEm.length - 3}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </>
         )}
