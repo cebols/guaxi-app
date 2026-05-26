@@ -189,6 +189,20 @@ export default function PedidoExterno() {
     [carrinhoItens]
   )
 
+  const produtosPorSecao = useMemo(() => {
+    if (!produtos) return []
+    const semSecao = produtos.filter(p => !p.secao)
+    const comSecao = produtos.filter(p => p.secao)
+    const secaoSet = [...new Set(comSecao.map(p => p.secao))]
+    const ordered = [
+      ...secoesOrdem.filter(s => secaoSet.includes(s)),
+      ...secaoSet.filter(s => !secoesOrdem.includes(s)),
+    ]
+    const groups = ordered.map(sec => ({ secao: sec, items: comSecao.filter(p => p.secao === sec) }))
+    if (semSecao.length > 0) groups.push({ secao: null, items: semSecao })
+    return groups
+  }, [produtos, secoesOrdem])
+
   const addItem = (prod) => {
     const current = carrinho[prod.id] || 0
     if (current >= (prod.estoqueAtual || 99)) return
@@ -530,21 +544,6 @@ export default function PedidoExterno() {
 
   // ── Catalog ───────────────────────────────────────────────────
   const carrinhoCount = Object.values(carrinho).reduce((s, q) => s + q, 0)
-
-  // Group produtos by secao, respecting secoesOrdem
-  const produtosPorSecao = useMemo(() => {
-    if (!produtos) return []
-    const semSecao = produtos.filter(p => !p.secao)
-    const comSecao = produtos.filter(p => p.secao)
-    const secaoSet = [...new Set(comSecao.map(p => p.secao))]
-    const ordered = [
-      ...secoesOrdem.filter(s => secaoSet.includes(s)),
-      ...secaoSet.filter(s => !secoesOrdem.includes(s)),
-    ]
-    const groups = ordered.map(sec => ({ secao: sec, items: comSecao.filter(p => p.secao === sec) }))
-    if (semSecao.length > 0) groups.push({ secao: null, items: semSecao })
-    return groups
-  }, [produtos, secoesOrdem])
 
   return (
     <div style={shell}>
