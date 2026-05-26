@@ -222,11 +222,11 @@ export default function PedidoExterno() {
     if (clean.length !== 8) return
     setLoadingCep(true)
     try {
-      const r = await fetch(`https://viacep.com.br/ws/${clean}/json/`)
+      const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${clean}`)
+      if (!r.ok) { setCepError('CEP não encontrado'); return }
       const d = await r.json()
-      if (d.erro) { setCepError('CEP não encontrado'); return }
-      setF('ruaBairro', [d.logradouro, d.bairro].filter(Boolean).join(', '))
-      setF('cidade', d.localidade + ' - ' + d.uf)
+      setF('ruaBairro', [d.street, d.neighborhood].filter(Boolean).join(', '))
+      setF('cidade', [d.city, d.state].filter(Boolean).join(' - '))
     } catch {
       setCepError('Erro ao buscar CEP')
     } finally {
@@ -241,7 +241,16 @@ export default function PedidoExterno() {
     if (!r.ok) throw new Error('CEP não encontrado')
     const d = await r.json()
     if (!d.latitude || !d.longitude) throw new Error('Coordenadas indisponíveis para este CEP')
-    return { lat: d.latitude, lon: d.longitude }
+    return { lat: parseFloat(d.latitude), lon: parseFloat(d.longitude) }
+  }
+
+  function haversineKm(a, b) {
+    const R = 6371
+    const dLat = (b.lat - a.lat) * Math.PI / 180
+    const dLon = (b.lon - a.lon) * Math.PI / 180
+    const x = Math.sin(dLat/2) ** 2 +
+      Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLon/2) ** 2
+    return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x))
   }
 
   function applyFreteTiers(distKm, tiers) {
@@ -266,15 +275,13 @@ export default function PedidoExterno() {
         geocodeCep(cfg.lojaCEP),
         geocodeCep(clean),
       ])
-      const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${origem.lon},${origem.lat};${destino.lon},${destino.lat}?overview=false`)
-      const d = await r.json()
-      if (d.code !== 'Ok') { setFreteError('Não foi possível calcular a rota'); return }
-      const distKm = d.routes[0].distance / 1000
+      // Distância em linha reta × fator de rota 1.35
+      const distKm = haversineKm(origem, destino) * 1.35
       const valor = applyFreteTiers(distKm, cfg.freteTiers)
       const freteGratis = cfg.freteGratis || 0
       setFrete({ distKm, valor: freteGratis > 0 && total >= freteGratis ? 0 : valor })
     } catch (e) {
-      setFreteError('Erro ao calcular frete')
+      setFreteError(e.message || 'Erro ao calcular frete')
     } finally {
       setCalcFrete(false)
     }
