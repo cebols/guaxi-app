@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig } from '../services/db'
 
@@ -151,9 +151,11 @@ export default function PedidoExterno() {
   const [loadingCep, setLoadingCep] = useState(false)
   const [cepError, setCepError]     = useState('')
   const [frete, setFrete]           = useState(null)
+  const [freteError, setFreteError] = useState('')
   const [calculandoFrete, setCalcFrete] = useState(false)
   const [deliveryCfg, setDeliveryCfg] = useState(null)
   const [secoesOrdem, setSecoesOrdem] = useState([])
+  const deliveryCfgRef = useRef(null)
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -165,13 +167,13 @@ export default function PedidoExterno() {
     getPublicDeliveryConfig(userId)
       .then(cfg => {
         if (!cfg) return
-        // cfg may be { delivery: {...}, secoesOrdem: [...] } or the flat delivery object
-        if (cfg.delivery) {
-          setDeliveryCfg(cfg.delivery)
-          setSecoesOrdem(cfg.secoesOrdem || [])
-        } else {
-          setDeliveryCfg(cfg)
-        }
+        // cfg may be { delivery: {...}, secoesOrdem: [...] } (new format)
+        // or the flat delivery object (old format)
+        const delivery = cfg.delivery ?? cfg
+        const secoes = cfg.secoesOrdem ?? []
+        deliveryCfgRef.current = delivery
+        setDeliveryCfg(delivery)
+        setSecoesOrdem(secoes)
       })
       .catch(() => {})
   }, [userId])
@@ -251,25 +253,27 @@ export default function PedidoExterno() {
   }
 
   async function calcularFrete(cepCliente) {
-    if (!deliveryCfg?.lojaCEP || !deliveryCfg?.freteTiers?.length) return
+    const cfg = deliveryCfgRef.current
+    if (!cfg?.lojaCEP || !cfg?.freteTiers?.length) return
     const clean = cepCliente.replace(/\D/g, '')
     if (clean.length !== 8) return
     setCalcFrete(true)
     setFrete(null)
+    setFreteError('')
     try {
       const [origem, destino] = await Promise.all([
-        geocodeCep(deliveryCfg.lojaCEP),
+        geocodeCep(cfg.lojaCEP),
         geocodeCep(clean),
       ])
       const r = await fetch(`https://router.project-osrm.org/route/v1/driving/${origem.lon},${origem.lat};${destino.lon},${destino.lat}?overview=false`)
       const d = await r.json()
-      if (d.code !== 'Ok') { setFrete(null); return }
+      if (d.code !== 'Ok') { setFreteError('Não foi possível calcular a rota'); return }
       const distKm = d.routes[0].distance / 1000
-      const valor = applyFreteTiers(distKm, deliveryCfg.freteTiers)
-      const freteGratis = deliveryCfg.freteGratis || 0
+      const valor = applyFreteTiers(distKm, cfg.freteTiers)
+      const freteGratis = cfg.freteGratis || 0
       setFrete({ distKm, valor: freteGratis > 0 && total >= freteGratis ? 0 : valor })
-    } catch {
-      setFrete(null)
+    } catch (e) {
+      setFreteError('Erro ao calcular frete')
     } finally {
       setCalcFrete(false)
     }
@@ -482,6 +486,12 @@ export default function PedidoExterno() {
               {/* Frete */}
               {calculandoFrete && (
                 <div style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>Calculando frete...</div>
+              )}
+              {freteError && !calculandoFrete && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, color: '#f87171' }}>{freteError}</span>
+                  <button onClick={() => calcularFrete(form.cep)} style={{ fontSize: 12, color: 'var(--teal)', background: 'none', border: 'none', cursor: 'pointer' }}>🔄 Tentar novamente</button>
+                </div>
               )}
               {frete !== null && !calculandoFrete && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', background: '#1a1a1a', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
