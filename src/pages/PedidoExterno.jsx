@@ -155,6 +155,7 @@ export default function PedidoExterno() {
   const [calculandoFrete, setCalcFrete] = useState(false)
   const [deliveryCfg, setDeliveryCfg] = useState(null)
   const [secoesOrdem, setSecoesOrdem] = useState([])
+  const [secaoAtiva, setSecaoAtiva]   = useState(null)
   const deliveryCfgRef = useRef(null)
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -575,7 +576,6 @@ export default function PedidoExterno() {
   const carrinhoCount = Object.values(carrinho).reduce((s, q) => s + q, 0)
 
   const secoes = produtosPorSecao.filter(g => g.secao).map(g => g.secao)
-  const [secaoAtiva, setSecaoAtiva] = useState(null)
 
   const scrollToSecao = (secao) => {
     const el = document.getElementById(`secao-${secao}`)
