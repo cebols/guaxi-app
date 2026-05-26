@@ -11,6 +11,18 @@ function norm(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 }
 
+function parseSteps(instrucoes) {
+  if (!instrucoes) return []
+  try { const p = JSON.parse(instrucoes); return Array.isArray(p) ? p : [] }
+  catch { return [] }
+}
+
+function thermalOfRec(rec) {
+  if (!rec) return null
+  if (parseSteps(rec.instrucoes).some(s => s.tipo === 'ferver')) return 'ferver'
+  return null
+}
+
 function fmtQtd(v) {
   const n = Number(v || 0)
   if (n === 0) return '0'
@@ -47,6 +59,8 @@ export default function ProducaoTodo() {
   const [loading, setLoading]       = useState(true)
   const [showDebit, setShowDebit]   = useState(false)
   const [showCompras, setShowCompras] = useState(false)
+  const [showPedido, setShowPedido] = useState(false) // "O que foi pedido" colapsável
+  const [filtroThermal, setFiltroThermal] = useState(null) // null | 'ferver'
   const [confirmDel, setConfirmDel] = useState(false)
   const [confirmDelItem, setConfirmDelItem] = useState(null)
   const [expandReceita, setExpandReceita] = useState({})
@@ -231,17 +245,24 @@ export default function ProducaoTodo() {
           </div>
         )}
 
-        {/* O que foi pedido */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>O que foi pedido</div>
-          {editMode && (
-            <button onClick={() => setShowAddSheet(true)} style={{
-              fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 6,
-              border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer',
-            }}>+ Adicionar</button>
-          )}
-        </div>
-        <div className="card" style={{ padding: '10px 14px', marginBottom: 12 }}>
+        {/* O que foi pedido — toggle */}
+        <div className="card" style={{ padding: 0, marginBottom: 12, overflow: 'hidden' }}>
+          <button onClick={() => setShowPedido(s => !s)} style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+            padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left',
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
+              O que foi pedido <span style={{ fontWeight: 400, opacity: 0.6 }}>({prod.itens.length})</span>
+            </span>
+            {editMode && (
+              <button onClick={e => { e.stopPropagation(); setShowAddSheet(true) }} style={{
+                fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 6,
+                border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer',
+              }}>+ Add</button>
+            )}
+            <span style={{ color: 'var(--text-secondary)', fontSize: 14, transform: showPedido ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }}>▾</span>
+          </button>
+          {showPedido && <div style={{ padding: '0 14px 12px' }}>
           {prod.itens.map((item, i) => {
             const isModo = item.modo === 'peso_liquido' || item.modo === 'unidades'
             const displayQtd = isModo ? item.valorAlvo : item.quantidade
@@ -279,7 +300,7 @@ export default function ProducaoTodo() {
             )
           })}
           {/* Soma das unidades produzidas */}
-          {(() => {
+          {showPedido && (() => {
             const totais = {}
             for (const item of prod.itens) {
               if (item.tipo === 'produto') {
@@ -300,13 +321,29 @@ export default function ProducaoTodo() {
               </div>
             )
           })()}
+          </div>}
         </div>
 
         {/* Receitas a produzir */}
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Receitas a produzir</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>Receitas a produzir</div>
+          {[{ k: 'ferver', l: '🍲 Ferver', color: '#fb923c', bg: 'rgba(251,146,60,0.15)', border: '#fb923c' }].map(t => {
+            const active = filtroThermal === t.k
+            return (
+              <button key={t.k} onClick={() => setFiltroThermal(active ? null : t.k)} style={{
+                padding: '4px 10px', borderRadius: 20, fontSize: 11, cursor: 'pointer',
+                border: `1px solid ${active ? t.border : 'var(--border-light-color)'}`,
+                background: active ? t.bg : 'transparent',
+                color: active ? t.color : 'var(--text-secondary)',
+                fontWeight: active ? 700 : 400,
+              }}>{t.l}</button>
+            )
+          })}
+        </div>
         {Object.entries(dosesPerReceita).map(([recIdStr, doses]) => {
           const rec = (receitas || []).find(r => r.id === Number(recIdStr))
           if (!rec || doses <= 0) return null
+          if (filtroThermal && thermalOfRec(rec) !== filtroThermal) return null
           const isChecked = checks.has(recIdStr)
           const isExpanded = !!expandReceita[recIdStr]
           const fp = rec.fatorPerda || 0
