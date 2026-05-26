@@ -240,8 +240,19 @@ export default function PedidoExterno() {
     const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${clean}`)
     if (!r.ok) throw new Error('CEP não encontrado')
     const d = await r.json()
-    if (!d.latitude || !d.longitude) throw new Error('Coordenadas indisponíveis para este CEP')
-    return { lat: parseFloat(d.latitude), lon: parseFloat(d.longitude) }
+
+    if (d.latitude && d.longitude) {
+      return { lat: parseFloat(d.latitude), lon: parseFloat(d.longitude) }
+    }
+
+    // Fallback: geocodifica pelo bairro/cidade via Nominatim
+    const query = [d.neighborhood, d.city, d.state, 'Brazil'].filter(Boolean).join(', ')
+    const nr = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`, {
+      headers: { 'User-Agent': 'GuaxiApp/1.0' }
+    })
+    const nd = await nr.json()
+    if (!nd?.[0]) throw new Error('Localização não encontrada para este CEP')
+    return { lat: parseFloat(nd[0].lat), lon: parseFloat(nd[0].lon) }
   }
 
   function haversineKm(a, b) {
