@@ -710,6 +710,7 @@ function OrganizarSecoesSheet({ produtos, onSave, onClose }) {
 }
 
 export default function Produtos() {
+  const navigate              = useNavigate()
   const [sheet, setSheet]     = useState(null)
   const location              = useLocation()
   const [filtroTipo, setFiltroTipo] = useState('Todos')
@@ -807,7 +808,12 @@ export default function Produtos() {
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <div className="topbar-title">Produtos</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            <div className="topbar-title">Produtos</div>
+          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <button onClick={() => setSheet({ type: 'secoes' })} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               ≡ Seções

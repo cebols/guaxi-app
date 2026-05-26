@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
 import { useAuth } from '../contexts/AuthContext'
@@ -68,6 +69,7 @@ function getCroppedBlob(image, crop, fileName) {
 }
 
 export default function Perfil() {
+  const navigate = useNavigate()
   const { user, profile, updateProfile } = useAuth()
   const { toast, show } = useToast()
 
@@ -170,7 +172,12 @@ export default function Perfil() {
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <div className="topbar-title">Perfil</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            <div className="topbar-title">Perfil</div>
+          </div>
         </div>
       </div>
 

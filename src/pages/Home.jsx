@@ -163,15 +163,30 @@ export default function Home() {
       const checkedSet = new Set((prod.checks || []).map(String))
       const done = [...receitaIds].filter(id => checkedSet.has(id)).length
       if (total > 0 && done < total) {
-        // Build pending checklist items with thermal method
-        const pendingItems = prod.itens
-          .filter(i => i.tipo === 'receita' && !checkedSet.has(String(i.receitaId || '')))
-          .map(i => {
-            const rec = receitaMap[i.receitaId]
+        // Build a lookup: receitaId (string) -> { nome, qtd, unidade }
+        const recipeInfoMap = {}
+        for (const item of prod.itens) {
+          if (item.tipo === 'receita' && item.receitaId) {
+            const key = String(item.receitaId)
+            recipeInfoMap[key] = { nome: item.nome, qtd: item.rendimentoTotal || 0, unidade: item.unidadeGera || 'un' }
+          }
+          for (const [rid, doses] of Object.entries(item.snapshot?.dosesContrib || {})) {
+            if (!recipeInfoMap[rid]) {
+              const rec = receitaMap[Number(rid)]
+              recipeInfoMap[rid] = { nome: rec?.nome || '', qtd: 0, unidade: rec?.unidadeGera || 'un' }
+            }
+            recipeInfoMap[rid].qtd += doses * (receitaMap[Number(rid)]?.rendimento || 0)
+          }
+        }
+        const pendingItems = [...receitaIds]
+          .filter(id => !checkedSet.has(id))
+          .map(id => {
+            const info = recipeInfoMap[id]
+            const rec  = receitaMap[Number(id)]
             return {
-              nome: i.nome,
-              qtd: i.rendimentoTotal,
-              unidade: i.unidadeGera || 'un',
+              nome: info?.nome || rec?.nome || '',
+              qtd: info?.qtd || 0,
+              unidade: info?.unidade || rec?.unidadeGera || 'un',
               thermal: thermalOf(rec),
             }
           })

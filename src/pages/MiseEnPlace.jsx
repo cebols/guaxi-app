@@ -73,22 +73,32 @@ export default function MiseEnPlace() {
 
   const [busca, setBusca]             = useState('')
   const [filtroTipo, setFiltroTipo]   = useState('todos') // 'todos' | 'receitas' | 'produtos'
+  const [filtroThermal, setFiltroThermal] = useState(null) // null | 'forno' | 'congelar' | 'resfriar'
   const [lote, setLote]               = useState([])      // [{ tipo, refId, nome, qtd, modo?, valorAlvo? }]
   const [sheet, setSheet]             = useState(null)
   const [confirmando, setConfirmando] = useState(false)
 
   const inLote = (tipo, id) => lote.some(x => x.tipo === tipo && x.refId === id)
 
+  function thermalOfRec(rec) {
+    if (!rec) return null
+    if (Number(rec.tempoForno) > 0 || Number(rec.tempForno) > 0) return 'forno'
+    if (rec.tipoResfriamento === 'congelador') return 'congelar'
+    if (rec.tipoResfriamento === 'geladeira')  return 'resfriar'
+    return null
+  }
+
   const filtrados = useMemo(() => {
     const q = norm(busca)
-    const recs = (receitas || []).filter(r => norm(r.nome).includes(q))
-      .map(r => ({ tipo: 'receita', id: r.id, nome: r.nome, sub: `${r.tipo !== 'Outro' ? r.tipo + ' · ' : ''}rende ${fmtQtd(r.rendimento)} ${r.unidadeGera}` }))
+    let recs = (receitas || []).filter(r => norm(r.nome).includes(q))
+      .map(r => ({ tipo: 'receita', id: r.id, nome: r.nome, sub: `${r.tipo !== 'Outro' ? r.tipo + ' · ' : ''}rende ${fmtQtd(r.rendimento)} ${r.unidadeGera}`, thermal: thermalOfRec(r) }))
+    if (filtroThermal) recs = recs.filter(r => r.thermal === filtroThermal)
     const prods = (produtos || []).filter(p => p.tipo !== 'avulso' && norm(p.nome).includes(q))
       .map(p => ({ tipo: 'produto', id: p.id, nome: p.nome, sub: `${(p.receitas || []).length} receita(s)` }))
     if (filtroTipo === 'receitas') return recs
-    if (filtroTipo === 'produtos') return prods
-    return [...prods, ...recs]
-  }, [receitas, produtos, busca, filtroTipo])
+    if (filtroTipo === 'produtos') return filtroThermal ? [] : prods
+    return filtroThermal ? recs : [...prods, ...recs]
+  }, [receitas, produtos, busca, filtroTipo, filtroThermal])
 
   function toggle(tipo, item) {
     if (inLote(tipo, item.id)) {
@@ -210,7 +220,12 @@ export default function MiseEnPlace() {
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <div className="topbar-title">Planejar produção</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            <div className="topbar-title">Planejar produção</div>
+          </div>
           {lote.length > 0 && (
             <button onClick={() => setSheet('recibo')} style={{
               background: temFalta ? '#f59e0b' : 'var(--teal)',
@@ -302,7 +317,7 @@ export default function MiseEnPlace() {
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
           {[
             { k: 'todos', l: 'Todos' },
             { k: 'produtos', l: 'Produtos' },
@@ -316,6 +331,24 @@ export default function MiseEnPlace() {
               fontWeight: filtroTipo === t.k ? 600 : 400,
             }}>{t.l}</button>
           ))}
+        </div>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          {[
+            { k: 'forno',    l: '🔥 Forno',    color: '#f97316', bg: 'rgba(249,115,22,0.15)', border: '#f97316' },
+            { k: 'congelar', l: '❄️ Congelar', color: '#60a5fa', bg: 'rgba(96,165,250,0.15)', border: '#60a5fa' },
+            { k: 'resfriar', l: '💧 Resfriar', color: '#2dd4bf', bg: 'rgba(45,212,191,0.15)', border: '#2dd4bf' },
+          ].map(t => {
+            const active = filtroThermal === t.k
+            return (
+              <button key={t.k} onClick={() => setFiltroThermal(active ? null : t.k)} style={{
+                padding: '5px 11px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
+                border: `1px solid ${active ? t.border : 'var(--border-light-color)'}`,
+                background: active ? t.bg : 'transparent',
+                color: active ? t.color : 'var(--text-secondary)',
+                fontWeight: active ? 700 : 400,
+              }}>{t.l}</button>
+            )
+          })}
         </div>
 
         <input

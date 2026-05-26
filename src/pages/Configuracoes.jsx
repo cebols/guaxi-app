@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getConfig, saveConfig, calcPrecos, getCustoSacolaDelivery, CONFIG_DEFAULTS } from '../hooks/useConfig'
@@ -109,6 +110,7 @@ function PriceCol({ label, price, sub, color, bg }) {
 }
 
 export default function Configuracoes() {
+  const navigate = useNavigate()
   const { toast, show } = useToast()
   const { profile } = useAuth()
   const [cfg, setCfg] = useState(getConfig)
@@ -233,7 +235,12 @@ export default function Configuracoes() {
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <div className="topbar-title">Configurações de precificação</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            <div className="topbar-title">Preços e custos</div>
+          </div>
         </div>
       </div>
 

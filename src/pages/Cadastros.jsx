@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, lazy, Suspense } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
@@ -751,6 +751,7 @@ function ListaComprasView({ insumos, embalagens }) {
 }
 
 export default function Cadastros() {
+  const navigate = useNavigate()
   const location = useLocation()
   const [tab, setTab] = useState('insumos')
   const [sheet, setSheet] = useState(() => location.state?.openNew ? { type: 'insumo' } : null)
@@ -946,7 +947,12 @@ export default function Cadastros() {
     <>
       <div className="topbar">
         <div className="topbar-inner">
-          <div className="topbar-title">Insumos &amp; Embalagens</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </button>
+            <div className="topbar-title">Insumos &amp; Embalagens</div>
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ display: 'flex', gap: 8 }}>
               {import.meta.env.VITE_PEXELS_KEY && tab === 'insumos' && (
