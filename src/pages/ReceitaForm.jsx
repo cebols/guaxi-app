@@ -436,10 +436,31 @@ export default function ReceitaForm() {
   return (
     <>
       <div className="topbar">
-        <div className="topbar-inner">
-          <div className="topbar-title">{isEdit ? 'Editar receita' : 'Nova receita'}</div>
-          <button className="btn-ghost" onClick={() => navigate(isEdit ? `/fichas/${id}` : '/fichas')}>
-            ← Voltar
+        <div className="topbar-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+            <button
+              onClick={() => navigate(isEdit ? `/fichas/${id}` : '/fichas')}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
+              title="Voltar"
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M12 4l-6 6 6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <div className="topbar-title" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+              {isEdit ? (form.nome || 'Editar receita') : 'Nova receita'}
+            </div>
+          </div>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              background: 'none', border: 'none', cursor: saving ? 'not-allowed' : 'pointer',
+              padding: '6px 4px', fontSize: 14, fontWeight: 600,
+              color: 'var(--teal)', opacity: saving ? 0.5 : 1,
+            }}
+          >
+            {saving ? 'Salvando...' : 'Salvar'}
           </button>
         </div>
       </div>
