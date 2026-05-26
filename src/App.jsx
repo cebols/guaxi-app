@@ -23,11 +23,13 @@ const ProducaoTodo      = lazy(() => import('./pages/ProducaoTodo'))
 const ProducaoHistorico = lazy(() => import('./pages/ProducaoHistorico'))
 const CardapioPublico = lazy(() => import('./pages/CardapioPublico'))
 const PedidoExterno   = lazy(() => import('./pages/PedidoExterno'))
+const Menu            = lazy(() => import('./pages/Menu'))
 
 function PageFallback() {
   return <div className="loading" style={{ minHeight: '60dvh' }}>Carregando...</div>
 }
 
+// Used by sidebar only
 const NAV_BOTTOM = [
   { path: '/',        label: 'Início',   icon: HomeIcon },
   { path: '/pedidos', label: 'Pedidos',  icon: PedidosIcon },
@@ -141,11 +143,71 @@ function Sidebar({ collapsed, onToggle }) {
   )
 }
 
+function CreateSheet({ open, onClose, navigate }) {
+  const items = [
+    { icon: '📋', label: 'Pedido', desc: 'Nova encomenda', path: '/pedidos' },
+    { icon: '💰', label: 'Venda', desc: 'Registrar venda avulsa', path: '/vendas' },
+    { icon: '📄', label: 'Receita', desc: 'Nova receita ou subreceita', path: '/fichas/nova' },
+    { icon: '📦', label: 'Produto', desc: 'Receita + embalagem → preço', path: '/produtos' },
+    { icon: '🧂', label: 'Insumo', desc: 'Ingrediente ou embalagem', path: '/cadastros' },
+    { icon: '📊', label: 'Contagem', desc: 'Contagem de estoque', path: '/contagem' },
+  ]
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 45,
+          background: 'rgba(0,0,0,0.5)',
+          opacity: open ? 1 : 0,
+          pointerEvents: open ? 'auto' : 'none',
+          transition: 'opacity .25s ease',
+        }}
+      />
+      <div className="sheet" style={{
+        zIndex: 55, paddingBottom: 24, paddingLeft: 16, paddingRight: 16,
+        transform: open ? 'translateY(0)' : 'translateY(100%)',
+        transition: 'transform .3s cubic-bezier(.32,.72,0,1)',
+        pointerEvents: open ? 'auto' : 'none',
+      }}>
+        <div style={{ width: 36, height: 4, background: 'var(--bg-secondary)', borderRadius: 2, margin: '4px auto 16px' }} />
+        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>Criar novo</div>
+        {items.map((item, i) => (
+          <button
+            key={i}
+            onClick={() => { onClose(); navigate(item.path) }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '10px 0', cursor: 'pointer',
+              background: 'none', border: 'none',
+              borderBottom: i < items.length - 1 ? '0.5px solid var(--border-light-color)' : 'none',
+              width: '100%',
+            }}
+          >
+            <div style={{
+              width: 36, height: 36, borderRadius: 10, background: 'var(--teal-light)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 16, flexShrink: 0,
+            }}>{item.icon}</div>
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>{item.desc}</div>
+            </div>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M6 4l4 4-4 4" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
 export default function App() {
   const { isAuthenticated, loading, session, signOut, profile } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
-  const [menuOpen, setMenuOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   useEffect(() => {
@@ -164,7 +226,7 @@ export default function App() {
   }, [session?.user?.id])
 
   useEffect(() => {
-    setMenuOpen(false)
+    setCreateOpen(false)
     window.scrollTo(0, 0)
   }, [location.pathname])
 
@@ -199,7 +261,6 @@ export default function App() {
   )
 
   const isReceitaForm = location.pathname.match(/^\/fichas\/(nova|\d+\/editar)/)
-  const menuActive = MENU_GROUPS.flatMap(g => g.items).some(n => location.pathname.startsWith(n.path))
 
   return (
     <div className="app-shell">
@@ -222,7 +283,8 @@ export default function App() {
             <Route path="/mise-en-place/historico" element={<ProducaoHistorico />} />
             <Route path="/producao/:id"            element={<ProducaoTodo />} />
             <Route path="/configuracoes"       element={<Configuracoes />} />
-            <Route path="/perfil"             element={<Perfil />} />
+            <Route path="/perfil"              element={<Perfil />} />
+            <Route path="/menu"                element={<Menu />} />
             <Route path="*"                    element={<Navigate to="/" />} />
           </Routes>
         </Suspense>
@@ -230,105 +292,55 @@ export default function App() {
 
       {!isReceitaForm && (
         <nav className="bottom-nav">
-          {NAV_BOTTOM.map(({ path, label, icon: Icon }) => {
-            const active = isActive(path, location.pathname)
+          {/* Hoje */}
+          {[
+            { path: '/', label: 'Hoje', Icon: NavHojeIcon, exact: true },
+            { path: '/vendas', label: 'Vendas', Icon: NavVendasIcon },
+          ].map(({ path, label, Icon, exact }) => {
+            const active = exact ? location.pathname === path : location.pathname.startsWith(path)
             return (
-              <button
-                key={path}
-                className={`nav-item ${active ? 'active' : ''}`}
-                onClick={() => navigate(path)}
-              >
+              <button key={path} className={`nav-item ${active ? 'active' : ''}`} onClick={() => navigate(path)}>
                 <Icon />
                 <span>{label}</span>
                 <div className="nav-indicator" />
               </button>
             )
           })}
+
+          {/* Plus button */}
           <button
-            className={`nav-item ${menuActive || menuOpen ? 'active' : ''}`}
-            onClick={() => setMenuOpen(o => !o)}
+            onClick={() => setCreateOpen(o => !o)}
+            style={{
+              width: 42, height: 42, borderRadius: 14,
+              background: 'linear-gradient(135deg, var(--teal), #1a9e72)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              border: 'none', cursor: 'pointer', marginTop: -8,
+              boxShadow: '0 4px 16px rgba(34,184,134,0.3)',
+              flexShrink: 0,
+            }}
           >
-            <MenuIcon />
-            <span>Menu</span>
-            <div className="nav-indicator" />
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M10 4v12M4 10h12" stroke="#fff" strokeWidth="2.2" strokeLinecap="round"/>
+            </svg>
           </button>
+
+          {[
+            { path: '/fichas', label: 'Receitas', Icon: NavReceitasIcon },
+            { path: '/menu', label: 'Menu', Icon: NavMenuIcon, exact: true },
+          ].map(({ path, label, Icon, exact }) => {
+            const active = exact ? location.pathname === path : location.pathname.startsWith(path)
+            return (
+              <button key={path} className={`nav-item ${active ? 'active' : ''}`} onClick={() => navigate(path)}>
+                <Icon />
+                <span>{label}</span>
+                <div className="nav-indicator" />
+              </button>
+            )
+          })}
         </nav>
       )}
 
-      {menuOpen && (
-        <>
-          <div className="sheet-overlay" style={{ zIndex: 45 }} onClick={() => setMenuOpen(false)} />
-          <div className="sheet" style={{ zIndex: 55, paddingBottom: 16, paddingLeft: 0, paddingRight: 0 }}>
-            <div style={{ width: 36, height: 4, background: 'var(--bg-secondary)', borderRadius: 2, margin: '4px auto 12px' }} />
-            {MENU_GROUPS.map(({ label, items }) => (
-              <div key={label} style={{ marginBottom: 18 }}>
-                <div style={{
-                  fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase',
-                  letterSpacing: '0.06em', fontWeight: 700,
-                  padding: '0 16px 8px',
-                }}>
-                  {label}
-                </div>
-                {items.map(({ path, label: itemLabel, sub, icon: Icon }) => {
-                  const active = location.pathname.startsWith(path)
-                  return (
-                    <button
-                      key={path}
-                      onClick={() => navigate(path)}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 14,
-                        width: '100%', padding: '13px 16px',
-                        background: active ? 'var(--teal-light)' : 'none',
-                        border: 'none',
-                        color: active ? 'var(--teal)' : 'var(--text-primary)',
-                        cursor: 'pointer', textAlign: 'left',
-                      }}
-                    >
-                      <span style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', flexShrink: 0, color: active ? 'var(--teal)' : 'var(--text-secondary)' }}>
-                        <Icon />
-                      </span>
-                      <span style={{ flex: 1 }}>
-                        <span style={{ display: 'block', fontSize: 15, fontWeight: 500, color: active ? 'var(--teal)' : 'var(--text-primary)' }}>
-                          {itemLabel}
-                        </span>
-                        <span style={{ display: 'block', fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                          {sub}
-                        </span>
-                      </span>
-                      <span style={{ fontSize: 16, color: 'var(--text-tertiary)', flexShrink: 0 }}>›</span>
-                    </button>
-                  )
-                })}
-              </div>
-            ))}
-            <div style={{ marginBottom: 18 }}>
-              <div style={{
-                fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase',
-                letterSpacing: '0.06em', fontWeight: 700,
-                padding: '0 16px 8px',
-              }}>
-                Conta
-              </div>
-              <button
-                onClick={signOut}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 14,
-                  width: '100%', padding: '13px 16px',
-                  background: 'none', border: 'none',
-                  color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left',
-                }}
-              >
-                <span style={{ width: 24, height: 24, display: 'flex', alignItems: 'center', flexShrink: 0, color: 'var(--text-secondary)' }}>
-                  <SairIcon />
-                </span>
-                <span style={{ flex: 1 }}>
-                  <span style={{ display: 'block', fontSize: 15, fontWeight: 500 }}>Sair</span>
-                </span>
-              </button>
-            </div>
-          </div>
-        </>
-      )}
+      <CreateSheet open={createOpen} onClose={() => setCreateOpen(false)} navigate={navigate} />
     </div>
   )
 }
@@ -393,13 +405,6 @@ function MiseIcon() {
     <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
   </svg>
 }
-function MenuIcon() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-    <line x1="3" y1="6"  x2="21" y2="6"/>
-    <line x1="3" y1="12" x2="21" y2="12"/>
-    <line x1="3" y1="18" x2="21" y2="18"/>
-  </svg>
-}
 function PerfilIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
@@ -411,5 +416,38 @@ function SairIcon() {
     <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
     <polyline points="16 17 21 12 16 7"/>
     <line x1="21" y1="12" x2="9" y2="12"/>
+  </svg>
+}
+
+// Mobile bottom nav icons
+function NavHojeIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <rect x="3" y="4" width="18" height="17" rx="3"/>
+    <path d="M3 9h18"/>
+    <circle cx="12" cy="15" r="1.5" fill="currentColor" stroke="none"/>
+  </svg>
+}
+function NavVendasIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>
+    <circle cx="12" cy="12" r="4"/>
+  </svg>
+}
+function NavReceitasIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+    <path d="M4 5h16M4 9h12M4 13h16M4 17h8"/>
+  </svg>
+}
+function NavMenuIcon() {
+  return <svg viewBox="0 0 24 24" fill="currentColor">
+    <circle cx="5" cy="6" r="1.8"/>
+    <circle cx="12" cy="6" r="1.8"/>
+    <circle cx="19" cy="6" r="1.8"/>
+    <circle cx="5" cy="12" r="1.8"/>
+    <circle cx="12" cy="12" r="1.8"/>
+    <circle cx="19" cy="12" r="1.8"/>
+    <circle cx="5" cy="18" r="1.8"/>
+    <circle cx="12" cy="18" r="1.8"/>
+    <circle cx="19" cy="18" r="1.8"/>
   </svg>
 }
