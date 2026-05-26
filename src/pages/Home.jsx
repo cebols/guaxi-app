@@ -36,7 +36,12 @@ function parseSteps(instrucoes) {
 function thermalsOfHome(rec) {
   if (!rec) return []
   const tipos = new Set(parseSteps(rec.instrucoes).map(s => s.tipo))
-  return THERMAL_TYPES_HOME.filter(t => t.steps.some(s => tipos.has(s)))
+  const result = []
+  if (tipos.has('ferver'))                                              result.push(THERMAL_TYPES_HOME[0])
+  if (tipos.has('assar') || Number(rec.tempoForno) > 0 || Number(rec.tempForno) > 0)  result.push(THERMAL_TYPES_HOME[1])
+  if (tipos.has('resfriar') || rec.tipoResfriamento === 'geladeira')   result.push(THERMAL_TYPES_HOME[2])
+  if (tipos.has('congelar') || rec.tipoResfriamento === 'congelador')  result.push(THERMAL_TYPES_HOME[3])
+  return result
 }
 
 function ThermalDots({ thermals }) {

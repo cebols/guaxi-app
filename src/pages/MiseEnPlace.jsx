@@ -23,7 +23,12 @@ function thermalsOf(rec) {
   if (!rec) return []
   const steps = parseStepsMEP(rec.instrucoes)
   const tipos = new Set(steps.map(s => s.tipo))
-  return THERMAL_TYPES.filter(t => t.steps.some(s => tipos.has(s)))
+  const result = []
+  if (tipos.has('ferver'))                                              result.push(THERMAL_TYPES[0])
+  if (tipos.has('assar') || Number(rec.tempoForno) > 0 || Number(rec.tempForno) > 0)  result.push(THERMAL_TYPES[1])
+  if (tipos.has('resfriar') || rec.tipoResfriamento === 'geladeira')   result.push(THERMAL_TYPES[2])
+  if (tipos.has('congelar') || rec.tipoResfriamento === 'congelador')  result.push(THERMAL_TYPES[3])
+  return result
 }
 
 function ThermalIcon({ rec }) {
