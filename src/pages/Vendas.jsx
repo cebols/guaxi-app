@@ -1086,11 +1086,16 @@ export default function Vendas() {
   const pedidoEventos = useMemo(() => {
     const prodMap = Object.fromEntries((produtos || []).map(p => [p.nome, p]))
     return (encomendas || [])
-      .filter(e => e.status !== 'Cancelado' && e.dataEntrega >= inicio && e.dataEntrega <= fim)
+      .filter(e => {
+        if (e.status === 'Cancelado') return false
+        if (e.canal === 'FormExterno' && e.pgto !== 'Pago') return false
+        const d = e.dataEntrega || e.createdAt
+        return d && d >= inicio && d <= fim
+      })
       .flatMap(e => e.itens.map(item => ({
         id: `${e.id}-${item.id || item.produto}`,
         pedidoId: e.id,
-        data: e.dataEntrega,
+        data: e.dataEntrega || e.createdAt,
         produtoNome: item.produto,
         quantidade: item.quantidade,
         precoUnit: item.precoUnit,
@@ -1106,10 +1111,14 @@ export default function Vendas() {
   const pedidoEventosTodos = useMemo(() => {
     const prodMap = Object.fromEntries((produtos || []).map(p => [p.nome, p]))
     return (encomendas || [])
-      .filter(e => e.status !== 'Cancelado')
+      .filter(e => {
+        if (e.status === 'Cancelado') return false
+        if (e.canal === 'FormExterno' && e.pgto !== 'Pago') return false
+        return true
+      })
       .flatMap(e => e.itens.map(item => ({
         id: `${e.id}-${item.id || item.produto}`,
-        data: e.dataEntrega,
+        data: e.dataEntrega || e.createdAt,
         produtoNome: item.produto,
         quantidade: item.quantidade,
         precoUnit: item.precoUnit,
@@ -1177,7 +1186,12 @@ export default function Vendas() {
   }, [pedidoEventos])
 
   const numPedidosPeriodo = useMemo(() =>
-    new Set((encomendas || []).filter(e => e.status !== 'Cancelado' && e.dataEntrega >= inicio && e.dataEntrega <= fim).map(e => e.id)).size,
+    new Set((encomendas || []).filter(e => {
+      if (e.status === 'Cancelado') return false
+      if (e.canal === 'FormExterno' && e.pgto !== 'Pago') return false
+      const d = e.dataEntrega || e.createdAt
+      return d && d >= inicio && d <= fim
+    }).map(e => e.id)).size,
     [encomendas, inicio]
   )
   const totalCustoSacolas = numPedidosPeriodo * custoSacola
