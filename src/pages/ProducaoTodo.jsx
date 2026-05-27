@@ -27,7 +27,7 @@ const THERMAL_TYPES = [
 function thermalOfRec(rec, key) {
   if (!rec) return false
   const tipos = new Set(parseSteps(rec.instrucoes).map(s => s.tipo))
-  if (key === 'ferver')   return tipos.has('ferver')
+  if (key === 'ferver')   return !!rec.temFerver || tipos.has('ferver')
   if (key === 'assar')    return tipos.has('assar') || Number(rec.tempoForno) > 0 || Number(rec.tempForno) > 0
   if (key === 'resfriar') return tipos.has('resfriar') || rec.tipoResfriamento === 'geladeira'
   if (key === 'congelar') return tipos.has('congelar') || rec.tipoResfriamento === 'congelador'

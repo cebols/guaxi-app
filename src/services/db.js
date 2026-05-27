@@ -790,6 +790,7 @@ export async function getReceitas() {
       tempForno: r.temp_forno ?? null,
       tempoResfriamento: r.tempo_resfriamento ?? null,
       tipoResfriamento: r.tipo_resfriamento ?? null,
+      temFerver: r.tem_ferver || false,
       imagemUrl: r.imagem_url || null,
       ingredientes: (ingsByReceita[r.id] || []).map(i => ({
         id: i.id,
@@ -869,6 +870,17 @@ export async function saveReceita(receita, ingredientes) {
     await insertIngs(data.id)
     return data.id
   }
+}
+
+export async function updateReceitaThermal(id, { ferver, assar, resfriar, congelar }) {
+  const patch = { tem_ferver: !!ferver }
+  if (assar) patch.tempo_forno = patch.tempo_forno || 1
+  else patch.tempo_forno = null
+  if (congelar) patch.tipo_resfriamento = 'congelador'
+  else if (resfriar) patch.tipo_resfriamento = 'geladeira'
+  else patch.tipo_resfriamento = null
+  const { error } = await supabase.from('receitas').update(patch).eq('id', id)
+  if (error) throw error
 }
 
 // ── Vendas ────────────────────────────────────────────────────

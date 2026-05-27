@@ -1,7 +1,7 @@
 import { useState, useMemo, lazy, Suspense } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
-import { getReceitas, deleteReceitas, saveReceita, getInsumos, getProdutos } from '../services/db'
+import { getReceitas, deleteReceitas, saveReceita, getInsumos, getProdutos, updateReceitaThermal } from '../services/db'
 import { ItemThumb } from '../components/ItemThumb'
 
 const ImportarExcel = lazy(() => import('./ImportarExcel'))
@@ -41,6 +41,9 @@ export default function Fichas() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [createSheet, setCreateSheet] = useState(false)
   const [catOpen, setCatOpen] = useState(false)
+  const [bulkThermal, setBulkThermal] = useState(false)
+  const [thermalState, setThermalState] = useState({}) // receitaId → {ferver,assar,resfriar,congelar}
+  const [thermalSaving, setThermalSaving] = useState(false)
 
   const { data: produtos } = useData(getProdutos)
 
@@ -103,6 +106,51 @@ function norm(s) {
     return norm(r.nome).includes(norm(busca))
   })
 
+  function parseStepsLocal(raw) {
+    if (!raw) return []
+    try { const p = JSON.parse(raw); if (Array.isArray(p)) return p } catch {}
+    return []
+  }
+
+  function thermalOf(rec, key) {
+    const tipos = new Set(parseStepsLocal(rec.instrucoes).map(s => s.tipo))
+    if (key === 'ferver')   return !!rec.temFerver || tipos.has('ferver')
+    if (key === 'assar')    return tipos.has('assar') || Number(rec.tempoForno) > 0 || Number(rec.tempForno) > 0
+    if (key === 'resfriar') return tipos.has('resfriar') || rec.tipoResfriamento === 'geladeira'
+    if (key === 'congelar') return tipos.has('congelar') || rec.tipoResfriamento === 'congelador'
+    return false
+  }
+
+  function openBulkThermal() {
+    const init = {}
+    for (const r of (receitas || [])) {
+      init[r.id] = {
+        ferver:   thermalOf(r, 'ferver'),
+        assar:    thermalOf(r, 'assar'),
+        resfriar: thermalOf(r, 'resfriar'),
+        congelar: thermalOf(r, 'congelar'),
+      }
+    }
+    setThermalState(init)
+    setBulkThermal(true)
+    setMenuOpen(false)
+  }
+
+  async function saveBulkThermal() {
+    setThermalSaving(true)
+    try {
+      await Promise.all(
+        Object.entries(thermalState).map(([id, t]) => updateReceitaThermal(Number(id), t))
+      )
+      await reload()
+      setBulkThermal(false)
+    } catch (e) {
+      alert('Erro ao salvar: ' + e.message)
+    } finally {
+      setThermalSaving(false)
+    }
+  }
+
   const handleDuplicar = async (rec, e) => {
     e?.stopPropagation()
     setDuplicando(rec.id)
@@ -140,6 +188,7 @@ function norm(s) {
                   <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 99, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.4)', overflow: 'hidden' }}>
                     {[
                       { label: '⬆️ Exportar PDF', action: () => { setExportSel([]); setExportMode(true); setMenuOpen(false) } },
+                      { label: '🌡️ Processos térmicos', action: openBulkThermal },
                       { label: '🗑️ Excluir receitas', action: () => { setBulkSel([]); setBulkDelete(true); setMenuOpen(false) }, danger: true },
                     ].map(item => (
                       <button key={item.label} onClick={item.action} style={{
@@ -603,6 +652,61 @@ function norm(s) {
                 <span style={{ color: 'var(--text-tertiary)', fontSize: 18, flexShrink: 0 }}>›</span>
               </button>
             ))}
+          </div>
+        </>
+      )}
+
+      {bulkThermal && (
+        <>
+          <div className="sheet-overlay" onClick={() => setBulkThermal(false)} />
+          <div className="sheet" style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 16px 12px' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 16 }}>Processos térmicos</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>{(receitas || []).length} receitas</div>
+              </div>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setBulkThermal(false)}>×</button>
+            </div>
+            <div style={{ display: 'flex', gap: 6, padding: '0 16px 10px', borderBottom: '1px solid var(--border)' }}>
+              {[
+                { key: 'ferver',   icon: '🍲', label: 'Ferver' },
+                { key: 'assar',    icon: '🔥', label: 'Forno' },
+                { key: 'resfriar', icon: '❄️',  label: 'Gelar' },
+                { key: 'congelar', icon: '🧊', label: 'Congelar' },
+              ].map(t => (
+                <div key={t.key} style={{ fontSize: 11, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 3, minWidth: 56, justifyContent: 'center' }}>
+                  {t.icon} {t.label}
+                </div>
+              ))}
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {(receitas || []).map((r, i) => {
+                const t = thermalState[r.id] || { ferver: false, assar: false, resfriar: false, congelar: false }
+                const toggle = (key) => setThermalState(s => ({
+                  ...s,
+                  [r.id]: { ...t, [key]: !t[key] }
+                }))
+                return (
+                  <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderBottom: i < (receitas || []).length - 1 ? '1px solid #1a1a1a' : 'none' }}>
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.nome}</div>
+                    {['ferver', 'assar', 'resfriar', 'congelar'].map(key => (
+                      <button key={key} onClick={() => toggle(key)} style={{
+                        width: 32, height: 32, borderRadius: 8, border: 'none', cursor: 'pointer', flexShrink: 0,
+                        background: t[key] ? 'var(--teal)' : 'var(--bg-secondary)',
+                        fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {key === 'ferver' ? '🍲' : key === 'assar' ? '🔥' : key === 'resfriar' ? '❄️' : '🧊'}
+                      </button>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+            <div style={{ padding: 16, borderTop: '1px solid var(--border)' }}>
+              <button onClick={saveBulkThermal} disabled={thermalSaving} style={{ width: '100%', padding: 13, borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#000', fontSize: 14, fontWeight: 700, cursor: thermalSaving ? 'default' : 'pointer', opacity: thermalSaving ? 0.6 : 1 }}>
+                {thermalSaving ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
           </div>
         </>
       )}
