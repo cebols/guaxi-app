@@ -4,7 +4,7 @@ import { useData } from '../hooks/useData'
 import {
   getProducao, getReceitas, getInsumos, getProdutos,
   updateProducaoChecks, deleteProducao, deleteProducaoItem,
-  addProducaoItens, updateProducaoItemQtd,
+  addProducaoItens, updateProducaoItemQtd, computeDebitos,
 } from '../services/db'
 
 function norm(s) {
@@ -106,20 +106,15 @@ export default function ProducaoTodo() {
   }, [prod])
 
   const debitosTotais = useMemo(() => {
-    if (!prod) return []
+    if (!prod || !receitas) return []
+    const debitos = computeDebitos(dosesPerReceita, receitas)
     const map = {}
-    for (const item of prod.itens) {
-      const dbs = item.snapshot?.debitos || {}
-      for (const [insumoId, q] of Object.entries(dbs)) {
-        if (!map[insumoId]) {
-          const ins = (insumos || []).find(i => String(i.id) === String(insumoId))
-          map[insumoId] = { insumoId: Number(insumoId), nome: ins?.nome || `insumo#${insumoId}`, unidade: ins?.unidade || 'g', necessario: 0, estoque: ins?.estoqueAtual ?? null, linkCompra: ins?.linkCompra || '', whatsapp: ins?.whatsapp || '', fornecedor: ins?.fornecedor || '' }
-        }
-        map[insumoId].necessario += q
-      }
+    for (const [insumoId, q] of Object.entries(debitos)) {
+      const ins = (insumos || []).find(i => String(i.id) === String(insumoId))
+      map[insumoId] = { insumoId: Number(insumoId), nome: ins?.nome || `insumo#${insumoId}`, unidade: ins?.unidade || 'g', necessario: q, estoque: ins?.estoqueAtual ?? null, linkCompra: ins?.linkCompra || '', whatsapp: ins?.whatsapp || '', fornecedor: ins?.fornecedor || '' }
     }
     return Object.values(map).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-  }, [prod, insumos])
+  }, [prod, insumos, receitas, dosesPerReceita])
 
   const faltas = debitosTotais.filter(d => d.estoque != null && d.estoque < d.necessario)
 
@@ -243,7 +238,7 @@ export default function ProducaoTodo() {
           <div className="card" style={{ padding: 0, marginBottom: 12, overflow: 'hidden' }}>
             <button onClick={() => setShowDebit(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
-                Total debitado do estoque {faltas.length > 0 && <span title="Itens faltando" style={{ color: '#f59e0b', marginLeft: 4 }}>⚠</span>}
+                Insumos necessários {faltas.length > 0 && <span title="Itens faltando" style={{ color: '#f59e0b', marginLeft: 4 }}>⚠</span>}
               </span>
               <span style={{ color: 'var(--text-secondary)', fontSize: 14, transform: showDebit ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
             </button>

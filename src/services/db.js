@@ -982,7 +982,7 @@ function expandIngredients(receitas, rec, doses, depth = 0) {
 }
 
 // Calcula débito total de insumos a partir de doses por receita
-function computeDebitos(dosesPerReceita, receitas) {
+export function computeDebitos(dosesPerReceita, receitas) {
   const debitos = {}
   for (const [recIdStr, doses] of Object.entries(dosesPerReceita)) {
     const rec = (receitas || []).find(r => r.id === Number(recIdStr))
