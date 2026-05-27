@@ -17,6 +17,10 @@ echo "https://TOKEN:x-oauth-basic@github.com" > ~/.git-credentials
 ```
 Token: usuário pede no início da sessão ou está no histórico da thread.
 
+## SQL / Schema
+- Toda mudança de schema (CREATE TABLE, ALTER, nova policy, nova função) deve ser adicionada ao `schema.sql` na raiz do projeto.
+- `schema.sql` é a fonte da verdade — deve sempre refletir o estado atual do banco.
+
 ## Economia de tokens
 - Não ler arquivo que já está na context window desta sessão.
 - Se foi modificado por Edit/Write → estado já está no contexto, não re-ler.

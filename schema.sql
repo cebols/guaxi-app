@@ -554,3 +554,20 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.delete_pedido TO authenticated;
+
+-- ── Snapshots de contagem ─────────────────────────────────────────────────────
+-- Ponto de restauração criado automaticamente a cada contagem confirmada.
+-- Permite reverter estoque_atual para o estado de qualquer contagem anterior.
+CREATE TABLE IF NOT EXISTS contagem_snapshots (
+  id         uuid        DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at timestamptz DEFAULT now(),
+  user_id    uuid        REFERENCES auth.users(id) ON DELETE CASCADE,
+  tipo       text        NOT NULL, -- 'insumos' | 'embalagens' | 'produtos'
+  itens      jsonb       NOT NULL DEFAULT '[]'
+  -- itens: [{ id, nome, quantidade, unidade }]
+);
+
+ALTER TABLE contagem_snapshots ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "users manage own snapshots" ON contagem_snapshots
+  FOR ALL USING (auth.uid() = user_id);
