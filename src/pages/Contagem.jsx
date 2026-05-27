@@ -351,12 +351,13 @@ function GastosTab() {
   )
 }
 
-// ─── Recibo (contagem) ───────────────────────────────────────────────────────
 function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
   const tabLabel = { insumos: 'Insumos', embalagens: 'Embalagens', produtos: 'Produtos' }[tab]
   const [fornecedores, setFornecedores] = useState({})
   const [fornSel, setFornSel] = useState({})
   const [openPicker, setOpenPicker] = useState(null)
+  const [precoEdit, setPrecoEdit] = useState({})
+  const [editingPreco, setEditingPreco] = useState({})
 
   const alterados = itens.filter(item => contagem[item.id] !== undefined && contagem[item.id] !== '')
   const aumentos = alterados.filter(item => parseFloat(contagem[item.id]) - (item.estoqueAtual ?? 0) > 0)
@@ -380,12 +381,14 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
     return item.fornecedor ? [{ fornecedor: item.fornecedor, marca: '', custoUnit: item.custoUnit || 0 }] : []
   }
 
-  const totalCompra = alterados.reduce((sum, item) => {
+  function getTotal(item) {
     const diff = parseFloat(contagem[item.id]) - (item.estoqueAtual ?? 0)
+    if (precoEdit[item.id] !== undefined) return parseFloat(precoEdit[item.id]) || 0
     const sel = fornSel[item.id]
-    const price = sel?.custoUnit ?? item.custoUnit ?? 0
-    return diff > 0 && price > 0 ? sum + diff * price : sum
-  }, 0)
+    return diff > 0 ? (sel?.custoUnit ?? item.custoUnit ?? 0) * diff : 0
+  }
+
+  const totalCompra = aumentos.reduce((sum, item) => sum + getTotal(item), 0)
 
   return (
     <>
@@ -407,6 +410,7 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
             const opts = isAumento ? getOpts(item) : []
             const sel = fornSel[item.id]
             const selLabel = sel ? (sel.fornecedor || sel.marca || 'Fornecedor') : 'Selecionar fornecedor'
+            const totalItem = getTotal(item)
             return (
               <div key={item.id} style={{ padding: '11px 0', borderBottom: i < alterados.length - 1 ? '1px solid #222' : 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -420,6 +424,27 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
                     {diff > 0 && <div style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>+{fmtN(diff)} {item.unidade}</div>}
                     {diff < 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{fmtN(diff)} {item.unidade}</div>}
                     {diff === 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>sem alteração</div>}
+                    {/* Edição de preço total pago */}
+                    {isAumento && (
+                      editingPreco[item.id] ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, justifyContent: 'flex-end' }}>
+                          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>R$</span>
+                          <input
+                            type="text" inputMode="decimal"
+                            value={precoEdit[item.id] ?? String(fmt(totalItem))}
+                            onChange={e => setPrecoEdit(p => ({ ...p, [item.id]: e.target.value }))}
+                            onBlur={() => setEditingPreco(s => ({ ...s, [item.id]: false }))}
+                            autoFocus
+                            style={{ width: 72, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--teal)', background: 'var(--bg-secondary)', color: 'var(--teal)', fontSize: 12, textAlign: 'right', fontWeight: 700 }}
+                          />
+                        </div>
+                      ) : (
+                        <button onClick={() => { setPrecoEdit(p => ({ ...p, [item.id]: p[item.id] ?? String(fmt(totalItem)) })); setEditingPreco(s => ({ ...s, [item.id]: true })) }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: totalItem > 0 ? 'var(--text-secondary)' : 'var(--text-tertiary)', padding: 0, marginTop: 2 }}>
+                          {totalItem > 0 ? `R$ ${fmt(totalItem)} ✎` : 'total pago ✎'}
+                        </button>
+                      )
+                    )}
                   </div>
                 </div>
                 {isAumento && opts.length > 0 && (
@@ -431,7 +456,7 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
                       color: sel ? 'var(--teal)' : 'var(--text-secondary)',
                       fontWeight: sel ? 600 : 400,
                     }}>
-                      {selLabel}{sel?.custoUnit > 0 ? ` · R$${fmt(sel.custoUnit * diff)}` : ''}
+                      {selLabel}
                     </button>
                     {openPicker === item.id && (
                       <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -462,7 +487,7 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
         )}
         <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
           <button onClick={onVoltar} disabled={saving} style={{ flex: 1, padding: 12, borderRadius: 8, border: '1px solid #444', background: 'transparent', color: 'var(--text-primary)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>← Editar</button>
-          <button onClick={() => onConfirmar(fornSel)} disabled={saving} style={{ flex: 2, padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+          <button onClick={() => onConfirmar(fornSel, precoEdit)} disabled={saving} style={{ flex: 2, padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
             {saving ? 'Salvando...' : 'Confirmar contagem'}
           </button>
         </div>
@@ -1087,7 +1112,7 @@ export default function Contagem() {
     setRecibo(tab)
   }
 
-  const handleConfirmar = async (fornSel = {}) => {
+  const handleConfirmar = async (fornSel = {}, precoEdit = {}) => {
     setSaving(true)
     try {
       const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : produtosParaContagem
@@ -1107,9 +1132,13 @@ export default function Contagem() {
           .map(item => ({ item, novo: parseFloat(contagem[item.id]), old: parseFloat(item.estoqueAtual ?? 0) }))
           .filter(({ novo, old }) => novo > old)
           .map(({ item, novo, old }) => {
+            const qty = novo - old
             const sel = fornSel[item.id]
-            const precoUnit = sel?.custoUnit ?? item.custoUnit ?? 0
-            return { tipo, item_id: item.id, item_nome: item.nome, unidade: item.unidade || '', quantidade: novo - old, preco_unit: precoUnit, total: (novo - old) * precoUnit, data: hoje }
+            const totalPago = precoEdit[item.id] !== undefined
+              ? (parseFloat(precoEdit[item.id]) || 0)
+              : (sel?.custoUnit ?? item.custoUnit ?? 0) * qty
+            const precoUnit = qty > 0 ? totalPago / qty : 0
+            return { tipo, item_id: item.id, item_nome: item.nome, unidade: item.unidade || '', quantidade: qty, preco_unit: precoUnit, total: totalPago, data: hoje }
           })
         comprasRegistradas = novasCompras.length
         if (novasCompras.length > 0) await registrarCompras(novasCompras)
