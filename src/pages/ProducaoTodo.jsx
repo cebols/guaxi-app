@@ -69,6 +69,7 @@ export default function ProducaoTodo() {
   const [prod, setProd]             = useState(null)
   const [loading, setLoading]       = useState(true)
   const [showDebit, setShowDebit]   = useState(false)
+  const [showBases, setShowBases]   = useState(true)
   const [showCompras, setShowCompras] = useState(false)
   const [showPedido, setShowPedido] = useState(false) // "O que foi pedido" colapsável
   const [filtroThermal, setFiltroThermal] = useState(null) // null | 'ferver'
@@ -117,6 +118,42 @@ export default function ProducaoTodo() {
   }, [prod, insumos, receitas, dosesPerReceita])
 
   const faltas = debitosTotais.filter(d => d.estoque != null && d.estoque < d.necessario)
+
+  const subReceitasTotal = useMemo(() => {
+    if (!prod || !receitas) return []
+    const topLevelIds = new Set(Object.keys(dosesPerReceita).map(Number))
+    const map = {}
+
+    function walk(recId, parentDoses, depth = 0) {
+      if (depth > 5) return
+      const rec = (receitas || []).find(r => r.id === recId)
+      if (!rec) return
+      for (const ing of (rec.ingredientes || [])) {
+        if (!ing.subReceitaId) continue
+        const subRec = (receitas || []).find(r => r.id === ing.subReceitaId)
+        if (!subRec || !subRec.rendimento) continue
+        const subDoses = (ing.quantidade * parentDoses) / subRec.rendimento
+        if (!map[ing.subReceitaId]) map[ing.subReceitaId] = { rec: subRec, totalDoses: 0 }
+        map[ing.subReceitaId].totalDoses += subDoses
+        walk(ing.subReceitaId, subDoses, depth + 1)
+      }
+    }
+
+    for (const [recIdStr, doses] of Object.entries(dosesPerReceita)) {
+      walk(Number(recIdStr), doses)
+    }
+
+    return Object.entries(map)
+      .filter(([id]) => !topLevelIds.has(Number(id)))
+      .map(([id, { rec, totalDoses }]) => ({
+        id: Number(id),
+        idStr: `sub-${id}`,
+        rec,
+        totalDoses,
+        totalPeso: totalDoses * (rec.rendimento || 0),
+      }))
+      .sort((a, b) => a.rec.nome.localeCompare(b.rec.nome, 'pt-BR'))
+  }, [prod, receitas, dosesPerReceita])
 
   async function toggleCheck(receitaId) {
     const key = String(receitaId)
@@ -333,6 +370,67 @@ export default function ProducaoTodo() {
           })()}
           </div>}
         </div>
+
+        {/* Preparações (sub-receitas) */}
+        {subReceitasTotal.length > 0 && (
+          <div className="card" style={{ padding: 0, marginBottom: 12, overflow: 'hidden' }}>
+            <button onClick={() => setShowBases(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
+                Preparações <span style={{ fontWeight: 400, opacity: 0.6 }}>({subReceitasTotal.length})</span>
+              </span>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 14, transform: showBases ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
+            </button>
+            {showBases && (
+              <div style={{ padding: '0 0 8px' }}>
+                {subReceitasTotal.map((s, i) => {
+                  const isChecked = checks.has(s.idStr)
+                  const isExpanded = !!expandReceita[s.idStr]
+                  const fp = s.rec.fatorPerda || 0
+                  const liq = s.totalPeso * (1 - fp / 100)
+                  return (
+                    <div key={s.id} style={{
+                      borderTop: i > 0 ? '1px solid #1a1a1a' : 'none',
+                      opacity: isChecked ? 0.5 : 1,
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }} onClick={() => toggleCheck(s.idStr)}>
+                        <div style={{
+                          width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                          border: `2px solid ${isChecked ? 'var(--teal)' : 'var(--border)'}`,
+                          background: isChecked ? 'var(--teal)' : 'transparent',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          color: '#fff', fontSize: 12, fontWeight: 700,
+                        }}>{isChecked ? '✓' : ''}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, textDecoration: isChecked ? 'line-through' : 'none' }}>{s.rec.nome}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>
+                            {fmtQtd(s.totalPeso)} {s.rec.unidadeGera}{fp > 0 ? ` (${fmtQtd(liq)} líq)` : ''}
+                          </div>
+                        </div>
+                        <button onClick={e => { e.stopPropagation(); navigate(`/fichas/${s.id}?doses=${s.totalDoses}`) }}
+                          style={{ background: 'rgba(20,184,166,0.1)', border: '1px solid var(--teal)', color: 'var(--teal)', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: '4px 8px', borderRadius: 6, flexShrink: 0 }}>
+                          👨‍🍳
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); setExpandReceita(prev => ({ ...prev, [s.idStr]: !prev[s.idStr] })) }}
+                          style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 14, cursor: 'pointer', padding: '4px 6px', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }}>▾</button>
+                      </div>
+                      {isExpanded && (
+                        <div style={{ padding: '0 14px 10px 46px', background: 'var(--bg-secondary, #1f2937)' }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, padding: '6px 0 4px' }}>Ingredientes</div>
+                          {(s.rec.ingredientes || []).map((ing, idx) => (
+                            <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', fontSize: 12 }}>
+                              <span style={{ color: ing.subReceitaId ? 'var(--teal)' : 'var(--text-primary)' }}>{ing.nome}</span>
+                              <span style={{ fontWeight: 600 }}>{fmtQtd(ing.quantidade * s.totalDoses)}{ing.unidade}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Receitas a produzir */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
