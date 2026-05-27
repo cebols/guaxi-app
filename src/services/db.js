@@ -314,6 +314,52 @@ export async function updateEstoqueEmbalagens(items) {
   )
 }
 
+export async function saveContagemSnapshot(tipo, itens) {
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('contagem_snapshots').insert({
+      user_id: user.id,
+      tipo,
+      itens: itens.map(i => ({ id: i.id, nome: i.nome, quantidade: i.estoqueAtual ?? null, unidade: i.unidade || '' })),
+    })
+    if (error && (error.message?.includes('contagem_snapshots') || error.code === '42P01')) return
+    if (error) throw error
+  } catch (e) {
+    if (e?.message?.includes('contagem_snapshots') || e?.code === '42P01') return
+  }
+}
+
+export async function getContagemSnapshots() {
+  try {
+    const { data, error } = await supabase.from('contagem_snapshots')
+      .select('id, created_at, tipo, itens')
+      .order('created_at', { ascending: false })
+      .limit(20)
+    if (error) throw error
+    return (data || []).map(r => ({
+      id: r.id,
+      createdAt: r.created_at,
+      tipo: r.tipo,
+      itens: r.itens || [],
+    }))
+  } catch (e) {
+    return []
+  }
+}
+
+export async function restoreContagemSnapshot(snapshotId) {
+  const { data, error } = await supabase.from('contagem_snapshots')
+    .select('tipo, itens')
+    .eq('id', snapshotId)
+    .single()
+  if (error) throw error
+  const { tipo, itens } = data
+  const payload = (itens || []).filter(i => i.quantidade != null).map(i => ({ id: i.id, estoqueAtual: i.quantidade }))
+  if (tipo === 'insumos') await updateEstoqueInsumos(payload)
+  else if (tipo === 'embalagens') await updateEstoqueEmbalagens(payload)
+  else await updateEstoqueProdutos(payload)
+}
+
 export async function registrarCompras(compras) {
   const { error } = await supabase.from('compras').insert(compras)
   if (error) throw error

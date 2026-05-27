@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes } from '../services/db'
+import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes, saveContagemSnapshot, getContagemSnapshots, restoreContagemSnapshot } from '../services/db'
 
 function aplicarAjuste(itens, ajusteMap) {
   if (!ajusteMap || Object.keys(ajusteMap).length === 0) return itens
@@ -755,8 +755,104 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
   )
 }
 
+// ─── SnapshotHistorico ───────────────────────────────────────────────────────
+function SnapshotHistorico({ onRestore }) {
+  const [snapshots, setSnapshots] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [confirmId, setConfirmId] = useState(null)
+  const [restoring, setRestoring] = useState(false)
+  const [expandId, setExpandId] = useState(null)
+
+  useEffect(() => {
+    getContagemSnapshots().then(s => { setSnapshots(s); setLoading(false) })
+  }, [])
+
+  async function handleRestore() {
+    setRestoring(true)
+    try {
+      await restoreContagemSnapshot(confirmId)
+      setConfirmId(null)
+      onRestore?.()
+    } catch (e) { alert('Erro: ' + e.message) }
+    finally { setRestoring(false) }
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return ''
+    const d = new Date(iso)
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const tipoLabel = { insumos: 'Insumos', embalagens: 'Embalagens', produtos: 'Produtos' }
+
+  if (loading) return <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, paddingTop: 24 }}>Carregando...</div>
+  if (!snapshots?.length) return (
+    <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, paddingTop: 40 }}>
+      <div style={{ fontSize: 28, marginBottom: 8 }}>📷</div>
+      Nenhum snapshot salvo ainda.<br/>
+      <span style={{ fontSize: 11 }}>Snapshots são criados automaticamente a cada contagem confirmada.</span>
+    </div>
+  )
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 12 }}>
+        Cada contagem confirmada cria um ponto de restauração. Restaurar reverte o estoque para os valores daquele momento.
+      </div>
+      {snapshots.map(s => {
+        const isExpanded = expandId === s.id
+        return (
+          <div key={s.id} className="card" style={{ marginBottom: 8, padding: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer' }}
+              onClick={() => setExpandId(isExpanded ? null : s.id)}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{fmtDate(s.createdAt)}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>
+                  {tipoLabel[s.tipo] || s.tipo} · {s.itens.length} item(s)
+                </div>
+              </div>
+              <button onClick={e => { e.stopPropagation(); setConfirmId(s.id) }}
+                style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--teal)', background: 'rgba(20,184,166,0.1)', color: 'var(--teal)', cursor: 'pointer', fontWeight: 600, flexShrink: 0 }}>
+                Restaurar
+              </button>
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12, transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }}>▾</span>
+            </div>
+            {isExpanded && (
+              <div style={{ borderTop: '1px solid var(--border)', padding: '8px 14px', background: 'var(--bg-secondary)', maxHeight: 220, overflowY: 'auto' }}>
+                {s.itens.map((item, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '3px 0', borderBottom: i < s.itens.length - 1 ? '0.5px solid var(--border)' : 'none' }}>
+                    <span style={{ color: 'var(--text-primary)' }}>{item.nome}</span>
+                    <span style={{ color: 'var(--teal)', fontWeight: 600 }}>{item.quantidade != null ? `${item.quantidade} ${item.unidade}` : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+      {confirmId && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: 14, padding: 24, maxWidth: 320, width: '90%', textAlign: 'center' }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>⏪</div>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Restaurar este snapshot?</div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>
+              O estoque será revertido para os valores deste ponto. Esta ação não pode ser desfeita.
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setConfirmId(null)} style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
+              <button onClick={handleRestore} disabled={restoring} style={{ flex: 1, padding: 10, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+                {restoring ? 'Restaurando...' : 'Restaurar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── ConsultarView ───────────────────────────────────────────────────────────
-function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
+function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar, onReloadAll }) {
   const [tab, setTab] = useState('insumos')
   const [sortBy, setSortBy] = useState('proximo_fim') // proximo_fim | nome | categoria | maior_estoque
   const [filtro, setFiltro] = useState('todos') // todos | abaixo_min | sem_estoque
@@ -806,12 +902,14 @@ function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar }) {
       </div>
       <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="tab-bar" style={{ marginBottom: 12 }}>
-          {[['insumos','Insumos'],['embalagens','Embalagens'],['produtos','Produtos'],['compras','Compras']].map(([key, label]) => (
+          {[['insumos','Insumos'],['embalagens','Embalagens'],['produtos','Produtos'],['compras','Compras'],['historico','⏪ Histórico']].map(([key, label]) => (
             <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => setTab(key)}>{label}</button>
           ))}
         </div>
         {tab === 'compras' ? (
           <GastosTab />
+        ) : tab === 'historico' ? (
+          <SnapshotHistorico onRestore={onReloadAll} />
         ) : (
           <>
             {/* Busca */}
@@ -1017,6 +1115,13 @@ export default function Contagem() {
         if (novasCompras.length > 0) await registrarCompras(novasCompras)
       }
 
+      // Snapshot automático para restauração futura
+      const snapshotItens = itens.map(item => {
+        const val = contagem[item.id]
+        return { ...item, estoqueAtual: (val !== undefined && val !== '') ? parseFloat(val) : item.estoqueAtual }
+      })
+      saveContagemSnapshot(recibo, snapshotItens).catch(() => {})
+
       if (recibo === 'insumos') { setContagemIns({}); reloadIns() }
       else if (recibo === 'embalagens') { setContagemEmb({}); reloadEmb() }
       else { setContagemProd({}); reloadProd() }
@@ -1084,6 +1189,7 @@ export default function Contagem() {
           produtos={produtos}
           ajustes={ajustes}
           onVoltar={() => setVista(null)}
+          onReloadAll={() => { reloadIns(); reloadEmb(); reloadProd() }}
         />
         {toast && <div className="toast">{toast}</div>}
       </>
