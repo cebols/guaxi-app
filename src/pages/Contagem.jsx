@@ -477,13 +477,12 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
   const [precoEdit, setPrecoEdit] = useState({}) // itemId -> string (override)
   const [editingPreco, setEditingPreco] = useState({}) // itemId -> bool
 
-  const selecionados = itens.filter(i => parseFloat(qtds[i.id] || '0') > 0)
+  const selecionados = itens.filter(i => parseFloat(qtds[i._key] || '0') > 0)
 
-  // Returns total paid for this item (precoEdit stores total, not unit)
   function getTotal(item) {
-    if (precoEdit[item.id] !== undefined) return parseFloat(precoEdit[item.id]) || 0
-    const qty = parseFloat(qtds[item.id] || '0')
-    const sel = fornSel[item.id]
+    if (precoEdit[item._key] !== undefined) return parseFloat(precoEdit[item._key]) || 0
+    const qty = parseFloat(qtds[item._key] || '0')
+    const sel = fornSel[item._key]
     const unitCost = sel?.custoUnit ?? item.custoUnit ?? 0
     return unitCost * qty
   }
@@ -503,14 +502,14 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
       <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
           {selecionados.map((item, i) => {
-            const qty = parseFloat(qtds[item.id] || '0')
+            const qty = parseFloat(qtds[item._key] || '0')
             const opts = item._tipo === 'insumo'
-              ? (fornOpts[item.id] || (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0, pesoEmb: item.pesoEmb || 0, custoEmb: item.custoEmb || 0 }] : []))
+              ? (fornOpts[item._key] || (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0, pesoEmb: item.pesoEmb || 0, custoEmb: item.custoEmb || 0 }] : []))
               : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: '', custoUnit: item.custoUnit || 0, custoCompra: item.custoCompra || 0, qtdCompra: item.qtdCompra || 0 }] : [])
-            const sel = fornSel[item.id]
+            const sel = fornSel[item._key]
             const selLabel = sel ? (sel.fornecedor || sel.marca || 'Fornecedor') : 'Selecionar fornecedor'
             return (
-              <div key={item.id} style={{ padding: '11px 0', borderBottom: i < selecionados.length - 1 ? '1px solid #222' : 'none' }}>
+              <div key={item._key} style={{ padding: '11px 0', borderBottom: i < selecionados.length - 1 ? '1px solid #222' : 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
@@ -520,20 +519,20 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
                   </div>
                   <div style={{ flexShrink: 0, textAlign: 'right' }}>
                     <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 700 }}>+{fmtN(qty)} {item.unidade}</div>
-                    {editingPreco[item.id] ? (
+                    {editingPreco[item._key] ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, justifyContent: 'flex-end' }}>
                         <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>R$</span>
                         <input
                           type="text" inputMode="decimal"
-                          value={precoEdit[item.id] ?? String(fmt(getTotal(item)))}
-                          onChange={e => setPrecoEdit(p => ({ ...p, [item.id]: e.target.value }))}
-                          onBlur={() => setEditingPreco(s => ({ ...s, [item.id]: false }))}
+                          value={precoEdit[item._key] ?? String(fmt(getTotal(item)))}
+                          onChange={e => setPrecoEdit(p => ({ ...p, [item._key]: e.target.value }))}
+                          onBlur={() => setEditingPreco(s => ({ ...s, [item._key]: false }))}
                           autoFocus
                           style={{ width: 72, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--teal)', background: 'var(--bg-secondary)', color: 'var(--teal)', fontSize: 12, textAlign: 'right', fontWeight: 700 }}
                         />
                       </div>
                     ) : (
-                      <button onClick={() => { setPrecoEdit(p => ({ ...p, [item.id]: p[item.id] ?? String(fmt(getTotal(item))) })); setEditingPreco(s => ({ ...s, [item.id]: true })) }}
+                      <button onClick={() => { setPrecoEdit(p => ({ ...p, [item._key]: p[item._key] ?? String(fmt(getTotal(item))) })); setEditingPreco(s => ({ ...s, [item._key]: true })) }}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: getTotal(item) > 0 ? 'var(--text-secondary)' : 'var(--text-tertiary)', padding: 0, marginTop: 2 }}>
                         {getTotal(item) > 0 ? `R$ ${fmt(getTotal(item))} ✎` : 'total pago ✎'}
                       </button>
@@ -542,7 +541,7 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
                 </div>
                 {opts.length > 0 && (
                   <div style={{ marginTop: 6 }}>
-                    <button onClick={() => setOpenPicker(openPicker === item.id ? null : item.id)} style={{
+                    <button onClick={() => setOpenPicker(openPicker === item._key ? null : item._key)} style={{
                       fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
                       border: sel ? '1px solid var(--teal)' : '1px dashed #555',
                       background: sel ? 'var(--teal-light)' : 'transparent',
@@ -551,10 +550,10 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
                     }}>
                       {selLabel}
                     </button>
-                    {openPicker === item.id && (
+                    {openPicker === item._key && (
                       <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
                         {opts.map((opt, oi) => (
-                          <button key={oi} onClick={() => { setFornSel(s => ({ ...s, [item.id]: opt })); setOpenPicker(null) }} style={{
+                          <button key={oi} onClick={() => { setFornSel(s => ({ ...s, [item._key]: opt })); setOpenPicker(null) }} style={{
                             textAlign: 'left', fontSize: 12, padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
                             border: '1px solid #333', background: '#1a1a1a', color: 'var(--text-primary)',
                           }}>
@@ -599,45 +598,47 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
   const [showRecibo, setShowRecibo] = useState(false)
 
   const todos = useMemo(() => [
-    ...(insumos || []).map(i => ({ ...i, _tipo: 'insumo' })),
-    ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem' })),
+    ...(insumos || []).map(i => ({ ...i, _tipo: 'insumo',    _key: `insumo-${i.id}` })),
+    ...(embalagens || []).map(e => ({ ...e, _tipo: 'embalagem', _key: `embalagem-${e.id}` })),
   ], [insumos, embalagens])
 
   const itensTab = useMemo(() => {
-    const base = tab === 'insumos' ? (insumos || []).map(i => ({ ...i, _tipo: 'insumo' })) : (embalagens || []).map(e => ({ ...e, _tipo: 'embalagem' }))
+    const base = tab === 'insumos'
+      ? (insumos || []).map(i => ({ ...i, _tipo: 'insumo',    _key: `insumo-${i.id}` }))
+      : (embalagens || []).map(e => ({ ...e, _tipo: 'embalagem', _key: `embalagem-${e.id}` }))
     if (!busca) return base
     const q = normStr(busca)
     return base.filter(i => normStr(i.nome).includes(q) || normStr(i.categoria || '').includes(q))
   }, [tab, insumos, embalagens, busca])
 
-  const temItens = todos.some(i => parseFloat(qtds[i.id] || '0') > 0)
-  const qtdSelecionados = todos.filter(i => parseFloat(qtds[i.id] || '0') > 0).length
+  const temItens = todos.some(i => parseFloat(qtds[i._key] || '0') > 0)
+  const qtdSelecionados = todos.filter(i => parseFloat(qtds[i._key] || '0') > 0).length
 
   function preencherSugestoes() {
     const novas = {}
     todos.forEach(item => {
       const falta = (item.estoqueMin || 0) - (item.estoqueAtual ?? 0)
-      if (falta > 0 && !qtds[item.id]) novas[item.id] = String(Math.ceil(falta))
+      if (falta > 0 && !qtds[item._key]) novas[item._key] = String(Math.ceil(falta))
     })
     if (Object.keys(novas).length === 0) return
     setQtds(q => ({ ...q, ...novas }))
   }
 
   async function handleQty(item, val) {
-    setQtds(q => ({ ...q, [item.id]: val }))
-    if (item._tipo === 'insumo' && parseFloat(val) > 0 && !fornOpts[item.id]) {
+    setQtds(q => ({ ...q, [item._key]: val }))
+    if (item._tipo === 'insumo' && parseFloat(val) > 0 && !fornOpts[item._key]) {
       try {
         const fs = await getInsumoFornecedores(item.id)
         const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0, pesoEmb: item.pesoEmb || 0, custoEmb: item.custoEmb || 0 }] : [])
-        setFornOpts(o => ({ ...o, [item.id]: opts }))
-        if (opts.length > 0) setFornSel(s => ({ ...s, [item.id]: s[item.id] || opts[0] }))
+        setFornOpts(o => ({ ...o, [item._key]: opts }))
+        if (opts.length > 0) setFornSel(s => ({ ...s, [item._key]: s[item._key] || opts[0] }))
       } catch {}
     }
   }
 
   function bump(item, delta) {
     const step = getStep(item)
-    const cur = parseFloat(qtds[item.id] || '0')
+    const cur = parseFloat(qtds[item._key] || '0')
     const novo = Math.max(0, cur + delta * step)
     handleQty(item, novo === 0 ? '' : String(novo))
   }
@@ -695,11 +696,11 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
         <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 12 }}>
           {itensTab.length === 0 && <div style={{ padding: '20px 0', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 14 }}>Nenhum item encontrado</div>}
           {itensTab.map((item, i) => {
-            const qty = qtds[item.id] || ''
+            const qty = qtds[item._key] || ''
             const hasQty = parseFloat(qty) > 0
             const step = getStep(item)
             return (
-              <div key={item.id} style={{ padding: '12px 0', borderBottom: i < itensTab.length - 1 ? '1px solid #222' : 'none' }}>
+              <div key={item._key} style={{ padding: '12px 0', borderBottom: i < itensTab.length - 1 ? '1px solid #222' : 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.nome}</div>
@@ -1031,11 +1032,11 @@ export default function Contagem() {
     const insumosPayload = []
     const embalagensPayload = []
     todos.forEach(item => {
-      const qty = parseFloat(qtds[item.id] || '0')
+      const qty = parseFloat(qtds[item._key] || '0')
       if (qty <= 0) return
-      const sel = fornSel[item.id]
-      const totalPago = precoEdit[item.id] !== undefined
-        ? (parseFloat(precoEdit[item.id]) || 0)
+      const sel = fornSel[item._key]
+      const totalPago = precoEdit[item._key] !== undefined
+        ? (parseFloat(precoEdit[item._key]) || 0)
         : (sel?.custoUnit ?? item.custoUnit ?? 0) * qty
       const precoUnit = qty > 0 ? totalPago / qty : 0
       comprasPayload.push({ tipo: item._tipo, item_id: item.id, item_nome: item.nome, unidade: item.unidade || '', quantidade: qty, preco_unit: precoUnit, total: totalPago, data: hoje })
