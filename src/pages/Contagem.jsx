@@ -1155,6 +1155,21 @@ export default function Contagem() {
       await registrarCompras(comprasPayload)
       if (insumosPayload.length > 0) await updateEstoqueInsumos(insumosPayload)
       if (embalagensPayload.length > 0) await updateEstoqueEmbalagens(embalagensPayload)
+
+      // Credita derivados de insumos comprados (ex: comprar ovo → credita clara + gema)
+      const derivadosPayload = []
+      todos.forEach(item => {
+        if (item._tipo !== 'insumo') return
+        const qty = parseFloat(qtds[item._key] || '0')
+        if (qty <= 0) return
+        const parentGrams = item.unidade === 'un' ? qty * (item.pesoUn || 1) : qty
+        todos.forEach(child => {
+          if (child._tipo !== 'insumo' || child.parentInsumoId !== item.id || !(child.parentFator > 0)) return
+          derivadosPayload.push({ id: child.id, estoqueAtual: (child.estoqueAtual ?? 0) + parentGrams * child.parentFator })
+        })
+      })
+      if (derivadosPayload.length > 0) await updateEstoqueInsumos(derivadosPayload)
+
       reloadIns()
       reloadEmb()
       setVista(null)

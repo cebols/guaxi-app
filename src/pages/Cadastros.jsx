@@ -89,6 +89,7 @@ const INSUMO_EMPTY = {
   pesoEmb: '', custoEmb: '', pesoUn: '',
   linkCompra: '', estoqueAtual: '', estoqueMin: '',
   fornecedor: '', whatsapp: '',
+  parentInsumoId: null, parentFator: '',
 }
 
 const FONTE_EMPTY = { marca: '', pesoEmb: '', custoEmb: '', fornecedor: '', linkCompra: '', telefone: '' }
@@ -158,7 +159,7 @@ function SupplierFields({ s, i, unidade, onChange, fornecedoresList = [], listId
   )
 }
 
-function InsumoForm({ item, categorias, fornecedoresList, onSave, onDelete, onDuplicate, onClose }) {
+function InsumoForm({ item, categorias, fornecedoresList, insumosAll, onSave, onDelete, onDuplicate, onClose }) {
   const [form, setForm] = useState(item ? {
     ...item,
     marca: item.marca || '',
@@ -168,6 +169,8 @@ function InsumoForm({ item, categorias, fornecedoresList, onSave, onDelete, onDu
     linkCompra: item.linkCompra || '',
     estoqueAtual: item.estoqueAtual ?? '',
     estoqueMin: item.estoqueMin || '',
+    parentInsumoId: item.parentInsumoId || null,
+    parentFator: item.parentFator != null ? String(item.parentFator) : '',
   } : INSUMO_EMPTY)
 
   // Edit mode: unified supplier list
@@ -261,8 +264,26 @@ function InsumoForm({ item, categorias, fornecedoresList, onSave, onDelete, onDu
         </>
       )}
 
+      {/* Derivado de (opcional) */}
+      <div className="section-label" style={{ marginTop: 4 }}>Derivado de</div>
+      <select className="field-input" value={form.parentInsumoId || ''} onChange={e => set('parentInsumoId', e.target.value ? Number(e.target.value) : null)}>
+        <option value="">— Ingrediente independente —</option>
+        {(insumosAll || []).filter(i => i.id !== item?.id && !i.parentInsumoId).map(i => (
+          <option key={i.id} value={i.id}>{i.nome}</option>
+        ))}
+      </select>
+      {form.parentInsumoId && (
+        <div style={{ marginTop: 8 }}>
+          <div className="field-label">Fração do peso do pai</div>
+          <input className="field-input" type="text" inputMode="decimal" placeholder="ex: 0.6" value={form.parentFator} onChange={e => set('parentFator', e.target.value)} />
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
+            Comprar 50g ovo com fator 0.6 → credita 30g. Custo calculado automaticamente.
+          </div>
+        </div>
+      )}
+
       {/* Create mode: single supplier inline */}
-      {!item && (
+      {!item && !form.parentInsumoId && (
         <>
           <div className="section-label" style={{ marginTop: 4 }}>Precificação</div>
           <div className="field-row">
@@ -322,7 +343,7 @@ function InsumoForm({ item, categorias, fornecedoresList, onSave, onDelete, onDu
       )}
 
       {/* Edit mode: unified selectable supplier list */}
-      {item && (
+      {item && !form.parentInsumoId && (
         <>
           <div className="section-label" style={{ marginTop: 8 }}>Fornecedores</div>
           {suppliers.map((s, i) => {
@@ -1253,7 +1274,7 @@ export default function Cadastros() {
       <button className="fab mobile-only" onClick={openNew}>+</button>
 
       {sheet?.type === 'insumo' && (
-        <InsumoForm item={sheet.item} categorias={catsInsumo} fornecedoresList={fornecedores} onSave={insActions.save} onDelete={insActions.del} onDuplicate={insActions.dup} onClose={() => setSheet(null)} />
+        <InsumoForm item={sheet.item} categorias={catsInsumo} fornecedoresList={fornecedores} insumosAll={insumos} onSave={insActions.save} onDelete={insActions.del} onDuplicate={insActions.dup} onClose={() => setSheet(null)} />
       )}
       {sheet?.type === 'embalagem' && (
         <EmbalagemForm item={sheet.item} categorias={catsEmbalagem} fornecedoresList={fornecedores} onSave={embActions.save} onDelete={embActions.del} onDuplicate={embActions.dup} onClose={() => setSheet(null)} />

@@ -48,6 +48,8 @@ export async function getInsumos() {
     telefone: r.telefone || '',
     whatsapp: r.whatsapp || '',
     imagemUrl: r.imagem_url || null,
+    parentInsumoId: r.parent_insumo_id || null,
+    parentFator: r.parent_fator ?? null,
   }))
 }
 
@@ -55,6 +57,8 @@ export async function saveInsumo(insumo) {
   const pesoEmb = parseFloat(insumo.pesoEmb) || 0
   const custoEmb = parseFloat(insumo.custoEmb) || 0
   const pesoUn = insumo.pesoUn !== '' && insumo.pesoUn != null ? parseFloat(insumo.pesoUn) : null
+  const parentInsumoId = insumo.parentInsumoId || null
+  const parentFator = insumo.parentFator != null && insumo.parentFator !== '' ? parseFloat(insumo.parentFator) : null
 
   let custoUnit = 0
   if (pesoEmb > 0 && custoEmb > 0) {
@@ -63,6 +67,10 @@ export async function saveInsumo(insumo) {
     } else {
       custoUnit = custoEmb / pesoEmb
     }
+  } else if (parentInsumoId) {
+    // Derivado: herda custo_unit do pai
+    const { data: parent } = await supabase.from('insumos').select('custo_unit').eq('id', parentInsumoId).single()
+    custoUnit = parent?.custo_unit ?? 0
   }
 
   const row = {
@@ -81,10 +89,14 @@ export async function saveInsumo(insumo) {
     telefone: insumo.telefone || '',
     whatsapp: insumo.whatsapp || '',
     imagem_url: insumo.imagemUrl ?? undefined,
+    parent_insumo_id: parentInsumoId,
+    parent_fator: parentFator,
   }
   const data = await upsert('insumos', row, insumo.id || null, ['link_compra', 'marca', 'imagem_url'])
   if (data?.id && custoUnit > 0) {
     snapshotInsumoCost(data.id, custoUnit).catch(() => {})
+    // Propaga custo para derivados deste insumo
+    supabase.from('insumos').update({ custo_unit: custoUnit }).eq('parent_insumo_id', data.id).then(() => {})
   }
   // Propagate name change to all receita_ingredientes that reference this insumo.
   if (insumo.id && insumo.nome) {

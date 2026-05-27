@@ -571,3 +571,9 @@ ALTER TABLE contagem_snapshots ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "users manage own snapshots" ON contagem_snapshots
   FOR ALL USING (auth.uid() = user_id);
+
+-- ── Ingredientes derivados (ex: ovo → clara + gema) ──────────────────────────
+-- Permite modelar co-produtos onde comprar o pai auto-credita os filhos.
+-- parent_fator: fração do peso do pai que gera este filho (clara=0.6, gema=0.4)
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_insumo_id bigint REFERENCES insumos(id) ON DELETE SET NULL;
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_fator numeric DEFAULT NULL;
