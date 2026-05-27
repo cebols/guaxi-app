@@ -368,7 +368,8 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
       .then(results => {
         const map = {}
         results.forEach(({ id, fs, item }) => {
-          const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0 }] : [])
+          const primary = (item.fornecedor || item.marca) ? [{ fornecedor: item.fornecedor || '', marca: item.marca || '', custoUnit: item.custoUnit || 0, pesoEmb: item.pesoEmb || 0, custoEmb: item.custoEmb || 0 }] : []
+          const opts = [...primary, ...fs]
           map[id] = opts
           if (opts.length > 0) setFornSel(s => ({ ...s, [id]: opts[0] }))
         })
@@ -657,7 +658,8 @@ function CompraView({ insumos, embalagens, onVoltar, onSalvar, saving }) {
     if (item._tipo === 'insumo' && parseFloat(val) > 0 && !fornOpts[item._key]) {
       try {
         const fs = await getInsumoFornecedores(item.id)
-        const opts = fs.length > 0 ? fs : (item.fornecedor ? [{ fornecedor: item.fornecedor, marca: item.marca || '', custoUnit: item.custoUnit || 0, pesoEmb: item.pesoEmb || 0, custoEmb: item.custoEmb || 0 }] : [])
+        const primary = (item.fornecedor || item.marca) ? [{ fornecedor: item.fornecedor || '', marca: item.marca || '', custoUnit: item.custoUnit || 0, pesoEmb: item.pesoEmb || 0, custoEmb: item.custoEmb || 0 }] : []
+        const opts = [...primary, ...fs]
         setFornOpts(o => ({ ...o, [item._key]: opts }))
         if (opts.length > 0) setFornSel(s => ({ ...s, [item._key]: s[item._key] || opts[0] }))
       } catch {}
