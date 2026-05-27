@@ -424,54 +424,57 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
                     {diff > 0 && <div style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>+{fmtN(diff)} {item.unidade}</div>}
                     {diff < 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{fmtN(diff)} {item.unidade}</div>}
                     {diff === 0 && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>sem alteração</div>}
-                    {/* Edição de preço total pago */}
-                    {isAumento && (
-                      editingPreco[item.id] ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, justifyContent: 'flex-end' }}>
-                          <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>R$</span>
-                          <input
-                            type="text" inputMode="decimal"
-                            value={precoEdit[item.id] ?? String(fmt(totalItem))}
-                            onChange={e => setPrecoEdit(p => ({ ...p, [item.id]: e.target.value }))}
-                            onBlur={() => setEditingPreco(s => ({ ...s, [item.id]: false }))}
-                            autoFocus
-                            style={{ width: 72, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--teal)', background: 'var(--bg-secondary)', color: 'var(--teal)', fontSize: 12, textAlign: 'right', fontWeight: 700 }}
-                          />
-                        </div>
-                      ) : (
-                        <button onClick={() => { setPrecoEdit(p => ({ ...p, [item.id]: p[item.id] ?? String(fmt(totalItem)) })); setEditingPreco(s => ({ ...s, [item.id]: true })) }}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: totalItem > 0 ? 'var(--text-secondary)' : 'var(--text-tertiary)', padding: 0, marginTop: 2 }}>
-                          {totalItem > 0 ? `R$ ${fmt(totalItem)} ✎` : 'total pago ✎'}
-                        </button>
-                      )
-                    )}
                   </div>
                 </div>
-                {isAumento && opts.length > 0 && (
-                  <div style={{ marginTop: 6 }}>
-                    <button onClick={() => setOpenPicker(openPicker === item.id ? null : item.id)} style={{
-                      fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-                      border: sel ? '1px solid var(--teal)' : '1px dashed #555',
-                      background: sel ? 'var(--teal-light)' : 'transparent',
-                      color: sel ? 'var(--teal)' : 'var(--text-secondary)',
-                      fontWeight: sel ? 600 : 400,
-                    }}>
-                      {selLabel}
-                    </button>
-                    {openPicker === item.id && (
-                      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        {opts.map((opt, oi) => (
-                          <button key={oi} onClick={() => { setFornSel(s => ({ ...s, [item.id]: opt })); setOpenPicker(null) }} style={{
-                            textAlign: 'left', fontSize: 12, padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
-                            border: '1px solid #333', background: '#1a1a1a', color: 'var(--text-primary)',
-                          }}>
-                            <span style={{ fontWeight: 600 }}>{opt.fornecedor || opt.marca || '—'}</span>
-                            {opt.marca && opt.fornecedor && <span style={{ color: 'var(--text-secondary)' }}> · {opt.marca}</span>}
-                            {opt.custoEmb > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoEmb)} / {fmtN(opt.pesoEmb)}{' '}</span>}
-                            {!opt.custoEmb && opt.custoUnit > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoUnit)}</span>}
-                          </button>
-                        ))}
+                {isAumento && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {/* Fornecedor */}
+                    {opts.length > 0 && (
+                      <div>
+                        <button onClick={() => setOpenPicker(openPicker === item.id ? null : item.id)} style={{
+                          fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                          border: sel ? '1px solid var(--teal)' : '1px dashed #555',
+                          background: sel ? 'var(--teal-light)' : 'transparent',
+                          color: sel ? 'var(--teal)' : 'var(--text-secondary)',
+                          fontWeight: sel ? 600 : 400,
+                        }}>
+                          {selLabel}
+                        </button>
+                        {openPicker === item.id && (
+                          <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            {opts.map((opt, oi) => (
+                              <button key={oi} onClick={() => { setFornSel(s => ({ ...s, [item.id]: opt })); setOpenPicker(null) }} style={{
+                                textAlign: 'left', fontSize: 12, padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
+                                border: '1px solid #333', background: '#1a1a1a', color: 'var(--text-primary)',
+                              }}>
+                                <span style={{ fontWeight: 600 }}>{opt.fornecedor || opt.marca || '—'}</span>
+                                {opt.marca && opt.fornecedor && <span style={{ color: 'var(--text-secondary)' }}> · {opt.marca}</span>}
+                                {opt.custoEmb > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoEmb)} / {fmtN(opt.pesoEmb)}</span>}
+                                {!opt.custoEmb && opt.custoUnit > 0 && <span style={{ color: 'var(--teal)', marginLeft: 6 }}>R$ {fmt(opt.custoUnit)}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
+                    )}
+                    {/* Total pago */}
+                    {editingPreco[item.id] ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>R$</span>
+                        <input
+                          type="text" inputMode="decimal"
+                          value={precoEdit[item.id] ?? String(fmt(totalItem))}
+                          onChange={e => setPrecoEdit(p => ({ ...p, [item.id]: e.target.value }))}
+                          onBlur={() => setEditingPreco(s => ({ ...s, [item.id]: false }))}
+                          autoFocus
+                          style={{ width: 80, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--teal)', background: 'var(--bg-secondary)', color: 'var(--teal)', fontSize: 13, textAlign: 'right', fontWeight: 700 }}
+                        />
+                      </div>
+                    ) : (
+                      <button onClick={() => { setPrecoEdit(p => ({ ...p, [item.id]: p[item.id] ?? String(fmt(totalItem)) })); setEditingPreco(s => ({ ...s, [item.id]: true })) }}
+                        style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, cursor: 'pointer', border: '1px dashed #555', background: 'transparent', color: totalItem > 0 ? 'var(--text-secondary)' : 'var(--text-tertiary)' }}>
+                        {totalItem > 0 ? `R$ ${fmt(totalItem)} ✎` : '+ valor pago'}
+                      </button>
                     )}
                   </div>
                 )}
