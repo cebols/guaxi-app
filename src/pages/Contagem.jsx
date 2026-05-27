@@ -4,6 +4,11 @@ import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes, saveContagemSnapshot, getContagemSnapshots, restoreContagemSnapshot } from '../services/db'
 
+function selUnit(sel) {
+  if (!sel) return 0
+  return (sel.pesoEmb > 0 && sel.custoEmb > 0) ? sel.custoEmb / sel.pesoEmb : (sel.custoUnit || 0)
+}
+
 function aplicarAjuste(itens, ajusteMap) {
   if (!ajusteMap || Object.keys(ajusteMap).length === 0) return itens
   return itens.map(i => {
@@ -386,7 +391,7 @@ function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
     const diff = parseFloat(contagem[item.id]) - (item.estoqueAtual ?? 0)
     if (precoEdit[item.id] !== undefined) return parseFloat(precoEdit[item.id]) || 0
     const sel = fornSel[item.id]
-    return diff > 0 ? (sel?.custoUnit ?? item.custoUnit ?? 0) * diff : 0
+    return diff > 0 ? selUnit(sel || { custoUnit: item.custoUnit || 0 }) * diff : 0
   }
 
   const totalCompra = aumentos.reduce((sum, item) => sum + getTotal(item), 0)
@@ -512,8 +517,7 @@ function ReciboCompra({ itens, qtds, fornSel, setFornSel, fornOpts, onVoltar, on
     if (precoEdit[item._key] !== undefined) return parseFloat(precoEdit[item._key]) || 0
     const qty = parseFloat(qtds[item._key] || '0')
     const sel = fornSel[item._key]
-    const unitCost = sel?.custoUnit ?? item.custoUnit ?? 0
-    return unitCost * qty
+    return selUnit(sel || { custoUnit: item.custoUnit || 0 }) * qty
   }
 
   const total = selecionados.reduce((sum, item) => sum + getTotal(item), 0)
@@ -1141,7 +1145,7 @@ export default function Contagem() {
             const sel = fornSel[item.id]
             const totalPago = precoEdit[item.id] !== undefined
               ? (parseFloat(precoEdit[item.id]) || 0)
-              : (sel?.custoUnit ?? item.custoUnit ?? 0) * qty
+              : selUnit(sel || { custoUnit: item.custoUnit || 0 }) * qty
             const precoUnit = qty > 0 ? totalPago / qty : 0
             return { tipo, item_id: item.id, item_nome: item.nome, unidade: item.unidade || '', quantidade: qty, preco_unit: precoUnit, total: totalPago, data: hoje }
           })
@@ -1176,7 +1180,7 @@ export default function Contagem() {
       const sel = fornSel[item._key]
       const totalPago = precoEdit[item._key] !== undefined
         ? (parseFloat(precoEdit[item._key]) || 0)
-        : (sel?.custoUnit ?? item.custoUnit ?? 0) * qty
+        : selUnit(sel || { custoUnit: item.custoUnit || 0 }) * qty
       const precoUnit = qty > 0 ? totalPago / qty : 0
       comprasPayload.push({ tipo: item._tipo, item_id: item.id, item_nome: item.nome, unidade: item.unidade || '', quantidade: qty, preco_unit: precoUnit, total: totalPago, data: hoje })
       const novoEstoque = (item.estoqueAtual ?? 0) + qty
