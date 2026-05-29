@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
   getProducao, getReceitas, getInsumos, getProdutos,
@@ -62,6 +62,9 @@ function dosesParaItem(item, rec) {
 export default function ProducaoTodo() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const abrirCozinha = (recId, doses) =>
+    navigate(`/fichas/${recId}?doses=${doses}&prod=${id}`, { state: { from: location.pathname } })
   const { data: receitas } = useData(getReceitas)
   const { data: insumos, reload: reloadInsumos } = useData(getInsumos)
   const { data: produtos } = useData(getProdutos)
@@ -392,24 +395,21 @@ export default function ProducaoTodo() {
                       borderTop: i > 0 ? '1px solid #1a1a1a' : 'none',
                       opacity: isChecked ? 0.5 : 1,
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }} onClick={() => toggleCheck(s.idStr)}>
-                        <div style={{
-                          width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer' }} onClick={() => abrirCozinha(s.id, s.totalDoses)}>
+                        <button onClick={e => { e.stopPropagation(); toggleCheck(s.idStr) }} title="Marcar como pronto" style={{
+                          width: 24, height: 24, borderRadius: '50%', flexShrink: 0, padding: 0,
                           border: `2px solid ${isChecked ? 'var(--teal)' : 'var(--border)'}`,
                           background: isChecked ? 'var(--teal)' : 'transparent',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          color: '#fff', fontSize: 12, fontWeight: 700,
-                        }}>{isChecked ? '✓' : ''}</div>
+                          color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        }}>{isChecked ? '✓' : ''}</button>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, textDecoration: isChecked ? 'line-through' : 'none' }}>{s.rec.nome}</div>
                           <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 1 }}>
                             {fmtQtd(s.totalPeso)} {s.rec.unidadeGera}{fp > 0 ? ` (${fmtQtd(liq)} líq)` : ''}
                           </div>
                         </div>
-                        <button onClick={e => { e.stopPropagation(); navigate(`/fichas/${s.id}?doses=${s.totalDoses}`) }}
-                          style={{ background: 'rgba(20,184,166,0.1)', border: '1px solid var(--teal)', color: 'var(--teal)', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: '4px 8px', borderRadius: 6, flexShrink: 0 }}>
-                          👨‍🍳
-                        </button>
+                        <span style={{ fontSize: 15, flexShrink: 0 }}>👨‍🍳</span>
                         <button onClick={e => { e.stopPropagation(); setExpandReceita(prev => ({ ...prev, [s.idStr]: !prev[s.idStr] })) }}
                           style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 14, cursor: 'pointer', padding: '4px 6px', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }}>▾</button>
                       </div>
@@ -463,25 +463,21 @@ export default function ProducaoTodo() {
               opacity: isChecked ? 0.55 : 1,
               borderLeft: isChecked ? '3px solid var(--teal)' : '3px solid transparent',
             }}>
-              <div onClick={() => toggleCheck(recIdStr)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer' }}>
-                <div style={{
-                  width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+              <div onClick={() => abrirCozinha(recIdStr, doses)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer' }}>
+                <button onClick={e => { e.stopPropagation(); toggleCheck(recIdStr) }} title="Marcar como pronto" style={{
+                  width: 28, height: 28, borderRadius: '50%', flexShrink: 0, padding: 0,
                   border: `2px solid ${isChecked ? 'var(--teal)' : 'var(--border)'}`,
                   background: isChecked ? 'var(--teal)' : 'transparent',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: '#fff', fontSize: 14, fontWeight: 700,
-                }}>{isChecked ? '✓' : ''}</div>
+                  color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                }}>{isChecked ? '✓' : ''}</button>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, textDecoration: isChecked ? 'line-through' : 'none' }}>{rec.nome}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
                     {fmtQtd(doses)} Receita original → {fmtQtd(renderTotal)} {rec.unidadeGera}{fp > 0 ? ` (${fmtQtd(liq)} líq)` : ''}
                   </div>
                 </div>
-                <button onClick={e => { e.stopPropagation(); navigate(`/fichas/${recIdStr}?doses=${doses}`) }}
-                  title="Abrir modo cozinha"
-                  style={{ background: 'rgba(20,184,166,0.1)', border: '1px solid var(--teal)', color: 'var(--teal)', fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: '5px 9px', borderRadius: 6 }}>
-                  👨‍🍳 Cozinha
-                </button>
+                <span title="Abrir modo cozinha" style={{ fontSize: 16, flexShrink: 0 }}>👨‍🍳</span>
                 <button onClick={e => { e.stopPropagation(); setExpandReceita(s => ({ ...s, [recIdStr]: !s[recIdStr] })) }}
                   style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 14, cursor: 'pointer', padding: '4px 8px', transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</button>
               </div>

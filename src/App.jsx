@@ -143,7 +143,7 @@ function Sidebar({ collapsed, onToggle }) {
   )
 }
 
-function CreateSheet({ open, onClose, navigate }) {
+function CreateSheet({ onClose, navigate }) {
   const items = [
     { icon: '📋', label: 'Pedido',   desc: 'Nova encomenda',          path: '/pedidos',    state: { openNew: true } },
     { icon: '💰', label: 'Venda',    desc: 'Registrar venda avulsa',  path: '/vendas',     state: { openLancamento: true } },
@@ -154,22 +154,8 @@ function CreateSheet({ open, onClose, navigate }) {
   ]
   return (
     <>
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, zIndex: 45,
-          background: 'rgba(0,0,0,0.5)',
-          opacity: open ? 1 : 0,
-          pointerEvents: open ? 'auto' : 'none',
-          transition: 'opacity .25s ease',
-        }}
-      />
-      <div className="sheet" style={{
-        zIndex: 55, paddingBottom: 24, paddingLeft: 16, paddingRight: 16,
-        transform: open ? 'translateY(0)' : 'translateY(100%)',
-        transition: 'transform .3s cubic-bezier(.32,.72,0,1)',
-        pointerEvents: open ? 'auto' : 'none',
-      }}>
+      <div className="sheet-overlay" onClick={onClose} style={{ zIndex: 45 }} />
+      <div className="sheet" style={{ zIndex: 55, paddingBottom: 24, paddingLeft: 16, paddingRight: 16 }}>
         <div style={{ width: 36, height: 4, background: 'var(--bg-secondary)', borderRadius: 2, margin: '4px auto 16px' }} />
         <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 12 }}>Criar novo</div>
         {items.map((item, i) => (
@@ -357,7 +343,7 @@ export default function App() {
         </nav>
       )}
 
-      <CreateSheet open={createOpen} onClose={() => setCreateOpen(false)} navigate={navigate} />
+      {createOpen && <CreateSheet onClose={() => setCreateOpen(false)} navigate={navigate} />}
     </div>
   )
 }

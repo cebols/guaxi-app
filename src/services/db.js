@@ -1195,6 +1195,65 @@ export async function updateProducaoItemQtd(itemId, quantidade, valorAlvo) {
   if (error) throw error
 }
 
+// Ajusta o total de doses de uma receita dentro de uma produção (editado no modo cozinha).
+// Recalcula débitos de insumos dinamicamente; se a receita já estiver checkada, aplica o delta no estoque.
+export async function setProducaoRecipeDoses(prodId, recId, newTotalDoses) {
+  if (!prodId || !recId || !(newTotalDoses > 0)) return
+  const recIdStr = String(recId)
+  const [{ data: prod }, receitas] = await Promise.all([
+    supabase.from('producoes').select('checks, producao_itens(*)').eq('id', prodId).single(),
+    getReceitas(),
+  ])
+  if (!prod) return
+  const rec = receitas.find(r => r.id === Number(recId))
+  if (!rec) return
+
+  const checkSet = new Set((prod.checks || []).map(String))
+  const items = (prod.producao_itens || []).filter(i => i.snapshot?.dosesContrib?.[recIdStr] != null)
+  const currentTotal = items.reduce((s, i) => s + (i.snapshot.dosesContrib[recIdStr] || 0), 0)
+  if (currentTotal <= 0) return                          // só receitas top-level da produção
+  if (Math.abs(currentTotal - newTotalDoses) < 1e-6) return
+  const scale = newTotalDoses / currentTotal
+
+  const deltaInsumos = {}
+  const updates = []
+  for (const item of items) {
+    const snap = item.snapshot
+    const oldDoses = snap.dosesContrib[recIdStr] || 0
+    const newDoses = oldDoses * scale
+    const oldDeb = (snap.debitosPorReceita || {})[recIdStr] || {}
+    const newDeb = expandIngredients(receitas, rec, newDoses)
+
+    if (checkSet.has(recIdStr)) {
+      const ids = new Set([...Object.keys(oldDeb), ...Object.keys(newDeb)])
+      for (const insId of ids) deltaInsumos[insId] = (deltaInsumos[insId] || 0) + ((newDeb[insId] || 0) - (oldDeb[insId] || 0))
+    }
+
+    const newDosesContrib = { ...snap.dosesContrib, [recIdStr]: newDoses }
+    const newDebitosPorReceita = { ...(snap.debitosPorReceita || {}), [recIdStr]: newDeb }
+    const newTotalDebitos = {}
+    for (const debs of Object.values(newDebitosPorReceita)) {
+      for (const [insId, q] of Object.entries(debs)) newTotalDebitos[insId] = (newTotalDebitos[insId] || 0) + q
+    }
+
+    // Crédito (produção gerada) escala se este item é a própria receita
+    let newCredito = snap.credito
+    if (snap.credito?.tipo === 'receita' && Number(snap.credito.id) === Number(recId)) {
+      const newQtd = (snap.credito.qtd || 0) * scale
+      const complete = Object.keys(newDosesContrib).every(rid => checkSet.has(String(rid)))
+      if (complete && !snap.creditoAplicadoNaCriacao) {
+        await ajustarEstoqueReceita(Number(recId), newQtd - (snap.credito.qtd || 0))
+      }
+      newCredito = { ...snap.credito, qtd: newQtd }
+    }
+
+    updates.push({ id: item.id, snapshot: { ...snap, dosesContrib: newDosesContrib, debitosPorReceita: newDebitosPorReceita, debitos: newTotalDebitos, credito: newCredito } })
+  }
+
+  if (Object.keys(deltaInsumos).length) await aplicarDebitosInsumos(deltaInsumos, -1)
+  for (const u of updates) await supabase.from('producao_itens').update({ snapshot: u.snapshot }).eq('id', u.id)
+}
+
 // Detecta se item foi salvo no formato novo (estoque dirigido por checks)
 function isItemNovoFormato(item) {
   return item?.snapshot && item.snapshot.debitosPorReceita != null

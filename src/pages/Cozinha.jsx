@@ -1,7 +1,7 @@
-import { useState, useCallback, Fragment, useEffect } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useState, Fragment, useEffect } from 'react'
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
-import { getReceitas, deleteReceitas, saveReceita, getInsumos } from '../services/db'
+import { getReceitas, deleteReceitas, saveReceita, getInsumos, setProducaoRecipeDoses } from '../services/db'
 
 const ACAO_MAP = {
   misturar:     { icon: '🥣', label: 'Misturar' },
@@ -37,6 +37,7 @@ function fmtQty(n, unidade) {
 export default function Cozinha() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const { data: receitas, loading } = useData(getReceitas)
 
@@ -44,13 +45,21 @@ export default function Cozinha() {
   const receita = (receitas || []).find(r => String(r.id) === String(id))
   const ingredientes = receita?.ingredientes || []
 
+  const prodId = searchParams.get('prod')           // produção de origem (mise en place)
+  const fromPath = location.state?.from             // tela de origem p/ voltar no fluxo
+
   const dosesParam = parseFloat(searchParams.get('doses'))
   const [fator, setFator] = useState(dosesParam > 0 ? Math.round(dosesParam * 100) / 100 : 1)
   useEffect(() => {
     if (dosesParam > 0) setFator(Math.round(dosesParam * 100) / 100)
   }, [dosesParam])
-  const [pesoInput, setPesoInput] = useState('')
-  const [liquidoInput, setLiquidoInput] = useState('')
+
+  // Campos numéricos: string editável livre + valor numérico calculado
+  const [editingField, setEditingField] = useState(null)
+  const [fatorStr, setFatorStr]     = useState('')
+  const [pesoStr, setPesoStr]       = useState('')
+  const [liquidoStr, setLiquidoStr] = useState('')
+
   const [checked, setChecked] = useState({})
   const [checkedStep, setCheckedStep] = useState({})
   const [menuOpen, setMenuOpen] = useState(false)
@@ -66,37 +75,41 @@ export default function Cozinha() {
     return s
   }, 0)
 
-  const onFatorChange = useCallback((val, fatorPerda) => {
+  const fatorPerda = receita?.fatorPerda
+
+  // Valores exibidos: enquanto edita, mostra o que foi digitado; senão, valor calculado
+  const fmtFator = (f) => String(Math.round(f * 100) / 100)
+  const fatorDisplay   = editingField === 'fator'   ? fatorStr   : fmtFator(fator)
+  const pesoDisplay    = editingField === 'peso'     ? pesoStr     : (pesoBase > 0 ? String(Math.round(pesoBase * fator)) : '')
+  const liquidoDisplay = editingField === 'liquido'  ? liquidoStr  : (pesoBase > 0 && fatorPerda != null ? String(Math.round(pesoBase * fator * (1 - fatorPerda / 100))) : '')
+
+  const onFatorChange = (val) => {
+    setEditingField('fator'); setFatorStr(val)
     const f = parseFloat(val)
-    if (!isNaN(f) && f > 0) {
-      setFator(Math.round(f * 100) / 100)
-      if (pesoBase > 0) {
-        setPesoInput(Math.round(pesoBase * f).toString())
-        if (fatorPerda != null) setLiquidoInput(Math.round(pesoBase * f * (1 - fatorPerda / 100)).toString())
-      }
-    }
-  }, [pesoBase])
-
-  const onPesoChange = useCallback((val, fatorPerda) => {
-    setPesoInput(val)
+    if (!isNaN(f) && f > 0) setFator(Math.round(f * 100) / 100)
+  }
+  const onPesoChange = (val) => {
+    setEditingField('peso'); setPesoStr(val)
     const p = parseFloat(val)
-    if (!isNaN(p) && p > 0 && pesoBase > 0) {
-      const f = Math.round((p / pesoBase) * 100) / 100
-      setFator(f)
-      if (fatorPerda != null) setLiquidoInput(Math.round(p * (1 - fatorPerda / 100)).toString())
-    }
-  }, [pesoBase])
-
-  const onLiquidoChange = useCallback((val, fatorPerda) => {
-    setLiquidoInput(val)
+    if (!isNaN(p) && p > 0 && pesoBase > 0) setFator(Math.round((p / pesoBase) * 100) / 100)
+  }
+  const onLiquidoChange = (val) => {
+    setEditingField('liquido'); setLiquidoStr(val)
     const l = parseFloat(val)
     if (!isNaN(l) && l > 0 && pesoBase > 0 && fatorPerda != null) {
       const bruto = l / (1 - fatorPerda / 100)
-      const f = Math.round((bruto / pesoBase) * 100) / 100
-      setFator(f)
-      setPesoInput(Math.round(bruto).toString())
+      setFator(Math.round((bruto / pesoBase) * 100) / 100)
     }
-  }, [pesoBase])
+  }
+  // Ao sair do campo: resincroniza display e persiste doses na produção (estoque dinâmico)
+  const commitField = () => {
+    setEditingField(null)
+    if (prodId && id && fator > 0) {
+      setProducaoRecipeDoses(prodId, Number(id), fator).catch(() => {})
+    }
+  }
+
+  const goBack = () => { if (fromPath) navigate(fromPath); else navigate(-1) }
 
   const [expandedSubs, setExpandedSubs] = useState(new Set())
 
@@ -123,12 +136,12 @@ export default function Cozinha() {
       <div className="topbar">
         <div className="topbar-inner">
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            <button onClick={goBack} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </button>
             <div>
               <div className="topbar-title">{loading ? '...' : (receita?.nome || 'Receita')}</div>
-              <div className="topbar-sub">Modo cozinha</div>
+              <div className="topbar-sub">Modo cozinha{prodId ? ' · produção' : ''}</div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -195,8 +208,10 @@ export default function Cozinha() {
                 <input
                   type="text"
                   inputMode="decimal"
-                  value={fator}
-                  onChange={e => onFatorChange(e.target.value, receita.fatorPerda)}
+                  value={fatorDisplay}
+                  onChange={e => onFatorChange(e.target.value)}
+                  onFocus={e => { setEditingField('fator'); setFatorStr(fmtFator(fator)); e.target.select() }}
+                  onBlur={commitField}
                   style={{ fontSize: 22, fontWeight: 700, width: 56, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--text-primary)', padding: '4px 0', flexShrink: 0 }}
                 />
                 {pesoBase > 0 && <>
@@ -204,8 +219,10 @@ export default function Cozinha() {
                   <input
                     type="text"
                     inputMode="decimal"
-                    value={pesoInput || Math.round(pesoBase * fator).toLocaleString('pt-BR')}
-                    onChange={e => onPesoChange(e.target.value, receita.fatorPerda)}
+                    value={pesoDisplay}
+                    onChange={e => onPesoChange(e.target.value)}
+                    onFocus={e => { setEditingField('peso'); setPesoStr(String(Math.round(pesoBase * fator))); e.target.select() }}
+                    onBlur={commitField}
                     style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--text-primary)', padding: '4px 0', flexShrink: 0 }}
                   />
                   <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g
@@ -220,8 +237,10 @@ export default function Cozinha() {
                   <input
                     type="text"
                     inputMode="decimal"
-                    value={liquidoInput || Math.round(pesoBase * fator * (1 - receita.fatorPerda / 100)).toString()}
-                    onChange={e => onLiquidoChange(e.target.value, receita.fatorPerda)}
+                    value={liquidoDisplay}
+                    onChange={e => onLiquidoChange(e.target.value)}
+                    onFocus={e => { setEditingField('liquido'); setLiquidoStr(String(Math.round(pesoBase * fator * (1 - receita.fatorPerda / 100)))); e.target.select() }}
+                    onBlur={commitField}
                     style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--teal)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--teal)', padding: '4px 0', flexShrink: 0 }}
                   />
                   <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g</span>
