@@ -88,6 +88,7 @@ export default function ProducaoTodo() {
   const [savingQtd, setSavingQtd]   = useState({})
   const [showAddSheet, setShowAddSheet] = useState(false)
   const [addSaving, setAddSaving]   = useState(false)
+  const [busca, setBusca]           = useState('')
 
   async function reload() {
     setLoading(true)
@@ -245,9 +246,10 @@ export default function ProducaoTodo() {
     </>
   )
 
-  const totalReceitas = Object.keys(dosesPerReceita).length
-  const doneReceitas = Object.keys(dosesPerReceita).filter(rid => checks.has(rid)).length
-  const pct = totalReceitas > 0 ? Math.round((doneReceitas / totalReceitas) * 100) : 0
+  const totalItens = Object.keys(dosesPerReceita).length + subReceitasTotal.length
+  const doneItens = Object.keys(dosesPerReceita).filter(rid => checks.has(rid)).length
+    + subReceitasTotal.filter(s => checks.has(s.idStr)).length
+  const pct = totalItens > 0 ? Math.round((doneItens / totalItens) * 100) : 0
 
   return (
     <>
@@ -279,7 +281,7 @@ export default function ProducaoTodo() {
         {/* Progresso — dentro do topbar para ficar sticky junto */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{doneReceitas} de {totalReceitas} receita(s)</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{doneItens} de {totalItens} pronto(s)</div>
             <div style={{ fontSize: 15, fontWeight: 700, color: pct === 100 ? 'var(--teal)' : 'var(--text-primary)' }}>{pct}%</div>
           </div>
           <div style={{ height: 5, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
@@ -390,8 +392,30 @@ export default function ProducaoTodo() {
           </div>}
         </div>
 
+        {/* Search */}
+        {(subReceitasTotal.length > 0 || Object.keys(dosesPerReceita).length > 0) && (
+          <div style={{ marginBottom: 10 }}>
+            <input
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar receita ou preparação..."
+              style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13 }}
+            />
+          </div>
+        )}
+
         {/* Preparações (sub-receitas) */}
-        {subReceitasTotal.length > 0 && (
+        {subReceitasTotal.length > 0 && (() => {
+          const q = norm(busca)
+          const filtered = subReceitasTotal
+            .filter(s => !q || norm(s.rec.nome).includes(q))
+            .sort((a, b) => {
+              const ca = checks.has(a.idStr) ? 1 : 0
+              const cb = checks.has(b.idStr) ? 1 : 0
+              return ca - cb || a.rec.nome.localeCompare(b.rec.nome, 'pt-BR')
+            })
+          if (!filtered.length && q) return null
+          return (
           <div className="card" style={{ padding: 0, marginBottom: 12, overflow: 'hidden' }}>
             <button onClick={() => setShowBases(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
@@ -401,7 +425,7 @@ export default function ProducaoTodo() {
             </button>
             {showBases && (
               <div style={{ padding: '0 0 8px' }}>
-                {subReceitasTotal.map((s, i) => {
+                {filtered.map((s, i) => {
                   const isChecked = checks.has(s.idStr)
                   const isExpanded = !!expandReceita[s.idStr]
                   const fp = s.rec.fatorPerda || 0
@@ -446,7 +470,8 @@ export default function ProducaoTodo() {
               </div>
             )}
           </div>
-        )}
+          )
+        })()}
 
         {/* Receitas a produzir */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -464,10 +489,26 @@ export default function ProducaoTodo() {
             )
           })}
         </div>
-        {Object.entries(dosesPerReceita).map(([recIdStr, doses]) => {
+        {(() => {
+          const q = norm(busca)
+          const sorted = Object.entries(dosesPerReceita)
+            .filter(([recIdStr, doses]) => {
+              const rec = (receitas || []).find(r => r.id === Number(recIdStr))
+              if (!rec || doses <= 0) return false
+              if (filtroThermal && !thermalOfRec(rec, filtroThermal)) return false
+              if (q && !norm(rec.nome).includes(q)) return false
+              return true
+            })
+            .sort(([aId], [bId]) => {
+              const ca = checks.has(aId) ? 1 : 0
+              const cb = checks.has(bId) ? 1 : 0
+              if (ca !== cb) return ca - cb
+              const ra = (receitas || []).find(r => r.id === Number(aId))
+              const rb = (receitas || []).find(r => r.id === Number(bId))
+              return (ra?.nome || '').localeCompare(rb?.nome || '', 'pt-BR')
+            })
+          return sorted.map(([recIdStr, doses]) => {
           const rec = (receitas || []).find(r => r.id === Number(recIdStr))
-          if (!rec || doses <= 0) return null
-          if (filtroThermal && !thermalOfRec(rec, filtroThermal)) return null
           const isChecked = checks.has(recIdStr)
           const isExpanded = !!expandReceita[recIdStr]
           const fp = rec.fatorPerda || 0
@@ -510,8 +551,9 @@ export default function ProducaoTodo() {
               )}
             </div>
           )
-        })}
-        {totalReceitas === 0 && (
+        })
+        })()}
+        {Object.keys(dosesPerReceita).length === 0 && (
           <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, padding: 20 }}>Nenhuma receita nesta produção</div>
         )}
 
