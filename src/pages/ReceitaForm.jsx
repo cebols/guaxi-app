@@ -439,7 +439,7 @@ export default function ReceitaForm() {
         <div className="topbar-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
             <button
-              onClick={() => navigate(isEdit ? `/fichas/${id}` : '/fichas')}
+              onClick={() => navigate(-1)}
               style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}
               title="Voltar"
             >

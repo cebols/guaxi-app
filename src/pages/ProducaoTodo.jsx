@@ -65,7 +65,7 @@ export default function ProducaoTodo() {
   const location = useLocation()
   const SCROLL_KEY = `scroll-producao-${id}`
   const abrirCozinha = (recId, doses) => {
-    const page = document.querySelector('.page')
+    const page = document.querySelector('.main-content')
     if (page) sessionStorage.setItem(SCROLL_KEY, String(page.scrollTop))
     navigate(`/fichas/${recId}?doses=${doses}&prod=${id}`, { state: { from: location.pathname } })
   }
@@ -105,10 +105,10 @@ export default function ProducaoTodo() {
     const target = Number(pendingScroll.current)
     pendingScroll.current = null
     sessionStorage.removeItem(SCROLL_KEY)
-    requestAnimationFrame(() => {
-      const page = document.querySelector('.page')
+    setTimeout(() => {
+      const page = document.querySelector('.main-content')
       if (page) page.scrollTop = target
-    })
+    }, 80)
   }, [loading])
 
   const checks = useMemo(() => new Set(prod?.checks || []), [prod])
@@ -394,12 +394,16 @@ export default function ProducaoTodo() {
 
         {/* Search */}
         {(subReceitasTotal.length > 0 || Object.keys(dosesPerReceita).length > 0) && (
-          <div style={{ marginBottom: 10 }}>
+          <div style={{ marginBottom: 10, position: 'relative' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-tertiary)', pointerEvents: 'none' }}>
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2"/>
+              <path d="M21 21l-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
             <input
               value={busca}
               onChange={e => setBusca(e.target.value)}
               placeholder="Buscar receita ou preparação..."
-              style={{ width: '100%', boxSizing: 'border-box', padding: '9px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13 }}
+              style={{ width: '100%', boxSizing: 'border-box', padding: '11px 12px 11px 36px', borderRadius: 12, border: '1.5px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
             />
           </div>
         )}
@@ -419,7 +423,7 @@ export default function ProducaoTodo() {
           <div className="card" style={{ padding: 0, marginBottom: 12, overflow: 'hidden' }}>
             <button onClick={() => setShowBases(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
-                Preparações <span style={{ fontWeight: 400, opacity: 0.6 }}>({subReceitasTotal.length})</span>
+                Preparações <span style={{ fontWeight: 400, opacity: 0.6 }}>({subReceitasTotal.filter(s => checks.has(s.idStr)).length}/{subReceitasTotal.length})</span>
               </span>
               <span style={{ color: 'var(--text-secondary)', fontSize: 14, transform: showBases ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>
             </button>
@@ -475,7 +479,9 @@ export default function ProducaoTodo() {
 
         {/* Receitas a produzir */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>Receitas a produzir</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 }}>
+            Receitas <span style={{ fontWeight: 400, opacity: 0.6 }}>({Object.keys(dosesPerReceita).filter(rid => checks.has(rid)).length}/{Object.keys(dosesPerReceita).length})</span>
+          </div>
           {THERMAL_TYPES.map(t => {
             const active = filtroThermal === t.key
             return (
