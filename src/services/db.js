@@ -369,6 +369,7 @@ export async function restoreContagemSnapshot(snapshotId) {
   const payload = (itens || []).filter(i => i.quantidade != null).map(i => ({ id: i.id, estoqueAtual: i.quantidade }))
   if (tipo === 'insumos') await updateEstoqueInsumos(payload)
   else if (tipo === 'embalagens') await updateEstoqueEmbalagens(payload)
+  else if (tipo === 'receitas') await updateEstoqueReceitas(payload)
   else await updateEstoqueProdutos(payload)
 }
 
@@ -584,6 +585,22 @@ export async function updateEstoqueMinProdutos(items) {
   )
 }
 
+export async function updateEstoqueReceitas(items) {
+  await Promise.all(
+    items.map(({ id, estoqueAtual }) =>
+      supabase.from('receitas').update({ estoque_atual: estoqueAtual }).eq('id', id)
+    )
+  )
+}
+
+export async function updateEstoqueMinReceitas(items) {
+  await Promise.all(
+    items.map(({ id, estoqueMin }) =>
+      supabase.from('receitas').update({ estoque_min: parseFloat(estoqueMin) || 0 }).eq('id', id)
+    )
+  )
+}
+
 export async function bulkUpdateSecoes(items) {
   await Promise.all(
     items.map(({ id, secao }) =>
@@ -785,6 +802,8 @@ export async function getReceitas() {
       porcoes: r.porcoes || null,
       pesoLiquido: r.peso_liquido || null,
       fatorPerda: r.fator_perda ?? null,
+      estoqueAtual: r.estoque_atual,
+      estoqueMin: r.estoque_min || 0,
       instrucoes: r.instrucoes || '',
       tempoForno: r.tempo_forno ?? null,
       tempForno: r.temp_forno ?? null,

@@ -398,6 +398,10 @@ ALTER TABLE produtos ADD COLUMN IF NOT EXISTS imagem_url text;
 
 -- ── Mise en place v2: produtos+receitas, estoque receitas, snapshot ──
 ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS estoque_atual numeric;
+-- Estoque mínimo de receitas (contagem de estoque na aba Produtos › Receitas)
+ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS estoque_min  numeric default 0;
+-- Flag "ferver" (edição em massa de processos térmicos na tela de Receitas)
+ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS tem_ferver   boolean default false;
 ALTER TABLE producoes        ADD COLUMN IF NOT EXISTS checks       jsonb default '[]'::jsonb;
 ALTER TABLE producao_itens   ALTER COLUMN receita_nome DROP NOT NULL;
 ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS tipo         text default 'receita';

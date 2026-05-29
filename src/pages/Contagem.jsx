@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getInsumos, getEmbalagens, getProdutos, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes, saveContagemSnapshot, getContagemSnapshots, restoreContagemSnapshot } from '../services/db'
+import { getInsumos, getEmbalagens, getProdutos, getReceitas, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueReceitas, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, updateEstoqueMinReceitas, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes, saveContagemSnapshot, getContagemSnapshots, restoreContagemSnapshot } from '../services/db'
 
 function selUnit(sel) {
   if (!sel) return 0
@@ -357,7 +357,7 @@ function GastosTab() {
 }
 
 function Recibo({ tab, itens, contagem, onConfirmar, onVoltar, saving }) {
-  const tabLabel = { insumos: 'Insumos', embalagens: 'Embalagens', produtos: 'Produtos' }[tab]
+  const tabLabel = { insumos: 'Insumos', embalagens: 'Embalagens', produtos: 'Produtos', receitas: 'Receitas' }[tab]
   const [fornecedores, setFornecedores] = useState({})
   const [fornSel, setFornSel] = useState({})
   const [openPicker, setOpenPicker] = useState(null)
@@ -817,7 +817,7 @@ function SnapshotHistorico({ onRestore }) {
     return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
   }
 
-  const tipoLabel = { insumos: 'Insumos', embalagens: 'Embalagens', produtos: 'Produtos' }
+  const tipoLabel = { insumos: 'Insumos', embalagens: 'Embalagens', produtos: 'Produtos', receitas: 'Receitas' }
 
   if (loading) return <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13, paddingTop: 24 }}>Carregando...</div>
   if (!snapshots?.length) return (
@@ -1030,6 +1030,7 @@ export default function Contagem() {
   const { data: insumos,    loading: loadIns,  reload: reloadIns  } = useData(getInsumos)
   const { data: embalagens, loading: loadEmb,  reload: reloadEmb  } = useData(getEmbalagens)
   const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
+  const { data: receitas,   loading: loadRec,  reload: reloadRec  } = useData(getReceitas)
   const { data: producoes } = useData(getProducoes)
   const ajustes = useMemo(() => computeAjustesPendentes(producoes || []), [producoes])
   const { toast, show } = useToast()
@@ -1038,15 +1039,18 @@ export default function Contagem() {
   const location = useLocation()
   const [vista, setVista]   = useState(() => location.state?.startCount ? 'contagem' : null)
   const [tab, setTab]       = useState('insumos')
+  const [subProd, setSubProd] = useState('produtos') // sub-filtro dentro da aba produtos: 'produtos' | 'receitas'
   const [busca, setBusca]   = useState('')
   const [filtroContagem, setFiltroContagem] = useState('todos')
   const [sortContagem, setSortContagem] = useState('categoria')
   const [contagemIns,  setContagemIns]  = useState({})
   const [contagemEmb,  setContagemEmb]  = useState({})
   const [contagemProd, setContagemProd] = useState({})
+  const [contagemRec,  setContagemRec]  = useState({})
   const [minIns,  setMinIns]  = useState({})
   const [minEmb,  setMinEmb]  = useState({})
   const [minProd, setMinProd] = useState({})
+  const [minRec,  setMinRec]  = useState({})
   const [modalMin, setModalMin] = useState(null)
   const [savingMin, setSavingMin] = useState(false)
   const [semEstoqueAberto, setSemEstoqueAberto] = useState(false)
@@ -1056,15 +1060,27 @@ export default function Contagem() {
   const setIns  = (id, val) => setContagemIns(c  => ({ ...c, [id]: val }))
   const setEmb  = (id, val) => setContagemEmb(c  => ({ ...c, [id]: val }))
   const setProd = (id, val) => setContagemProd(c => ({ ...c, [id]: val }))
+  const setRec  = (id, val) => setContagemRec(c  => ({ ...c, [id]: val }))
 
   const produtosParaContagem = useMemo(() => (produtos || [])
     .filter(p => p.tipo !== 'combo')
     .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' })),
     [produtos])
 
-  const itensDoTab = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : produtosParaContagem
-  const contagemDoTab = tab === 'insumos' ? contagemIns : tab === 'embalagens' ? contagemEmb : contagemProd
-  const minDoTab = tab === 'insumos' ? minIns : tab === 'embalagens' ? minEmb : minProd
+  const receitasParaContagem = useMemo(() => (receitas || [])
+    .map(r => ({ ...r, unidade: r.unidadeGera || 'un', categoria: r.tipo || 'Outro' })),
+    [receitas])
+
+  // Dentro da aba "produtos", o sub-filtro alterna entre produtos e receitas
+  const isRec = tab === 'produtos' && subProd === 'receitas'
+  const prodData     = isRec ? receitasParaContagem : produtosParaContagem
+  const prodContagem = isRec ? contagemRec : contagemProd
+  const prodSetter   = isRec ? setRec : setProd
+  const prodMin      = isRec ? minRec : minProd
+
+  const itensDoTab = tab === 'insumos' ? (insumos || []) : tab === 'embalagens' ? (embalagens || []) : prodData
+  const contagemDoTab = tab === 'insumos' ? contagemIns : tab === 'embalagens' ? contagemEmb : prodContagem
+  const minDoTab = tab === 'insumos' ? minIns : tab === 'embalagens' ? minEmb : prodMin
 
   function norm(s) { return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase() }
 
@@ -1077,12 +1093,12 @@ export default function Contagem() {
     return itensComEstoque.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
   }, [itensComEstoque, busca])
 
-  // For products: show ALL (including zero stock) filtered by search
+  // For products/recipes: show ALL (including zero stock) filtered by search
   const produtosFiltrados = useMemo(() => {
     const q = norm(busca)
-    if (!q) return produtosParaContagem
-    return produtosParaContagem.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
-  }, [produtosParaContagem, busca])
+    if (!q) return prodData
+    return prodData.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
+  }, [prodData, busca])
 
   const itensSemEstoqueFiltrados = useMemo(() => {
     const q = norm(busca)
@@ -1098,7 +1114,7 @@ export default function Contagem() {
       const cur = minDoTab[item.id]
       values[item.id] = cur !== undefined ? String(cur) : String(item.estoqueMin ?? 0)
     })
-    setModalMin({ type: tab, itens: itensDoTab, values, busca: '' })
+    setModalMin({ type: isRec ? 'receitas' : tab, itens: itensDoTab, values, busca: '' })
   }
 
   async function saveModalMin() {
@@ -1108,6 +1124,7 @@ export default function Contagem() {
       const payload = itens.map(item => ({ id: item.id, estoqueMin: parseFloat(values[item.id] ?? item.estoqueMin) || 0 }))
       if (type === 'insumos') { await updateEstoqueMinInsumos(payload); setMinIns(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n }) }
       else if (type === 'embalagens') { await updateEstoqueMinEmbalagens(payload); setMinEmb(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n }) }
+      else if (type === 'receitas') { await updateEstoqueMinReceitas(payload); setMinRec(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n }) }
       else { await updateEstoqueMinProdutos(payload); setMinProd(prev => { const n = { ...prev }; payload.forEach(p => n[p.id] = p.estoqueMin); return n }) }
       setModalMin(null)
       show('Mínimos salvos!')
@@ -1118,23 +1135,24 @@ export default function Contagem() {
   const handleEnviar = () => {
     const preenchidos = itensDoTab.filter(item => contagemDoTab[item.id] !== undefined && contagemDoTab[item.id] !== '')
     if (preenchidos.length === 0) { show('Nenhum valor preenchido'); return }
-    setRecibo(tab)
+    setRecibo(isRec ? 'receitas' : tab)
   }
 
   const handleConfirmar = async (fornSel = {}, precoEdit = {}) => {
     setSaving(true)
     try {
-      const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : produtosParaContagem
-      const contagem = recibo === 'insumos' ? contagemIns : recibo === 'embalagens' ? contagemEmb : contagemProd
+      const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : recibo === 'receitas' ? receitasParaContagem : produtosParaContagem
+      const contagem = recibo === 'insumos' ? contagemIns : recibo === 'embalagens' ? contagemEmb : recibo === 'receitas' ? contagemRec : contagemProd
       const preenchidos = itens.filter(item => contagem[item.id] !== undefined && contagem[item.id] !== '')
       const payload = preenchidos.map(item => ({ id: item.id, estoqueAtual: parseFloat(contagem[item.id]) }))
 
       if (recibo === 'insumos') await updateEstoqueInsumos(payload)
       else if (recibo === 'embalagens') await updateEstoqueEmbalagens(payload)
+      else if (recibo === 'receitas') await updateEstoqueReceitas(payload)
       else await updateEstoqueProdutos(payload)
 
       let comprasRegistradas = 0
-      if (recibo !== 'produtos') {
+      if (recibo !== 'produtos' && recibo !== 'receitas') {
         const tipo = recibo === 'insumos' ? 'insumo' : 'embalagem'
         const hoje = new Date().toISOString().split('T')[0]
         const novasCompras = preenchidos
@@ -1162,6 +1180,7 @@ export default function Contagem() {
 
       if (recibo === 'insumos') { setContagemIns({}); reloadIns() }
       else if (recibo === 'embalagens') { setContagemEmb({}); reloadEmb() }
+      else if (recibo === 'receitas') { setContagemRec({}); reloadRec() }
       else { setContagemProd({}); reloadProd() }
       setRecibo(null)
       show(comprasRegistradas > 0 ? `Contagem salva! ${comprasRegistradas} compra(s) registrada(s)` : 'Contagem salva!')
@@ -1251,8 +1270,8 @@ export default function Contagem() {
 
   // ── Vista: contagem (recibo) ───────────────────────────────────────────────
   if (recibo) {
-    const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : produtosParaContagem
-    const contagem = recibo === 'insumos' ? contagemIns : recibo === 'embalagens' ? contagemEmb : contagemProd
+    const itens = recibo === 'insumos' ? (insumos || []) : recibo === 'embalagens' ? (embalagens || []) : recibo === 'receitas' ? receitasParaContagem : produtosParaContagem
+    const contagem = recibo === 'insumos' ? contagemIns : recibo === 'embalagens' ? contagemEmb : recibo === 'receitas' ? contagemRec : contagemProd
     return (
       <>
         <Recibo tab={recibo} itens={itens} contagem={contagem} onConfirmar={handleConfirmar} onVoltar={() => setRecibo(null)} saving={saving} />
@@ -1262,7 +1281,7 @@ export default function Contagem() {
   }
 
   // ── Vista: null (home) ou 'contagem' ──────────────────────────────────────
-  const loading = tab === 'insumos' ? loadIns : tab === 'embalagens' ? loadEmb : loadProd
+  const loading = tab === 'insumos' ? loadIns : tab === 'embalagens' ? loadEmb : isRec ? loadRec : loadProd
 
   if (vista === null) {
     const totalInsumos = (insumos || []).length
@@ -1433,7 +1452,17 @@ export default function Contagem() {
 
             {tab === 'produtos' && (
               <>
-                <StockTab itens={produtosFiltrados} contagem={contagemProd} onChange={setProd} minValues={minProd} labelPedir="produzir" />
+                <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+                  {[{ k: 'produtos', l: 'Produtos' }, { k: 'receitas', l: 'Receitas' }].map(s => (
+                    <button key={s.k} onClick={() => { setSubProd(s.k); setBusca('') }} style={{
+                      fontSize: 12, padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
+                      border: `1px solid ${subProd === s.k ? 'var(--teal)' : 'var(--border-color)'}`,
+                      background: subProd === s.k ? 'var(--teal)' : 'transparent',
+                      color: subProd === s.k ? '#fff' : 'var(--text-secondary)', fontWeight: subProd === s.k ? 600 : 400,
+                    }}>{s.l}</button>
+                  ))}
+                </div>
+                <StockTab itens={produtosFiltrados} contagem={prodContagem} onChange={prodSetter} minValues={prodMin} labelPedir="produzir" />
                 <button onClick={handleEnviar} style={{ width: '100%', padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}>
                   Enviar contagem →
                 </button>
