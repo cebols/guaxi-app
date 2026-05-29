@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
@@ -63,8 +63,12 @@ export default function ProducaoTodo() {
   const { id } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const abrirCozinha = (recId, doses) =>
+  const SCROLL_KEY = `scroll-producao-${id}`
+  const abrirCozinha = (recId, doses) => {
+    const page = document.querySelector('.page')
+    if (page) sessionStorage.setItem(SCROLL_KEY, String(page.scrollTop))
     navigate(`/fichas/${recId}?doses=${doses}&prod=${id}`, { state: { from: location.pathname } })
+  }
   const { data: receitas } = useData(getReceitas)
   const { data: insumos, reload: reloadInsumos } = useData(getInsumos)
   const { data: produtos } = useData(getProdutos)
@@ -93,6 +97,18 @@ export default function ProducaoTodo() {
   }
 
   useEffect(() => { reload() }, [id])
+
+  const pendingScroll = useRef(sessionStorage.getItem(SCROLL_KEY))
+  useEffect(() => {
+    if (!pendingScroll.current || loading) return
+    const target = Number(pendingScroll.current)
+    pendingScroll.current = null
+    sessionStorage.removeItem(SCROLL_KEY)
+    requestAnimationFrame(() => {
+      const page = document.querySelector('.page')
+      if (page) page.scrollTop = target
+    })
+  }, [loading])
 
   const checks = useMemo(() => new Set(prod?.checks || []), [prod])
 
