@@ -191,18 +191,46 @@ export default function Home() {
 
   const ultimaProducaoAtiva = useMemo(() => {
     for (const prod of (producoes || [])) {
-      const receitaIds = new Set(
-        prod.itens.flatMap(i =>
-          i.snapshot?.dosesContrib
-            ? Object.keys(i.snapshot.dosesContrib)
-            : (i.receitaId ? [String(i.receitaId)] : [])
-        )
-      )
-      const total = receitaIds.size
+      const dosesPerReceita = {}
+      for (const item of prod.itens) {
+        if (item.snapshot?.dosesContrib) {
+          for (const [rid, d] of Object.entries(item.snapshot.dosesContrib)) {
+            dosesPerReceita[rid] = (dosesPerReceita[rid] || 0) + d
+          }
+        }
+      }
+      const topLevelIds = new Set(Object.keys(dosesPerReceita).map(Number))
+
+      // walk sub-receitas
+      const subMap = {}
+      function walkSub(recId, parentDoses, depth = 0) {
+        if (depth > 5) return
+        const rec = receitaMap[recId]
+        if (!rec) return
+        for (const ing of (rec.ingredientes || [])) {
+          if (!ing.subReceitaId) continue
+          const subRec = receitaMap[ing.subReceitaId]
+          if (!subRec || !subRec.rendimento) continue
+          const subDoses = (ing.quantidade * parentDoses) / subRec.rendimento
+          if (!subMap[ing.subReceitaId]) subMap[ing.subReceitaId] = 0
+          subMap[ing.subReceitaId] += subDoses
+          walkSub(ing.subReceitaId, subDoses, depth + 1)
+        }
+      }
+      for (const [recIdStr, doses] of Object.entries(dosesPerReceita)) {
+        walkSub(Number(recIdStr), doses)
+      }
+      const subIds = Object.keys(subMap)
+        .filter(sid => !topLevelIds.has(Number(sid)))
+        .map(sid => `sub-${sid}`)
+
+      const receitaIds = new Set(Object.keys(dosesPerReceita))
+      const total = receitaIds.size + subIds.length
       const checkedSet = localChecks?.producaoId === prod.id
         ? localChecks.checks
         : new Set((prod.checks || []).map(String))
       const done = [...receitaIds].filter(id => checkedSet.has(id)).length
+        + subIds.filter(id => checkedSet.has(id)).length
       if (total > 0 && done < total) {
         // Build a lookup: receitaId (string) -> { nome, qtd, unidade }
         const recipeInfoMap = {}
