@@ -504,27 +504,7 @@ export default function ReceitaForm() {
           </datalist>
         </div>
         <div>
-            <div className="field-label">Rendimento</div>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>
-              Calculado em <strong style={{ color: 'var(--text-secondary)' }}>g</strong> automaticamente a partir dos ingredientes.
-            </div>
-            {!isUnitMode && (
-              <>
-                <input
-                  className="field-input"
-                  type="text" inputMode="numeric"
-                  placeholder="Porções (opcional)"
-                  value={form.porcoes}
-                  onChange={e => { const v = e.target.value; if (v === '' || parseInt(v) > 0) setField('porcoes', v) }}
-                />
-                {form.porcoes && parseInt(form.porcoes) > 1 && rendimentoBruto > 0 && (
-                  <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: -4, marginBottom: 4 }}>
-                    {Math.round(rendimentoBruto / parseInt(form.porcoes))}g por porção
-                  </div>
-                )}
-              </>
-            )}
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}>
               <input
                 type="checkbox"
                 checked={!!form.rendimentoUnidades}
@@ -533,7 +513,7 @@ export default function ReceitaForm() {
               />
               <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Esta receita é dividida em unidades</span>
             </label>
-            {isUnitMode && (
+            {isUnitMode ? (
               <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '12px 14px', marginBottom: 8 }}>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <div style={{ flex: 1 }}>
@@ -571,6 +551,21 @@ export default function ReceitaForm() {
                   </div>
                 )}
               </div>
+            ) : (
+              <>
+                <input
+                  className="field-input"
+                  type="text" inputMode="numeric"
+                  placeholder="Porções (opcional)"
+                  value={form.porcoes}
+                  onChange={e => { const v = e.target.value; if (v === '' || parseInt(v) > 0) setField('porcoes', v) }}
+                />
+                {form.porcoes && parseInt(form.porcoes) > 1 && rendimentoBruto > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: -4, marginBottom: 4 }}>
+                    {Math.round(rendimentoBruto / parseInt(form.porcoes))}g por porção
+                  </div>
+                )}
+              </>
             )}
         </div>
 
