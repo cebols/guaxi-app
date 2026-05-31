@@ -877,12 +877,6 @@ export default function Cadastros() {
       if (fontes?.length > 0 || (form.id && fontes)) {
         await saveInsumoFornecedores(data.id, fontes || [], calcCustoUnitInsumo(form) || 0)
       }
-      // Auto-fetch image from Pexels if none yet
-      if (!form.imagemUrl) {
-        pexelsSearch(form.nome, 1).then(photos => {
-          if (photos[0]) updateInsumoImagem(data.id, photos[0].url).then(rIns).catch(() => {})
-        }).catch(() => {})
-      }
       rIns(); rFontes(); show('Salvo!')
     },
     del: withReload(deleteInsumo, rIns),
@@ -976,12 +970,6 @@ export default function Cadastros() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ display: 'flex', gap: 8 }}>
-              {import.meta.env.VITE_PEXELS_KEY && tab === 'insumos' && (
-                <button onClick={handlePexelsBatch}
-                  style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                  🖼 Imagens
-                </button>
-              )}
               <button onClick={() => setImportChooser(true)}
                 style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                 ⬇️ Importar

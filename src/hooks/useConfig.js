@@ -17,6 +17,7 @@ export const CONFIG_DEFAULTS = {
   margem: 30,
   taxa99: 20,
   taxaIfood: 27,
+  fatorDesperdicio: 0,        // % de desperdício invisível aplicado sobre custos
   embalagemDeliveryIds: [],   // embalagem IDs usadas como sacola de saída
   embalagemEncomendaIds: [],  // embalagem IDs padrão por encomenda
 }
@@ -105,8 +106,10 @@ export function calcPrecos(custoTotal, cfg, custoSacola = 0) {
   const rateio = (c.unidadesProjetadas || 0) > 0
     ? (c.custoFixoMensal || 0) / c.unidadesProjetadas
     : 0
-  const base        = (custoTotal + rateio) / (1 - (c.margem || 0) / 100)
-  const baseDelivery = (custoTotal + rateio + custoSacola) / (1 - (c.margem || 0) / 100)
+  const fd = Math.max(0, Math.min(100, parseFloat(c.fatorDesperdicio) || 0))
+  const custoAjustado = custoTotal * (1 + fd / 100)
+  const base        = (custoAjustado + rateio) / (1 - (c.margem || 0) / 100)
+  const baseDelivery = (custoAjustado + rateio + custoSacola) / (1 - (c.margem || 0) / 100)
   const p99    = baseDelivery / (1 - (c.taxa99    || 0) / 100)
   const pIfood = baseDelivery / (1 - (c.taxaIfood || 0) / 100)
   return { base, p99, pIfood }

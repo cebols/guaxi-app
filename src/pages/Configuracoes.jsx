@@ -317,6 +317,26 @@ export default function Configuracoes() {
           )}
         </div>
 
+        {/* ── Fator de desperdício ─────────────────────────── */}
+        <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
+          <div className="cfg-label" style={{ marginBottom: 4 }}>Fator de desperdício</div>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10 }}>
+            % aplicado sobre o custo de cada produto (sobra, perda, consumo invisível).
+          </div>
+          <NumPill
+            value={cfg.fatorDesperdicio || 0}
+            onChange={e => set('fatorDesperdicio', e.target.value)}
+            suffix="%"
+            size={24}
+          />
+          {(cfg.fatorDesperdicio || 0) > 0 && exemplo > 0 && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #2a2a2a', display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)' }}>
+              <span>No exemplo (R$ {fmtR(exemplo)})</span>
+              <span style={{ color: '#ef4444', fontWeight: 700 }}>+ R$ {fmtR(exemplo * (cfg.fatorDesperdicio || 0) / 100)} de perda</span>
+            </div>
+          )}
+        </div>
+
         {/* ── Taxas de plataforma ──────────────────────────── */}
         <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
           <div className="cfg-label" style={{ marginBottom: 12 }}>Taxas de plataforma</div>

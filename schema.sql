@@ -402,6 +402,10 @@ ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS estoque_atual numeric;
 ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS estoque_min  numeric default 0;
 -- Flag "ferver" (edição em massa de processos térmicos na tela de Receitas)
 ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS tem_ferver   boolean default false;
+-- Subdivisão em unidades (cookies, fatias, pedaços etc.). NULL = receita em peso (g).
+ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS qtd_por_unidade numeric default null;
+-- Lista de etapas de forno: [{tempo: minutos, temperatura: °C}]
+ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS tempos_forno    jsonb default null;
 ALTER TABLE producoes        ADD COLUMN IF NOT EXISTS checks       jsonb default '[]'::jsonb;
 ALTER TABLE producao_itens   ALTER COLUMN receita_nome DROP NOT NULL;
 ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS tipo         text default 'receita';

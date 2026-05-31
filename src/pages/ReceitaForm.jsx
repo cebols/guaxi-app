@@ -2,8 +2,7 @@ import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getReceitas, saveReceita, deleteReceita, getInsumos, saveInsumo, updateReceitaImagem } from '../services/db'
-import { PexelsPicker } from '../components/PexelsPicker'
+import { getReceitas, saveReceita, deleteReceita, getInsumos, saveInsumo } from '../services/db'
 import { ImportarTexto } from '../components/ImportarTexto'
 
 const ImportarImagem = lazy(() => import('./ImportarImagem'))
@@ -13,8 +12,6 @@ function norm(s) {
 }
 
 const TIPO_OPTS = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
-const WEIGHT_UNITS = ['g', 'ml', 'kg', 'L']
-const BUILT_IN_UNITS = ['g', 'ml', 'kg', 'L', 'un', 'cx']
 
 // Sugestão de forma redonda baseada no volume (ml ≈ g para massas)
 const DIAMS = [15, 18, 20, 21, 22, 24, 26, 28, 30]
@@ -188,8 +185,13 @@ export default function ReceitaForm() {
   const { data: insumos, loading: loadIns, reload: rIns } = useData(getInsumos)
 
   const [form, setForm] = useState({
-    nome: '', tipo: 'Outro', rendimento: '', unidadeGera: 'g', fatorPerda: '', porcoes: '',
-    tempoForno: '', tempForno: '', tempoResfriamento: '', tipoResfriamento: '',
+    nome: '', tipo: 'Outro', porcoes: '',
+    fatorPerda: '',
+    rendimentoUnidades: false,           // checkbox "Rendimento em unidades"
+    qtdUnidades: '',                     // qtd de unidades (modo un)
+    qtdPorUnidade: '',                   // g por unidade (modo un)
+    temposForno: [],                     // [{tempo, temperatura}]
+    tempoResfriamento: '', tipoResfriamento: '',
   })
   const [steps, setSteps] = useState([])
   const [ingredientes, setIngredientes] = useState([
@@ -198,14 +200,10 @@ export default function ReceitaForm() {
     { insumoId: null, subReceitaId: null, nome: '', quantidade: '', unidade: 'g' },
   ])
   const [saving, setSaving] = useState(false)
-  const [customUnits, setCustomUnits] = useState(null) // null = not yet initialized
-  const [addingUnit, setAddingUnit] = useState(false)
-  const [newUnitInput, setNewUnitInput] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [ingDrop, setIngDrop] = useState(null) // { idx, matches[] }
   const ingDropRef = useRef(null)
   const [importandoImg, setImportandoImg] = useState(false)
-  const [showAdv, setShowAdv] = useState(false)
 
   // Pre-fill ingredients from photo import (navigated from Fichas)
   useEffect(() => {
@@ -219,22 +217,27 @@ export default function ReceitaForm() {
   const [insumoRapido, setInsumoRapido] = useState(null) // [{nome,unidade,custoEmb,pesoEmb}] | null
   const [salvandoInsumos, setSalvandoInsumos] = useState(false)
   const [savedRecId, setSavedRecId] = useState(null)
-  const [pexelsPicker, setPexelsPicker] = useState(null) // { recId, nome }
   const [importandoTexto, setImportandoTexto] = useState(false)
 
   useEffect(() => {
     if (!isEdit || !receitas) return
     const rec = receitas.find(r => String(r.id) === String(id))
     if (!rec) return
+    const isUnit = rec.qtdPorUnidade != null || rec.unidadeGera === 'un'
+    const tempos = Array.isArray(rec.temposForno) && rec.temposForno.length > 0
+      ? rec.temposForno.map(t => ({ tempo: t.tempo != null ? String(t.tempo) : '', temperatura: t.temperatura != null ? String(t.temperatura) : '' }))
+      : (rec.tempoForno != null || rec.tempForno != null
+          ? [{ tempo: rec.tempoForno != null ? String(rec.tempoForno) : '', temperatura: rec.tempForno != null ? String(rec.tempForno) : '' }]
+          : [])
     setForm({
       nome: rec.nome,
       tipo: rec.tipo || 'Outro',
-      rendimento: rec.rendimento || '',
-      unidadeGera: rec.unidadeGera || 'g',
       fatorPerda: rec.fatorPerda != null ? String(rec.fatorPerda) : '',
       porcoes: rec.porcoes ? String(rec.porcoes) : '',
-      tempoForno: rec.tempoForno != null ? String(rec.tempoForno) : '',
-      tempForno: rec.tempForno != null ? String(rec.tempForno) : '',
+      rendimentoUnidades: isUnit,
+      qtdUnidades: isUnit && rec.rendimento ? String(rec.rendimento) : '',
+      qtdPorUnidade: rec.qtdPorUnidade != null ? String(rec.qtdPorUnidade) : '',
+      temposForno: tempos,
       tempoResfriamento: rec.tempoResfriamento != null ? String(rec.tempoResfriamento) : '',
       tipoResfriamento: rec.tipoResfriamento || '',
     })
@@ -332,44 +335,66 @@ export default function ReceitaForm() {
   )
 
   const fatorPerdaNum  = Math.min(99, Math.max(0, parseFloat(form.fatorPerda) || 0))
-  const isWeightUnit   = WEIGHT_UNITS.includes(form.unidadeGera)
-  // Líquido estimado (g/ml)
+  // Líquido estimado em g
   const rendLiquidoG   = fatorPerdaNum > 0 ? rendimentoBruto * (1 - fatorPerdaNum / 100) : rendimentoBruto
-  // Auto-rendimento para unidades de peso (já na unidade certa)
-  const rendAutoNum    = isWeightUnit
-    ? (['kg', 'L'].includes(form.unidadeGera) ? rendLiquidoG / 1000 : rendLiquidoG)
-    : 0
+
+  // Modo unidades: bidirecional qtdUnidades ↔ qtdPorUnidade
+  const onQtdUnidadesChange = (val) => {
+    setForm(f => {
+      const u = parseFloat(val)
+      if (!isNaN(u) && u > 0 && rendLiquidoG > 0) {
+        const gpu = Math.round((rendLiquidoG / u) * 10) / 10
+        return { ...f, qtdUnidades: val, qtdPorUnidade: String(gpu) }
+      }
+      return { ...f, qtdUnidades: val }
+    })
+  }
+  const onQtdPorUnidadeChange = (val) => {
+    setForm(f => {
+      const gpu = parseFloat(val)
+      if (!isNaN(gpu) && gpu > 0 && rendLiquidoG > 0) {
+        const u = Math.round((rendLiquidoG / gpu) * 10) / 10
+        return { ...f, qtdPorUnidade: val, qtdUnidades: String(u) }
+      }
+      return { ...f, qtdPorUnidade: val }
+    })
+  }
 
   // Rendimento efetivo p/ cálculo de custo
-  const rendimentoNum  = isWeightUnit ? rendAutoNum : (parseFloat(form.rendimento) || 0)
+  const isUnitMode = !!form.rendimentoUnidades
+  const qtdUnidadesNum = parseFloat(form.qtdUnidades) || 0
+  const rendimentoNum  = isUnitMode ? qtdUnidadesNum : rendLiquidoG
   const custoUnid      = rendimentoNum > 0 ? custoTotal / rendimentoNum : 0
-
-  // Custom units derived from DB (excluding built-ins), editable per session.
-  const customUnitsFromDB = useMemo(() =>
-    [...new Set((receitas || []).map(r => r.unidadeGera).filter(u => u && !BUILT_IN_UNITS.includes(u)))].sort(),
-    [receitas]
-  )
-  const visibleCustomUnits = customUnits !== null ? customUnits : customUnitsFromDB
-  useEffect(() => {
-    if (customUnits === null && receitas) setCustomUnits(customUnitsFromDB)
-  }, [receitas]) // eslint-disable-line
+  const unidadeLabel   = isUnitMode ? 'un' : 'g'
 
   const handleSave = async () => {
     if (!form.nome) { show('Preencha o nome da receita'); return }
     setSaving(true)
     try {
       const ings = ingredientes.filter(i => i.nome && i.quantidade)
+      const temposClean = (form.temposForno || [])
+        .filter(t => (t.tempo !== '' && t.tempo != null) || (t.temperatura !== '' && t.temperatura != null))
+        .map(t => ({
+          tempo: t.tempo !== '' && t.tempo != null ? parseInt(t.tempo) : null,
+          temperatura: t.temperatura !== '' && t.temperatura != null ? parseInt(t.temperatura) : null,
+        }))
+      const first = temposClean[0] || { tempo: null, temperatura: null }
       const recId = await saveReceita(
         {
           ...form,
           id: isEdit ? parseInt(id) : undefined,
-          rendimento: isWeightUnit ? rendAutoNum : parseFloat(form.rendimento),
+          rendimento: rendimentoNum,
+          unidadeGera: isUnitMode ? 'un' : 'g',
+          qtdPorUnidade: isUnitMode ? (parseFloat(form.qtdPorUnidade) || null) : null,
+          temposForno: temposClean,
+          tempoForno: first.tempo,
+          tempForno: first.temperatura,
           fatorPerda: fatorPerdaNum || null,
           pesoLiquido: fatorPerdaNum > 0 ? rendLiquidoG : null,
           instrucoes: serializeInstrucoes(steps),
           custoTotal,
           custoUnid,
-          porcoes: form.porcoes ? parseInt(form.porcoes) : null,
+          porcoes: isUnitMode ? null : (form.porcoes ? parseInt(form.porcoes) : null),
         },
         ings
       )
@@ -381,12 +406,6 @@ export default function ReceitaForm() {
       if (faltantes.length > 0) {
         setSavedRecId(recId)
         setInsumoRapido(faltantes.map(ing => ({ nome: ing.nome, unidade: ing.unidade || 'g', custoEmb: '', pesoEmb: '' })))
-        return
-      }
-      // Show Pexels picker if no image yet
-      const existingImg = isEdit ? receitas?.find(r => r.id === parseInt(id))?.imagemUrl : null
-      if (!existingImg && import.meta.env.VITE_PEXELS_KEY) {
-        setPexelsPicker({ recId, nome: form.nome })
         return
       }
       navigate(`/fichas/${recId}`)
@@ -485,76 +504,16 @@ export default function ReceitaForm() {
           </datalist>
         </div>
         <div>
-            <div className="field-label">{isWeightUnit ? 'Porções (opcional)' : 'Rendimento'}</div>
-            {/* Chip picker for unit */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 7 }}>
-              {BUILT_IN_UNITS.map(u => (
-                <button key={u} type="button" onClick={() => setField('unidadeGera', u)} style={{
-                  padding: '4px 10px', borderRadius: 20, fontSize: 12, cursor: 'pointer', fontWeight: form.unidadeGera === u ? 700 : 400,
-                  border: `1px solid ${form.unidadeGera === u ? 'var(--teal)' : 'var(--border)'}`,
-                  background: form.unidadeGera === u ? 'var(--teal)' : 'transparent',
-                  color: form.unidadeGera === u ? '#fff' : 'var(--text-secondary)',
-                }}>{u}</button>
-              ))}
-              {visibleCustomUnits.map(u => (
-                <div key={u} style={{ display: 'flex', alignItems: 'center', borderRadius: 20,
-                  border: `1px solid ${form.unidadeGera === u ? 'var(--teal)' : 'var(--border)'}`,
-                  background: form.unidadeGera === u ? 'rgba(20,184,166,0.1)' : 'transparent',
-                  overflow: 'hidden',
-                }}>
-                  <button type="button" onClick={() => setField('unidadeGera', u)} style={{
-                    padding: '4px 6px 4px 10px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12,
-                    color: form.unidadeGera === u ? 'var(--teal)' : 'var(--text-secondary)',
-                    fontWeight: form.unidadeGera === u ? 700 : 400,
-                  }}>{u}</button>
-                  <button type="button" onClick={() => {
-                    setCustomUnits(p => (p || []).filter(x => x !== u))
-                    if (form.unidadeGera === u) setField('unidadeGera', 'g')
-                  }} style={{ padding: '4px 8px 4px 2px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1 }}>×</button>
-                </div>
-              ))}
-              {addingUnit ? (
-                <input
-                  autoFocus
-                  className="field-input"
-                  style={{ width: 80, padding: '3px 8px', fontSize: 12, marginBottom: 0 }}
-                  placeholder="ex: fatia"
-                  value={newUnitInput}
-                  onChange={e => setNewUnitInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && newUnitInput.trim()) {
-                      const u = newUnitInput.trim()
-                      setCustomUnits(p => [...new Set([...(p || []), u])])
-                      setField('unidadeGera', u)
-                      setNewUnitInput('')
-                      setAddingUnit(false)
-                    } else if (e.key === 'Escape') {
-                      setAddingUnit(false); setNewUnitInput('')
-                    }
-                  }}
-                  onBlur={() => {
-                    if (newUnitInput.trim()) {
-                      const u = newUnitInput.trim()
-                      setCustomUnits(p => [...new Set([...(p || []), u])])
-                      setField('unidadeGera', u)
-                    }
-                    setAddingUnit(false); setNewUnitInput('')
-                  }}
-                />
-              ) : (
-                <button type="button" onClick={() => setAddingUnit(true)} style={{
-                  padding: '4px 10px', borderRadius: 20, fontSize: 12, cursor: 'pointer',
-                  border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text-tertiary)',
-                }}>+ novo</button>
-              )}
+            <div className="field-label">Rendimento</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>
+              Calculado em <strong style={{ color: 'var(--text-secondary)' }}>g</strong> automaticamente a partir dos ingredientes.
             </div>
-            {/* Value field */}
-            {isWeightUnit ? (
+            {!isUnitMode && (
               <>
                 <input
                   className="field-input"
                   type="text" inputMode="numeric"
-                  placeholder="nº de porções"
+                  placeholder="Porções (opcional)"
                   value={form.porcoes}
                   onChange={e => { const v = e.target.value; if (v === '' || parseInt(v) > 0) setField('porcoes', v) }}
                 />
@@ -564,14 +523,54 @@ export default function ReceitaForm() {
                   </div>
                 )}
               </>
-            ) : (
+            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6, marginBottom: 8, cursor: 'pointer', userSelect: 'none' }}>
               <input
-                className="field-input"
-                type="text" inputMode="decimal"
-                placeholder={`Qtd em ${form.unidadeGera || 'un'}`}
-                value={form.rendimento}
-                onChange={e => { const v = e.target.value; setField('rendimento', v); setField('porcoes', v) }}
+                type="checkbox"
+                checked={!!form.rendimentoUnidades}
+                onChange={e => setField('rendimentoUnidades', e.target.checked)}
+                style={{ accentColor: 'var(--teal)', width: 16, height: 16 }}
               />
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Esta receita é dividida em unidades</span>
+            </label>
+            {isUnitMode && (
+              <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '12px 14px', marginBottom: 8 }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div className="field-label">Qtd</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        className="field-input"
+                        type="text" inputMode="decimal"
+                        placeholder="ex: 10"
+                        value={form.qtdUnidades}
+                        onChange={e => onQtdUnidadesChange(e.target.value)}
+                        style={{ marginBottom: 0 }}
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>un</span>
+                    </div>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div className="field-label">por unidade</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        className="field-input"
+                        type="text" inputMode="decimal"
+                        placeholder="ex: 100"
+                        value={form.qtdPorUnidade}
+                        onChange={e => onQtdPorUnidadeChange(e.target.value)}
+                        style={{ marginBottom: 0 }}
+                      />
+                      <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>g/un</span>
+                    </div>
+                  </div>
+                </div>
+                {rendLiquidoG > 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 8 }}>
+                    {Math.round(rendLiquidoG)}g {fatorPerdaNum > 0 ? 'líquido' : ''} ÷ {form.qtdUnidades || '?'} un = {form.qtdPorUnidade ? `${form.qtdPorUnidade} g/un` : '?'}
+                  </div>
+                )}
+              </div>
             )}
         </div>
 
@@ -585,11 +584,6 @@ export default function ReceitaForm() {
                 <strong style={{ color: 'var(--teal)' }}>líquido estimado {fmtPeso(rendLiquidoG)}</strong>
                 <span style={{ color: 'var(--text-tertiary)', marginLeft: 4 }}>(−{fatorPerdaNum}%)</span>
               </>
-            )}
-            {isWeightUnit && rendAutoNum > 0 && (
-              <span style={{ color: 'var(--text-tertiary)', marginLeft: 8 }}>
-                = rendimento <strong style={{ color: 'var(--text-secondary)' }}>{rendAutoNum.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} {form.unidadeGera}</strong> (auto)
-              </span>
             )}
           </div>
         )}
@@ -709,13 +703,15 @@ export default function ReceitaForm() {
             </div>
             {rendimentoNum > 0 && (
               <div style={{ fontSize: 12, color: 'var(--teal)', marginTop: 4 }}>
-                {isWeightUnit ? `Rendimento: ${rendAutoNum.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${form.unidadeGera} (bruto${fatorPerdaNum > 0 ? ` −${fatorPerdaNum}%` : ''})` : `Rendimento: ${rendimentoNum} ${form.unidadeGera || 'un'}`}
+                Rendimento: {isUnitMode
+                  ? `${qtdUnidadesNum} un${form.qtdPorUnidade ? ` × ${form.qtdPorUnidade}g/un` : ''}`
+                  : `${rendLiquidoG.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} g${fatorPerdaNum > 0 ? ' (líq.)' : ''}`}
                 {custoUnid > 0 && (
                   <span style={{ marginLeft: 10, fontWeight: 600 }}>
-                    → R$ {custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{form.unidadeGera || 'un'}
+                    → R$ {custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{unidadeLabel}
                   </span>
                 )}
-                {form.porcoes && parseInt(form.porcoes) > 0 && custoTotal > 0 && (
+                {!isUnitMode && form.porcoes && parseInt(form.porcoes) > 0 && custoTotal > 0 && (
                   <span> · R$ {(custoTotal / parseInt(form.porcoes)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/porção</span>
                 )}
               </div>
@@ -726,65 +722,77 @@ export default function ReceitaForm() {
         <div className="section-label" style={{ marginTop: 16 }}>Modo de preparo</div>
         <StepBuilder steps={steps} onChange={setSteps} ingredientes={ingredientes} />
 
-        {/* Configurações avançadas */}
+        {/* Configurações avançadas (sempre abertas, opcionais) */}
         <div style={{ marginTop: 16 }}>
-          <button
-            type="button"
-            onClick={() => setShowAdv(s => !s)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-              background: 'none', border: 'none', cursor: 'pointer', padding: '6px 0',
-              color: 'var(--text-tertiary)',
-            }}
-          >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', color: 'var(--text-tertiary)' }}>
             <div style={{ flex: 1, height: 1, background: 'var(--bg-secondary)' }} />
             <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap' }}>
-              {showAdv ? '▲ Ocultar' : '▼ Configurações avançadas'}
+              Configurações avançadas
             </span>
             <div style={{ flex: 1, height: 1, background: 'var(--bg-secondary)' }} />
-          </button>
-          {showAdv && (
-            <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '14px 14px 8px', marginTop: 8 }}>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <div className="field-label">Fator de perda (%)</div>
-                  <input
-                    className="field-input"
-                    type="text" inputMode="decimal"
-                    placeholder="ex: 18"
-                    value={form.fatorPerda}
-                    onChange={e => {
-                      const v = e.target.value
-                      if (v === '' || (parseFloat(v) >= 0 && parseFloat(v) < 100)) setField('fatorPerda', v)
-                    }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div className="field-label">Temperatura forno (°C)</div>
-                  <input className="field-input" type="text" inputMode="numeric" placeholder="ex: 180" value={form.tempForno} onChange={e => setField('tempForno', e.target.value)} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div className="field-label">Tempo forno (min)</div>
-                  <input className="field-input" type="text" inputMode="numeric" placeholder="ex: 35" value={form.tempoForno} onChange={e => setField('tempoForno', e.target.value)} />
-                </div>
+          </div>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: '14px 14px 8px', marginTop: 8 }}>
+            <div className="field-label">Fator de perda (%)</div>
+            <input
+              className="field-input"
+              type="text" inputMode="decimal"
+              placeholder="ex: 18"
+              value={form.fatorPerda}
+              onChange={e => {
+                const v = e.target.value
+                if (v === '' || (parseFloat(v) >= 0 && parseFloat(v) < 100)) setField('fatorPerda', v)
+              }}
+            />
+
+            {/* Etapas de forno (múltiplas) */}
+            <div className="field-label" style={{ marginTop: 6 }}>Forno (etapas)</div>
+            {(form.temposForno || []).map((t, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                <input
+                  className="field-input" type="text" inputMode="numeric"
+                  placeholder="min"
+                  value={t.tempo}
+                  onChange={e => setForm(f => ({ ...f, temposForno: f.temposForno.map((x, idx) => idx === i ? { ...x, tempo: e.target.value } : x) }))}
+                  style={{ marginBottom: 0, flex: 1 }}
+                />
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>min</span>
+                <input
+                  className="field-input" type="text" inputMode="numeric"
+                  placeholder="°C"
+                  value={t.temperatura}
+                  onChange={e => setForm(f => ({ ...f, temposForno: f.temposForno.map((x, idx) => idx === i ? { ...x, temperatura: e.target.value } : x) }))}
+                  style={{ marginBottom: 0, flex: 1 }}
+                />
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>°C</span>
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, temposForno: f.temposForno.filter((_, idx) => idx !== i) }))}
+                  style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 18, cursor: 'pointer', padding: '0 4px' }}
+                >×</button>
               </div>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-                <div style={{ flex: 1 }}>
-                  <div className="field-label">Tipo resfriamento</div>
-                  <select className="field-input" value={form.tipoResfriamento} onChange={e => setField('tipoResfriamento', e.target.value)}>
-                    <option value="">Nenhum</option>
-                    <option value="geladeira">Geladeira</option>
-                    <option value="congelador">Congelador</option>
-                    <option value="ambiente">Temp. ambiente</option>
-                  </select>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div className="field-label">Tempo mínimo (horas)</div>
-                  <input className="field-input" type="text" inputMode="decimal" placeholder="ex: 2" value={form.tempoResfriamento} onChange={e => setField('tempoResfriamento', e.target.value)} disabled={!form.tipoResfriamento} />
-                </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, temposForno: [...(f.temposForno || []), { tempo: '', temperatura: '' }] }))}
+              style={{ background: 'none', border: '1px dashed var(--border)', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: 'var(--teal)', cursor: 'pointer', marginBottom: 12 }}
+            >+ adicionar etapa de forno</button>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <div style={{ flex: 1 }}>
+                <div className="field-label">Tipo resfriamento</div>
+                <select className="field-input" value={form.tipoResfriamento} onChange={e => setField('tipoResfriamento', e.target.value)}>
+                  <option value="">Nenhum</option>
+                  <option value="geladeira">Geladeira</option>
+                  <option value="congelador">Congelador</option>
+                  <option value="ambiente">Temp. ambiente</option>
+                </select>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div className="field-label">Tempo mínimo (horas)</div>
+                <input className="field-input" type="text" inputMode="decimal" placeholder="ex: 2" value={form.tempoResfriamento} onChange={e => setField('tempoResfriamento', e.target.value)} disabled={!form.tipoResfriamento} />
               </div>
             </div>
-          )}
+          </div>
         </div>
 
         <button className="btn-primary" onClick={handleSave} disabled={saving}>
@@ -876,21 +884,6 @@ export default function ReceitaForm() {
             </div>
           </div>
         </>
-      )}
-
-      {pexelsPicker && (
-        <PexelsPicker
-          query={pexelsPicker.nome}
-          onPick={async url => {
-            await updateReceitaImagem(pexelsPicker.recId, url).catch(() => {})
-            setPexelsPicker(null)
-            navigate(`/fichas/${pexelsPicker.recId}`)
-          }}
-          onSkip={() => {
-            setPexelsPicker(null)
-            navigate(`/fichas/${pexelsPicker.recId}`)
-          }}
-        />
       )}
 
       {importandoTexto && (

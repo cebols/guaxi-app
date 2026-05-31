@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
   getProducao, getReceitas, getInsumos, getProdutos,
@@ -28,7 +28,7 @@ function thermalOfRec(rec, key) {
   if (!rec) return false
   const tipos = new Set(parseSteps(rec.instrucoes).map(s => s.tipo))
   if (key === 'ferver')   return !!rec.temFerver || tipos.has('ferver')
-  if (key === 'assar')    return tipos.has('assar') || Number(rec.tempoForno) > 0 || Number(rec.tempForno) > 0
+  if (key === 'assar')    return tipos.has('assar') || Number(rec.tempoForno) > 0 || Number(rec.tempForno) > 0 || (Array.isArray(rec.temposForno) && rec.temposForno.length > 0)
   if (key === 'resfriar') return tipos.has('resfriar') || rec.tipoResfriamento === 'geladeira'
   if (key === 'congelar') return tipos.has('congelar') || rec.tipoResfriamento === 'congelador'
   return false
@@ -62,12 +62,11 @@ function dosesParaItem(item, rec) {
 export default function ProducaoTodo() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const location = useLocation()
   const SCROLL_KEY = `scroll-producao-${id}`
   const abrirCozinha = (recId, doses) => {
     const page = document.querySelector('.main-content')
     if (page) sessionStorage.setItem(SCROLL_KEY, String(page.scrollTop))
-    navigate(`/fichas/${recId}?doses=${doses}&prod=${id}`, { state: { from: location.pathname } })
+    navigate(`/fichas/${recId}?doses=${doses}&prod=${id}`)
   }
   const { data: receitas } = useData(getReceitas)
   const { data: insumos, reload: reloadInsumos } = useData(getInsumos)

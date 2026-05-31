@@ -807,6 +807,8 @@ export async function getReceitas() {
       instrucoes: r.instrucoes || '',
       tempoForno: r.tempo_forno ?? null,
       tempForno: r.temp_forno ?? null,
+      temposForno: Array.isArray(r.tempos_forno) ? r.tempos_forno : null,
+      qtdPorUnidade: r.qtd_por_unidade ?? null,
       tempoResfriamento: r.tempo_resfriamento ?? null,
       tipoResfriamento: r.tipo_resfriamento ?? null,
       temFerver: r.tem_ferver || false,
@@ -838,6 +840,8 @@ export async function saveReceita(receita, ingredientes) {
     instrucoes: receita.instrucoes || null,
     tempo_forno: receita.tempoForno != null && receita.tempoForno !== '' ? parseInt(receita.tempoForno) : null,
     temp_forno: receita.tempForno != null && receita.tempForno !== '' ? parseInt(receita.tempForno) : null,
+    tempos_forno: Array.isArray(receita.temposForno) && receita.temposForno.length > 0 ? receita.temposForno : null,
+    qtd_por_unidade: receita.qtdPorUnidade != null && receita.qtdPorUnidade !== '' ? parseFloat(receita.qtdPorUnidade) : null,
     tempo_resfriamento: receita.tempoResfriamento != null && receita.tempoResfriamento !== '' ? parseInt(receita.tempoResfriamento) : null,
     tipo_resfriamento: receita.tipoResfriamento || null,
     custo_total: parseFloat(receita.custoTotal) || 0,
@@ -877,7 +881,7 @@ export async function saveReceita(receita, ingredientes) {
     }
   }
 
-  const OPTIONAL = ['unidade_gera', 'peso_liquido', 'fator_perda', 'instrucoes', 'tempo_forno', 'temp_forno', 'tempo_resfriamento', 'tipo_resfriamento', 'imagem_url']
+  const OPTIONAL = ['unidade_gera', 'peso_liquido', 'fator_perda', 'instrucoes', 'tempo_forno', 'temp_forno', 'tempos_forno', 'qtd_por_unidade', 'tempo_resfriamento', 'tipo_resfriamento', 'imagem_url']
 
   if (receita.id) {
     await upsert('receitas', row, receita.id, OPTIONAL)

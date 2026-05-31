@@ -1,5 +1,5 @@
 import { useState, Fragment, useEffect } from 'react'
-import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { getReceitas, deleteReceitas, saveReceita, getInsumos, setProducaoRecipeDoses } from '../services/db'
 
@@ -37,7 +37,6 @@ function fmtQty(n, unidade) {
 export default function Cozinha() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const location = useLocation()
   const [searchParams] = useSearchParams()
   const { data: receitas, loading } = useData(getReceitas)
 
@@ -46,7 +45,6 @@ export default function Cozinha() {
   const ingredientes = receita?.ingredientes || []
 
   const prodId = searchParams.get('prod')           // produção de origem (mise en place)
-  const fromPath = location.state?.from             // tela de origem p/ voltar no fluxo
 
   const dosesParam = parseFloat(searchParams.get('doses'))
   const [fator, setFator] = useState(dosesParam > 0 ? Math.round(dosesParam * 100) / 100 : 1)
@@ -59,6 +57,7 @@ export default function Cozinha() {
   const [fatorStr, setFatorStr]     = useState('')
   const [pesoStr, setPesoStr]       = useState('')
   const [liquidoStr, setLiquidoStr] = useState('')
+  const [unidadesStr, setUnidadesStr] = useState('')
 
   const [checked, setChecked] = useState({})
   const [checkedStep, setCheckedStep] = useState({})
@@ -76,12 +75,16 @@ export default function Cozinha() {
   }, 0)
 
   const fatorPerda = receita?.fatorPerda
+  const qtdPorUnidade = receita?.qtdPorUnidade || null
+  const perdaFrac = fatorPerda != null ? (1 - fatorPerda / 100) : 1
+  const liquidoCalc = pesoBase * fator * perdaFrac
 
   // Valores exibidos: enquanto edita, mostra o que foi digitado; senão, valor calculado
   const fmtFator = (f) => String(Math.round(f * 100) / 100)
-  const fatorDisplay   = editingField === 'fator'   ? fatorStr   : fmtFator(fator)
-  const pesoDisplay    = editingField === 'peso'     ? pesoStr     : (pesoBase > 0 ? String(Math.round(pesoBase * fator)) : '')
-  const liquidoDisplay = editingField === 'liquido'  ? liquidoStr  : (pesoBase > 0 && fatorPerda != null ? String(Math.round(pesoBase * fator * (1 - fatorPerda / 100))) : '')
+  const fatorDisplay    = editingField === 'fator'    ? fatorStr    : fmtFator(fator)
+  const pesoDisplay     = editingField === 'peso'     ? pesoStr     : (pesoBase > 0 ? String(Math.round(pesoBase * fator)) : '')
+  const liquidoDisplay  = editingField === 'liquido'  ? liquidoStr  : (pesoBase > 0 && fatorPerda != null ? String(Math.round(liquidoCalc)) : '')
+  const unidadesDisplay = editingField === 'unidades' ? unidadesStr : (pesoBase > 0 && qtdPorUnidade > 0 ? String(Math.round(liquidoCalc / qtdPorUnidade)) : '')
 
   const onFatorChange = (val) => {
     setEditingField('fator'); setFatorStr(val)
@@ -101,6 +104,14 @@ export default function Cozinha() {
       setFator(Math.round((bruto / pesoBase) * 100) / 100)
     }
   }
+  const onUnidadesChange = (val) => {
+    setEditingField('unidades'); setUnidadesStr(val)
+    const u = parseFloat(val)
+    if (!isNaN(u) && u > 0 && pesoBase > 0 && qtdPorUnidade > 0) {
+      const bruto = (u * qtdPorUnidade) / perdaFrac
+      setFator(Math.round((bruto / pesoBase) * 100) / 100)
+    }
+  }
   // Ao sair do campo: resincroniza display e persiste doses na produção (estoque dinâmico)
   const commitField = () => {
     setEditingField(null)
@@ -109,7 +120,7 @@ export default function Cozinha() {
     }
   }
 
-  const goBack = () => { if (fromPath) navigate(fromPath); else navigate(-1) }
+  const goBack = () => navigate(-1)
 
   const [expandedSubs, setExpandedSubs] = useState(new Set())
 
@@ -239,11 +250,26 @@ export default function Cozinha() {
                     inputMode="decimal"
                     value={liquidoDisplay}
                     onChange={e => onLiquidoChange(e.target.value)}
-                    onFocus={e => { setEditingField('liquido'); setLiquidoStr(String(Math.round(pesoBase * fator * (1 - receita.fatorPerda / 100)))); e.target.select() }}
+                    onFocus={e => { setEditingField('liquido'); setLiquidoStr(String(Math.round(liquidoCalc))); e.target.select() }}
                     onBlur={commitField}
                     style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--teal)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--teal)', padding: '4px 0', flexShrink: 0 }}
                   />
                   <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g</span>
+                </div>
+              )}
+              {qtdPorUnidade > 0 && pesoBase > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)', flexShrink: 0 }}>Unidades</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={unidadesDisplay}
+                    onChange={e => onUnidadesChange(e.target.value)}
+                    onFocus={e => { setEditingField('unidades'); setUnidadesStr(String(Math.round(liquidoCalc / qtdPorUnidade))); e.target.select() }}
+                    onBlur={commitField}
+                    style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--teal)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--teal)', padding: '4px 0', flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>un · {qtdPorUnidade}g/un</span>
                 </div>
               )}
             </div>
@@ -506,19 +532,29 @@ export default function Cozinha() {
               </div>
             )}
 
-            {/* Forno — both modes */}
-            {(receita.tempForno || receita.tempoForno) && (
-              <div className="card" style={{ background: '#2a1a00', border: '1px solid #6b3d00', marginTop: 16, display: 'flex', alignItems: 'center', gap: 16, padding: '14px 16px' }}>
-                <span style={{ fontSize: 28 }}>🔥</span>
-                <div>
-                  <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#c97a30', fontWeight: 700 }}>Forno</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: '#f0a050', marginTop: 2, lineHeight: 1 }}>
-                    {receita.tempForno ? `${receita.tempForno}°C` : '—'}
-                    {receita.tempoForno ? <span style={{ fontSize: 15, fontWeight: 500, marginLeft: 10, color: '#c97a30' }}>{receita.tempoForno} min</span> : null}
+            {/* Forno — both modes (suporta múltiplas etapas) */}
+            {(() => {
+              const etapas = Array.isArray(receita.temposForno) && receita.temposForno.length > 0
+                ? receita.temposForno
+                : (receita.tempForno || receita.tempoForno
+                    ? [{ tempo: receita.tempoForno, temperatura: receita.tempForno }]
+                    : [])
+              if (!etapas.length) return null
+              return (
+                <div className="card" style={{ background: '#2a1a00', border: '1px solid #6b3d00', marginTop: 16, display: 'flex', alignItems: 'flex-start', gap: 16, padding: '14px 16px' }}>
+                  <span style={{ fontSize: 28 }}>🔥</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 11, letterSpacing: 1, textTransform: 'uppercase', color: '#c97a30', fontWeight: 700 }}>Forno</div>
+                    {etapas.map((e, i) => (
+                      <div key={i} style={{ fontSize: 20, fontWeight: 700, color: '#f0a050', marginTop: i === 0 ? 2 : 4, lineHeight: 1 }}>
+                        {e.temperatura ? `${e.temperatura}°C` : '—'}
+                        {e.tempo ? <span style={{ fontSize: 14, fontWeight: 500, marginLeft: 10, color: '#c97a30' }}>{e.tempo} min</span> : null}
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
             {/* Resfriamento — both modes */}
             {receita.tipoResfriamento && (
