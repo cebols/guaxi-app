@@ -235,7 +235,7 @@ export default function Cozinha() {
                   onChange={e => onFatorChange(e.target.value)}
                   onFocus={e => { setEditingField('fator'); setFatorStr(fmtFator(fator)); e.target.select() }}
                   onBlur={commitField}
-                  style={{ fontSize: 22, fontWeight: 700, width: 56, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--text-primary)', padding: '4px 0', flexShrink: 0 }}
+                  style={{ fontSize: 22, fontWeight: 700, width: 56, background: 'var(--surface2)', border: '1px solid var(--teal)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--teal)', padding: '4px 0', flexShrink: 0 }}
                 />
                 {pesoBase > 0 && <>
                   <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>×</span>
@@ -246,7 +246,7 @@ export default function Cozinha() {
                     onChange={e => onPesoChange(e.target.value)}
                     onFocus={e => { setEditingField('peso'); setPesoStr(String(Math.round(pesoBase * fator))); e.target.select() }}
                     onBlur={commitField}
-                    style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--text-primary)', padding: '4px 0', flexShrink: 0 }}
+                    style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--teal)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--teal)', padding: '4px 0', flexShrink: 0 }}
                   />
                   <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g</span>
                 </>}
