@@ -13,6 +13,23 @@ import {
   getReceitas, getEmbalagens, getInsumos, bulkUpdateSecoes,
   saveUserConfig, loadUserConfig,
 } from '../services/db'
+
+function recCustoForUnit(rec, unit) {
+  if (!rec) return 0
+  if (unit === rec.unidadeGera) return rec.custoUnid || 0
+  if (unit === 'g') {
+    if (rec.unidadeGera === 'g') return rec.custoUnid || 0
+    const gPerUnit = rec.qtdPorUnidade > 0 ? rec.qtdPorUnidade : null
+    if (gPerUnit) return (rec.custoUnid || 0) / gPerUnit
+    const totalG = rec.pesoLiquido || rec.rendimento
+    return totalG > 0 ? (rec.custoTotal || 0) / totalG : 0
+  }
+  if (unit === 'un') {
+    if (rec.unidadeGera === 'un') return rec.custoUnid || 0
+    return rec.custoTotal || 0  // 1 "un" = 1 batch completo
+  }
+  return rec.custoUnid || 0
+}
 import { uploadImage } from '../services/storage'
 import { MontarCardapio } from '../components/MontarCardapio'
 
@@ -150,7 +167,15 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
   // ── Receita rows ────────────────────────────────────────────
   const handleRecSelect = (i, nome) => {
     const rec = receitas?.find(r => r.nome === nome)
-    setRecRows(prev => prev.map((row, idx) => idx === i ? { ...row, nome, receitaId: rec?.id ?? null, custoUnid: rec?.custoUnid || 0, unidade: rec?.unidadeGera || row.unidade } : row))
+    const unit = rec?.unidadeGera || 'un'
+    setRecRows(prev => prev.map((row, idx) => idx === i ? { ...row, nome, receitaId: rec?.id ?? null, custoUnid: recCustoForUnit(rec, unit), unidade: unit } : row))
+  }
+  const setRecUnit = (i, unit) => {
+    setRecRows(prev => prev.map((row, idx) => {
+      if (idx !== i) return row
+      const rec = receitas?.find(r => r.id === row.receitaId)
+      return { ...row, unidade: unit, custoUnid: recCustoForUnit(rec, unit) }
+    }))
   }
   const setRecField = (i, k, v) => setRecRows(prev => prev.map((row, idx) => idx === i ? { ...row, [k]: v } : row))
   const addRec    = () => setRecRows(prev => [...prev, { receitaId: null, nome: '', quantidade: 1, unidade: 'un', custoUnid: 0 }])
@@ -402,8 +427,11 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
                           list="receitas-list" placeholder="Receita" value={row.nome} onChange={e => handleRecSelect(i, e.target.value)} />
                         <input className="item-qty" type="text" inputMode="decimal" placeholder="Qtd"
                           value={row.quantidade} onChange={e => setRecField(i, 'quantidade', e.target.value)} />
-                        <input className="item-qty" style={{ width: 46, fontSize: 12 }}
-                          placeholder="un" value={row.unidade} onChange={e => setRecField(i, 'unidade', e.target.value)} />
+                        <select className="item-qty" style={{ width: 52, fontSize: 12, padding: '0 2px' }}
+                          value={row.unidade} onChange={e => setRecUnit(i, e.target.value)}>
+                          <option value="un">un</option>
+                          <option value="g">g</option>
+                        </select>
                         {recRows.length > 1 && <button className="item-rm" onClick={() => removeRec(i)}>&#215;</button>}
                       </div>
                       {lineCost > 0 && <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 3 }}>R$ {row.custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{row.unidade} × {row.quantidade} = <strong>R$ {lineCost.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</strong></div>}
