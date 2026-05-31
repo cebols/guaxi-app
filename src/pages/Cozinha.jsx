@@ -79,12 +79,20 @@ export default function Cozinha() {
   const perdaFrac = fatorPerda != null ? (1 - fatorPerda / 100) : 1
   const liquidoCalc = pesoBase * fator * perdaFrac
 
+  const WEIGHT_UNITS = ['g', 'ml', 'kg', 'L']
+  // Modo unidades: novo sistema (qtdPorUnidade) OU legado (rendimento em unidades não-peso)
+  const isUnitMode = qtdPorUnidade > 0
+    || (receita?.rendimento > 0 && !WEIGHT_UNITS.includes(receita?.unidadeGera))
+  const unidadesCalc = qtdPorUnidade > 0
+    ? (pesoBase > 0 ? liquidoCalc / qtdPorUnidade : 0)
+    : (receita?.rendimento > 0 ? receita.rendimento * fator : 0)
+
   // Valores exibidos: enquanto edita, mostra o que foi digitado; senão, valor calculado
   const fmtFator = (f) => String(Math.round(f * 100) / 100)
   const fatorDisplay    = editingField === 'fator'    ? fatorStr    : fmtFator(fator)
   const pesoDisplay     = editingField === 'peso'     ? pesoStr     : (pesoBase > 0 ? String(Math.round(pesoBase * fator)) : '')
   const liquidoDisplay  = editingField === 'liquido'  ? liquidoStr  : (pesoBase > 0 && fatorPerda != null ? String(Math.round(liquidoCalc)) : '')
-  const unidadesDisplay = editingField === 'unidades' ? unidadesStr : (pesoBase > 0 && qtdPorUnidade > 0 ? String(Math.round(liquidoCalc / qtdPorUnidade)) : '')
+  const unidadesDisplay = editingField === 'unidades' ? unidadesStr : (isUnitMode && pesoBase > 0 ? String(Math.round(unidadesCalc)) : '')
 
   const onFatorChange = (val) => {
     setEditingField('fator'); setFatorStr(val)
@@ -107,9 +115,13 @@ export default function Cozinha() {
   const onUnidadesChange = (val) => {
     setEditingField('unidades'); setUnidadesStr(val)
     const u = parseFloat(val)
-    if (!isNaN(u) && u > 0 && pesoBase > 0 && qtdPorUnidade > 0) {
-      const bruto = (u * qtdPorUnidade) / perdaFrac
-      setFator(Math.round((bruto / pesoBase) * 100) / 100)
+    if (!isNaN(u) && u > 0) {
+      if (qtdPorUnidade > 0 && pesoBase > 0) {
+        const bruto = (u * qtdPorUnidade) / perdaFrac
+        setFator(Math.round((bruto / pesoBase) * 100) / 100)
+      } else if (receita?.rendimento > 0) {
+        setFator(Math.round((u / receita.rendimento) * 100) / 100)
+      }
     }
   }
   // Ao sair do campo: resincroniza display e persiste doses na produção (estoque dinâmico)
@@ -236,10 +248,7 @@ export default function Cozinha() {
                     onBlur={commitField}
                     style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--text-primary)', padding: '4px 0', flexShrink: 0 }}
                   />
-                  <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g
-                    {receita.rendimento > 0 && !['g', 'ml', 'kg', 'L'].includes(receita.unidadeGera) &&
-                      ` · ${Math.round(receita.rendimento * fator)} ${receita.unidadeGera || 'un'}`}
-                  </span>
+                  <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g</span>
                 </>}
               </div>
               {receita.fatorPerda != null && pesoBase > 0 && (
@@ -257,7 +266,7 @@ export default function Cozinha() {
                   <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>g</span>
                 </div>
               )}
-              {qtdPorUnidade > 0 && pesoBase > 0 && (
+              {isUnitMode && pesoBase > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
                   <span style={{ fontSize: 13, color: 'var(--text-secondary)', flexShrink: 0 }}>Unidades</span>
                   <input
@@ -265,11 +274,13 @@ export default function Cozinha() {
                     inputMode="decimal"
                     value={unidadesDisplay}
                     onChange={e => onUnidadesChange(e.target.value)}
-                    onFocus={e => { setEditingField('unidades'); setUnidadesStr(String(Math.round(liquidoCalc / qtdPorUnidade))); e.target.select() }}
+                    onFocus={e => { setEditingField('unidades'); setUnidadesStr(String(Math.round(unidadesCalc))); e.target.select() }}
                     onBlur={commitField}
                     style={{ fontSize: 22, fontWeight: 700, width: 88, background: 'var(--surface2)', border: '1px solid var(--teal)', borderRadius: 8, outline: 'none', textAlign: 'center', color: 'var(--teal)', padding: '4px 0', flexShrink: 0 }}
                   />
-                  <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>un · {qtdPorUnidade}g/un</span>
+                  <span style={{ fontSize: 14, color: 'var(--text-secondary)', flexShrink: 0 }}>
+                    {qtdPorUnidade > 0 ? `un · ${qtdPorUnidade}g/un` : (receita?.unidadeGera || 'un')}
+                  </span>
                 </div>
               )}
             </div>
