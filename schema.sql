@@ -577,6 +577,7 @@ CREATE TABLE IF NOT EXISTS contagem_snapshots (
 
 ALTER TABLE contagem_snapshots ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "users manage own snapshots" ON contagem_snapshots;
 CREATE POLICY "users manage own snapshots" ON contagem_snapshots
   FOR ALL USING (auth.uid() = user_id);
 
