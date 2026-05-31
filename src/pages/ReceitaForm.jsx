@@ -408,7 +408,7 @@ export default function ReceitaForm() {
         setInsumoRapido(faltantes.map(ing => ({ nome: ing.nome, unidade: ing.unidade || 'g', custoEmb: '', pesoEmb: '' })))
         return
       }
-      navigate(`/fichas/${recId}`)
+      navigate(`/fichas/${recId}`, { replace: true })
     } catch (e) {
       show('Erro: ' + e.message)
     } finally {
@@ -429,7 +429,7 @@ export default function ReceitaForm() {
       show('Erro ao salvar insumos: ' + e.message)
     } finally {
       setSalvandoInsumos(false)
-      navigate(`/fichas/${savedRecId}`)
+      navigate(`/fichas/${savedRecId}`, { replace: true })
     }
   }
 
@@ -872,7 +872,7 @@ export default function ReceitaForm() {
                 {salvandoInsumos ? 'Salvando...' : `Salvar ${insumoRapido.length} insumo${insumoRapido.length > 1 ? 's' : ''}`}
               </button>
               <button
-                onClick={() => navigate(`/fichas/${savedRecId}`)}
+                onClick={() => navigate(`/fichas/${savedRecId}`, { replace: true })}
                 style={{ padding: '12px 16px', borderRadius: 10, border: '1px solid var(--border)', background: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>
                 Pular
               </button>
