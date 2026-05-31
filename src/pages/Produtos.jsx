@@ -14,19 +14,32 @@ import {
   saveUserConfig, loadUserConfig,
 } from '../services/db'
 
-function recCustoForUnit(rec, unit) {
+function recPesoBruto(rec, insumos) {
+  if (!rec?.ingredientes) return 0
+  return rec.ingredientes.reduce((s, i) => {
+    if (i.unidade === 'g' || i.unidade === 'ml') return s + (i.quantidade || 0)
+    if (i.unidade === 'kg' || i.unidade === 'L') return s + (i.quantidade || 0) * 1000
+    if (i.unidade === 'un') {
+      const insumo = (insumos || []).find(ins => ins.id === i.insumoId || ins.nome === i.nome)
+      if (insumo?.pesoUn > 0) return s + i.quantidade * insumo.pesoUn
+    }
+    return s
+  }, 0)
+}
+
+function recCustoForUnit(rec, unit, insumos) {
   if (!rec) return 0
-  if (unit === rec.unidadeGera) return rec.custoUnid || 0
   if (unit === 'g') {
-    if (rec.unidadeGera === 'g') return rec.custoUnid || 0
-    const gPerUnit = rec.qtdPorUnidade > 0 ? rec.qtdPorUnidade : null
-    if (gPerUnit) return (rec.custoUnid || 0) / gPerUnit
-    const totalG = rec.pesoLiquido || rec.rendimento
-    return totalG > 0 ? (rec.custoTotal || 0) / totalG : 0
+    if (rec.qtdPorUnidade > 0 && rec.unidadeGera === 'un') return (rec.custoUnid || 0) / rec.qtdPorUnidade
+    if (rec.pesoLiquido > 0) return (rec.custoTotal || 0) / rec.pesoLiquido
+    const pesoBruto = recPesoBruto(rec, insumos)
+    if (pesoBruto > 0) return (rec.custoTotal || 0) / pesoBruto
+    if (rec.unidadeGera === 'g' && rec.rendimento > 0) return (rec.custoTotal || 0) / rec.rendimento
+    return 0
   }
   if (unit === 'un') {
     if (rec.unidadeGera === 'un') return rec.custoUnid || 0
-    return rec.custoTotal || 0  // 1 "un" = 1 batch completo
+    return rec.custoTotal || 0
   }
   return rec.custoUnid || 0
 }
@@ -84,7 +97,7 @@ async function cropToBlob(imgEl, pixelCrop) {
 
 const FORM_EMPTY = { nome: '', tipo: 'produto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '', imagemUrl: '' }
 
-function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, onSave, onDelete, onClose }) {
+function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onClose }) {
   const [form, setForm] = useState(item
     ? {
         nome:        item.nome,
@@ -168,16 +181,23 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
   const handleRecSelect = (i, nome) => {
     const rec = receitas?.find(r => r.nome === nome)
     const unit = rec?.unidadeGera || 'un'
-    setRecRows(prev => prev.map((row, idx) => idx === i ? { ...row, nome, receitaId: rec?.id ?? null, custoUnid: recCustoForUnit(rec, unit), unidade: unit } : row))
+    setRecRows(prev => prev.map((row, idx) => idx === i ? { ...row, nome, receitaId: rec?.id ?? null, custoUnid: recCustoForUnit(rec, unit, insumos), unidade: unit } : row))
   }
   const setRecUnit = (i, unit) => {
     setRecRows(prev => prev.map((row, idx) => {
       if (idx !== i) return row
       const rec = receitas?.find(r => r.id === row.receitaId)
-      return { ...row, unidade: unit, custoUnid: recCustoForUnit(rec, unit) }
+      return { ...row, unidade: unit, custoUnid: recCustoForUnit(rec, unit, insumos) }
     }))
   }
   const setRecField = (i, k, v) => setRecRows(prev => prev.map((row, idx) => idx === i ? { ...row, [k]: v } : row))
+
+  // Custo recalculado sempre que receitas/insumos mudam (mantem o produto atualizado)
+  const recRowsLive = useMemo(() => recRows.map(row => {
+    const rec = receitas?.find(r => r.id === row.receitaId)
+    if (!rec) return row
+    return { ...row, custoUnid: recCustoForUnit(rec, row.unidade, insumos) }
+  }), [recRows, receitas, insumos])
   const addRec    = () => setRecRows(prev => [...prev, { receitaId: null, nome: '', quantidade: 1, unidade: 'un', custoUnid: 0 }])
   const removeRec = i  => setRecRows(prev => prev.filter((_, idx) => idx !== i))
 
@@ -203,10 +223,10 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
   const custoTotal = useMemo(() => {
     if (isAvulso) return parseFloat(form.custoDireto) || 0
     if (isCombo)  return comboRows.reduce((s, r) => s + (r.custoUnit || 0) * (parseFloat(r.quantidade) || 1), 0)
-    const rec = recRows.reduce((s, r) => s + (r.custoUnid || 0) * (parseFloat(r.quantidade) || 1), 0)
+    const rec = recRowsLive.reduce((s, r) => s + (r.custoUnid || 0) * (parseFloat(r.quantidade) || 1), 0)
     const emb = embRows.reduce((s, e) => s + (e.custoUnit || 0) * (parseFloat(e.quantidade) || 1), 0)
     return rec + emb
-  }, [form.custoDireto, recRows, embRows, comboRows, isAvulso, isCombo])
+  }, [form.custoDireto, recRowsLive, embRows, comboRows, isAvulso, isCombo])
 
   const cfg         = getConfig()
   const sacolaDelivery = getCustoSacolaDelivery(cfg, embalagens || [])
@@ -222,7 +242,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
     if (!form.nome) return
     setSaving(true)
     try {
-      const recItems   = isAvulso || isCombo ? [] : recRows.filter(r => r.receitaId)
+      const recItems   = isAvulso || isCombo ? [] : recRowsLive.filter(r => r.receitaId)
       const embItems   = isAvulso || isCombo ? [] : embRows.filter(e => e.embalagemId)
       const componentes = isCombo ? comboRows.filter(r => r.produtoId) : []
       await onSave({ ...form, id: item?.id, precoSugerido: precos.base, componentes }, recItems, embItems)
@@ -418,7 +438,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, fornecedoresList, o
             {!isAvulso && !isCombo && (
               <>
                 <div style={fieldLabel}>Receitas</div>
-                {recRows.map((row, i) => {
+                {recRowsLive.map((row, i) => {
                   const lineCost = (row.custoUnid || 0) * (parseFloat(row.quantidade) || 1)
                   return (
                     <div key={i} style={{ padding: '8px 0', borderBottom: i < recRows.length - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
@@ -1014,6 +1034,7 @@ export default function Produtos() {
           receitas={receitas}
           embalagens={embalagens}
           produtos={produtos}
+          insumos={insumos}
           fornecedoresList={fornecedoresList}
           onSave={handleSave}
           onDelete={handleDelete}
