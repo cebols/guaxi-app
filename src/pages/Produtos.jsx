@@ -352,6 +352,8 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
 
         {/* Scrollable content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 100px', WebkitOverflowScrolling: 'touch' }}>
+         <div className="form-grid">
+          <div className="form-grid-main">
 
           {/* Block 1: Identidade */}
           <div style={blockStyle}>
@@ -550,7 +552,9 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
               </>
             )}
           </div>
+          </div>{/* /form-grid-main */}
 
+          <div className="form-grid-rail">
           {/* Block 3: Preços e Estoque */}
           <div style={blockStyle}>
             <div style={blockTitle}>Preços e Estoque</div>
@@ -646,6 +650,8 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                 }} />
             </div>
           </div>
+          </div>{/* /form-grid-rail */}
+         </div>{/* /form-grid */}
 
           {/* Delete */}
           {item && (

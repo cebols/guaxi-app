@@ -487,7 +487,7 @@ export default function ReceitaForm() {
         </div>
       </div>
 
-      <div className="page-inner" style={{ paddingTop: 16 }}>
+      <div className="page-inner" style={{ paddingTop: 16, maxWidth: 760 }}>
         <div className="field-label">Nome da receita</div>
         <input className="field-input" placeholder="ex: Bolo de chocolate" value={form.nome} onChange={e => setField('nome', e.target.value)} />
 

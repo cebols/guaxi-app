@@ -639,6 +639,28 @@ a { touch-action: manipulation; }
 .desktop-only { display: none !important; }
 .mobile-only  { display: block; }
 
+/* ── Form grid: conteúdo + rail (telas largas / tablet portrait) ── */
+.form-grid { display: block; }
+.form-grid-rail { margin-top: 0; }
+@media (min-width: 900px) {
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 28px;
+    align-items: start;
+    max-width: 1120px;
+    margin: 0 auto;
+  }
+  .form-grid-main { min-width: 0; }
+  .form-grid-rail {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+}
+
 /* ── Main content wrapper ────────────────── */
 .main-content {
   flex: 1;
