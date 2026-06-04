@@ -410,7 +410,7 @@ export async function getProdutos() {
     .from('produtos')
     .select(`
       *,
-      produto_receitas(*, receitas(nome, custo_unid, unidade_gera)),
+      produto_receitas(*, receitas(nome, custo_unid, custo_total, unidade_gera, rendimento, peso_liquido, qtd_por_unidade)),
       produto_embalagens(*, embalagens(nome, custo_unit))
     `)
     .order('nome')
@@ -462,22 +462,39 @@ export async function getProdutos() {
     estoqueMin:   r.estoque_min  ?? 0,
     imagemUrl:   r.imagem_url || null,
     componentes: (r.composicao?.componentes || []),
-    receitas: (r.produto_receitas || []).map(pr => ({
-      id: pr.id,
-      receitaId: pr.receita_id,
-      nome: pr.receitas?.nome || '',
-      quantidade: pr.quantidade || 1,
-      custoUnid: pr.receitas?.custo_unid || 0,
-      unidadeGera: pr.receitas?.unidade_gera || 'un',
-    })),
+    receitas: (r.produto_receitas || []).map(pr => {
+      const comp = (r.composicao?.receitas || []).find(c => c.receitaId === pr.receita_id)
+      const unidade = comp?.unidade || pr.receitas?.unidade_gera || 'un'
+      const rec = pr.receitas
+      let custoUnid = rec?.custo_unid || 0
+      if (unidade === 'g' && rec?.unidade_gera !== 'g') {
+        if (rec?.qtd_por_unidade > 0) custoUnid = (rec.custo_unid || 0) / rec.qtd_por_unidade
+        else {
+          const totalG = rec?.peso_liquido || (rec?.unidade_gera === 'g' ? rec?.rendimento : 0)
+          custoUnid = totalG > 0 ? (rec?.custo_total || 0) / totalG : (comp?.custoUnid || 0)
+        }
+      } else if (unidade === 'un' && rec?.unidade_gera !== 'un') {
+        custoUnid = rec?.custo_total || 0
+      }
+      return {
+        id: pr.id, receitaId: pr.receita_id, nome: rec?.nome || '',
+        quantidade: pr.quantidade || 1, unidade, custoUnid,
+        unidadeGera: rec?.unidade_gera || 'un',
+      }
+    }),
     embalagens: (r.produto_embalagens || []).map(pe => ({
-      id: pe.id,
-      embalagemId: pe.embalagem_id,
-      nome: pe.embalagens?.nome || '',
-      quantidade: pe.quantidade || 1,
-      custoUnit: pe.embalagens?.custo_unit || 0,
+      id: pe.id, embalagemId: pe.embalagem_id, nome: pe.embalagens?.nome || '',
+      quantidade: pe.quantidade || 1, custoUnit: pe.embalagens?.custo_unit || 0,
     })),
-  }))
+  })).map(p => {
+    if (p.tipo === 'produto') {
+      const liveCusto =
+        p.receitas.reduce((s, r) => s + (r.custoUnid || 0) * (r.quantidade || 1), 0) +
+        p.embalagens.reduce((s, e) => s + (e.custoUnit || 0) * (e.quantidade || 1), 0)
+      if (liveCusto > 0) return { ...p, custoTotal: liveCusto }
+    }
+    return p
+  })
 }
 
 export async function saveProduto(prod, receitaItems = [], embalagemItems = []) {

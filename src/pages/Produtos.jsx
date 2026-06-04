@@ -120,7 +120,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
 
   const [recRows, setRecRows] = useState(
     item?.receitas?.length > 0
-      ? item.receitas.map(r => ({ receitaId: r.receitaId, nome: r.nome, quantidade: r.quantidade, unidade: r.unidadeGera || 'un', custoUnid: r.custoUnid }))
+      ? item.receitas.map(r => ({ receitaId: r.receitaId, nome: r.nome, quantidade: r.quantidade, unidade: r.unidade || r.unidadeGera || 'un', custoUnid: r.custoUnid }))
       : [{ receitaId: null, nome: '', quantidade: 1, unidade: 'un', custoUnid: 0 }]
   )
   const [embRows, setEmbRows] = useState(
