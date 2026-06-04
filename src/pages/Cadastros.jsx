@@ -15,7 +15,7 @@ import {
   getEmbalagens, saveEmbalagem, deleteEmbalagem,
   getInsumoFornecedores, saveInsumoFornecedores, getAllInsumoFornecedores,
   getEmbalagemFornecedores, saveEmbalagemFornecedores, getAllEmbalagemFornecedores,
-  getInsumoCostHistory, updateInsumoImagem,
+  getInsumoCostHistory, updateInsumoImagem, getProdutos,
 } from '../services/db'
 import { pexelsSearch } from '../services/pexels'
 
@@ -796,6 +796,7 @@ export default function Cadastros() {
   const { data: embalagens, loading: lEmb, reload: rEmb } = useData(getEmbalagens)
   const { data: todasFontes,    reload: rFontes }    = useData(getAllInsumoFornecedores)
   const { data: todasFontesEmb, reload: rFontesEmb } = useData(getAllEmbalagemFornecedores)
+  const { data: produtos } = useData(getProdutos)
   const { data: costHistory, reload: rHist } = useData(() => getInsumoCostHistory(12))
 
   const fontesMap = useMemo(() => {
@@ -810,6 +811,38 @@ export default function Cadastros() {
   function norm(s) {
     return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   }
+
+  // Agrega todos os fornecedores de insumos + produtos avulsos
+  const fornecedoresList2 = useMemo(() => {
+    const map = {}
+    const add = (nomeForn, whatsapp, linkCompra, produto) => {
+      const key = norm(nomeForn) || '__sem_nome__'
+      if (!map[key]) map[key] = { nome: nomeForn, whatsapp: whatsapp || '', produtos: [] }
+      if (whatsapp && !map[key].whatsapp) map[key].whatsapp = whatsapp
+      map[key].produtos.push(produto)
+    }
+    for (const ins of insumos || []) {
+      if (ins.fornecedor) add(ins.fornecedor, ins.whatsapp, ins.linkCompra, { nome: ins.nome, tipo: 'insumo', unidade: ins.unidade, linkCompra: ins.linkCompra })
+    }
+    for (const f of todasFontes || []) {
+      const ins = (insumos || []).find(i => i.id === f.insumoId)
+      if (f.fornecedor && ins) add(f.fornecedor, f.telefone, f.linkCompra, { nome: ins.nome, tipo: 'insumo', unidade: ins.unidade, linkCompra: f.linkCompra })
+    }
+    for (const prod of (produtos || []).filter(p => p.tipo === 'avulso')) {
+      if (prod.fornecedor) add(prod.fornecedor, prod.whatsapp, prod.linkCompra, { nome: prod.nome, tipo: 'produto', linkCompra: prod.linkCompra })
+    }
+    return Object.values(map).sort((a, b) => norm(a.nome).localeCompare(norm(b.nome)))
+  }, [insumos, todasFontes, produtos])
+
+  const fornecedoresFiltrados = useMemo(() => {
+    if (tab !== 'fornecedores') return []
+    const q = norm(busca)
+    if (!q) return fornecedoresList2
+    return fornecedoresList2.map(f => ({
+      ...f,
+      produtos: f.produtos.filter(p => norm(p.nome).includes(q)),
+    })).filter(f => norm(f.nome).includes(q) || f.produtos.length > 0)
+  }, [fornecedoresList2, busca, tab])
 
   const insumosFiltrados = useMemo(() => {
     const q = norm(busca)
@@ -975,22 +1008,25 @@ export default function Cadastros() {
                 ⬇️ Importar
               </button>
             </div>
-            <button onClick={() => { setBulkSel([]); setBulkBusca(''); setBulkDelete(true) }}
-              style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              Excluir
-            </button>
-            <button onClick={openNew}
-              style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              + Novo
-            </button>
+            {tab !== 'fornecedores' && <>
+              <button onClick={() => { setBulkSel([]); setBulkBusca(''); setBulkDelete(true) }}
+                style={{ background: 'transparent', color: 'var(--danger, #ef4444)', border: '1px solid var(--danger, #ef4444)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Excluir
+              </button>
+              <button onClick={openNew}
+                style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                + Novo
+              </button>
+            </>}
           </div>
         </div>
       </div>
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
         <div className="tab-bar">
-          <button className={`tab-btn ${tab === 'insumos'    ? 'active' : ''}`} onClick={() => { setTab('insumos'); setBusca(''); setFiltroCat('') }}>Insumos</button>
-          <button className={`tab-btn ${tab === 'embalagens' ? 'active' : ''}`} onClick={() => { setTab('embalagens'); setBusca(''); setFiltroCat('') }}>Embalagens</button>
+          <button className={`tab-btn ${tab === 'insumos'      ? 'active' : ''}`} onClick={() => { setTab('insumos'); setBusca(''); setFiltroCat('') }}>Insumos</button>
+          <button className={`tab-btn ${tab === 'embalagens'   ? 'active' : ''}`} onClick={() => { setTab('embalagens'); setBusca(''); setFiltroCat('') }}>Embalagens</button>
+          <button className={`tab-btn ${tab === 'fornecedores' ? 'active' : ''}`} onClick={() => { setTab('fornecedores'); setBusca(''); setFiltroCat('') }}>Fornecedores</button>
         </div>
 
         <div style={{ position: 'relative', marginBottom: 8 }}>
@@ -998,7 +1034,7 @@ export default function Cadastros() {
           <input
             className="field-input"
             style={{ paddingLeft: 32, marginBottom: 0 }}
-            placeholder={`Buscar ${tab}...`}
+            placeholder={tab === 'fornecedores' ? 'Buscar por fornecedor ou produto...' : `Buscar ${tab}...`}
             value={busca}
             onChange={e => setBusca(e.target.value)}
           />
@@ -1256,10 +1292,55 @@ export default function Cadastros() {
               </div>
             </div>
           </>
+        ) : tab === 'fornecedores' ? (
+          <div>
+            {fornecedoresFiltrados.length === 0 ? (
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
+                {busca ? 'Nenhum resultado' : 'Nenhum fornecedor cadastrado'}
+              </div>
+            ) : fornecedoresFiltrados.map((forn, fi) => (
+              <div key={fi} className="card" style={{ marginBottom: 10, padding: '14px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: forn.produtos.length > 0 ? 10 : 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)', flex: 1, minWidth: 0 }}>{forn.nome || '—'}</div>
+                  <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    {forn.whatsapp && (
+                      <a
+                        href={`https://wa.me/55${forn.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent('Olá! Gostaria de fazer um pedido.')}`}
+                        target="_blank" rel="noreferrer"
+                        style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 8, background: '#1a3a24', border: '1px solid #2d6b3a', color: '#4ade80', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                        WhatsApp
+                      </a>
+                    )}
+                  </div>
+                </div>
+                {forn.produtos.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {forn.produtos.map((p, pi) => (
+                      <div key={pi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', background: 'var(--bg-secondary)', borderRadius: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-tertiary)', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
+                            {p.tipo === 'insumo' ? 'insumo' : 'produto'}
+                          </span>
+                          <span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nome}</span>
+                        </div>
+                        {p.linkCompra && (
+                          <a href={p.linkCompra} target="_blank" rel="noreferrer"
+                            style={{ fontSize: 11, color: 'var(--teal)', textDecoration: 'none', flexShrink: 0, marginLeft: 8, fontWeight: 600 }}>
+                            Comprar →
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         ) : null}
       </div>
 
-      <button className="fab mobile-only" onClick={openNew}>+</button>
+      <button className="fab mobile-only" onClick={tab === 'fornecedores' ? undefined : openNew} style={{ display: tab === 'fornecedores' ? 'none' : undefined }}>+</button>
 
       {sheet?.type === 'insumo' && (
         <InsumoForm item={sheet.item} categorias={catsInsumo} fornecedoresList={fornecedores} insumosAll={insumos} onSave={insActions.save} onDelete={insActions.del} onDuplicate={insActions.dup} onClose={() => setSheet(null)} />
