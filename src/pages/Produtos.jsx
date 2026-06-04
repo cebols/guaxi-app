@@ -238,16 +238,42 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
     { key: 'precoIfood',  label: 'iFood',   sugerido: precos.pIfood, color: PLAT_COLOR.iFood     },
   ]
 
+  const autoSaveTimer = useRef(null)
+  const [autoSaved, setAutoSaved] = useState(false)
+
+  const buildSavePayload = () => {
+    const recItems    = isAvulso || isCombo ? [] : recRowsLive.filter(r => r.receitaId)
+    const embItems    = isAvulso || isCombo ? [] : embRows.filter(e => e.embalagemId)
+    const componentes = isCombo ? comboRows.filter(r => r.produtoId) : []
+    return [{ ...form, id: item?.id, precoSugerido: precos.base, componentes }, recItems, embItems]
+  }
+
+  const doSilentSave = async () => {
+    if (!form.nome || !item?.id) return
+    try { await onSave(...buildSavePayload()); setAutoSaved(true); setTimeout(() => setAutoSaved(false), 1500) }
+    catch (_) {}
+  }
+
+  const schedulePriceAutoSave = () => {
+    if (!item?.id) return
+    clearTimeout(autoSaveTimer.current)
+    autoSaveTimer.current = setTimeout(doSilentSave, 700)
+  }
+
   const handle = async () => {
     if (!form.nome) return
+    clearTimeout(autoSaveTimer.current)
     setSaving(true)
     try {
-      const recItems   = isAvulso || isCombo ? [] : recRowsLive.filter(r => r.receitaId)
-      const embItems   = isAvulso || isCombo ? [] : embRows.filter(e => e.embalagemId)
-      const componentes = isCombo ? comboRows.filter(r => r.produtoId) : []
-      await onSave({ ...form, id: item?.id, precoSugerido: precos.base, componentes }, recItems, embItems)
+      await onSave(...buildSavePayload())
       onClose()
     } catch (e) { alert(e.message) } finally { setSaving(false) }
+  }
+
+  const handleNav = (navFn) => {
+    clearTimeout(autoSaveTimer.current)
+    if (item?.id && form.nome) doSilentSave()
+    navFn()
   }
 
   const blockStyle = {
@@ -291,20 +317,21 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             {(hasPrev || hasNext) && (
               <>
-                <button onClick={onPrev} disabled={!hasPrev} style={{ background: 'none', border: 'none', cursor: hasPrev ? 'pointer' : 'default', padding: '4px 6px', display: 'flex', alignItems: 'center', color: hasPrev ? 'var(--text-secondary)' : 'var(--border)', borderRadius: 6 }}>
+                <button onClick={() => handleNav(onPrev)} disabled={!hasPrev} style={{ background: 'none', border: 'none', cursor: hasPrev ? 'pointer' : 'default', padding: '4px 6px', display: 'flex', alignItems: 'center', color: hasPrev ? 'var(--text-secondary)' : 'var(--border)', borderRadius: 6 }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </button>
                 {navLabel && <span style={{ fontSize: 11, color: 'var(--text-tertiary)', minWidth: 36, textAlign: 'center' }}>{navLabel}</span>}
-                <button onClick={onNext} disabled={!hasNext} style={{ background: 'none', border: 'none', cursor: hasNext ? 'pointer' : 'default', padding: '4px 6px', display: 'flex', alignItems: 'center', color: hasNext ? 'var(--text-secondary)' : 'var(--border)', borderRadius: 6 }}>
+                <button onClick={() => handleNav(onNext)} disabled={!hasNext} style={{ background: 'none', border: 'none', cursor: hasNext ? 'pointer' : 'default', padding: '4px 6px', display: 'flex', alignItems: 'center', color: hasNext ? 'var(--text-secondary)' : 'var(--border)', borderRadius: 6 }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </button>
               </>
             )}
             <button onClick={handle} disabled={saving || !form.nome} style={{
               background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-              fontSize: 14, fontWeight: 600, color: saving || !form.nome ? 'var(--text-tertiary)' : 'var(--teal)',
+              fontSize: 14, fontWeight: 600, color: saving || !form.nome ? 'var(--text-tertiary)' : autoSaved ? '#4ade80' : 'var(--teal)',
+              transition: 'color 0.3s',
             }}>
-              {saving ? 'Salvando…' : 'Salvar'}
+              {saving ? 'Salvando…' : autoSaved ? '✓ Salvo' : 'Salvar'}
             </button>
           </div>
         </div>
@@ -526,7 +553,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                   <div style={{ fontSize: 10, color, fontWeight: 600, marginBottom: 3 }}>{label}</div>
                   <input className="field-input" type="text" inputMode="decimal"
                     placeholder={custoTotal > 0 ? fmtR(sugerido).replace('R$ ', '') : '—'}
-                    value={form[key]} onChange={e => set(key, e.target.value)}
+                    value={form[key]} onChange={e => { set(key, e.target.value); schedulePriceAutoSave() }}
                     style={{ fontSize: 14, fontWeight: 600, textAlign: 'center', marginBottom: 0 }} />
                   {custoTotal > 0 && (
                     <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textAlign: 'center', marginTop: 2 }}>
