@@ -116,10 +116,14 @@ export default function ProducaoTodo() {
     if (!prod) return {}
     const map = {}
     for (const item of prod.itens) {
-      if (item.snapshot?.dosesContrib) {
+      if (item.snapshot?.dosesContrib && Object.keys(item.snapshot.dosesContrib).length > 0) {
         for (const [rid, d] of Object.entries(item.snapshot.dosesContrib)) {
           map[rid] = (map[rid] || 0) + d
         }
+      } else if (item.tipo === 'receita' && item.receitaId) {
+        // fallback: recipe item saved without dosesContrib
+        const d = item.quantidade || 0
+        if (d > 0) map[String(item.receitaId)] = (map[String(item.receitaId)] || 0) + d
       }
     }
     return map

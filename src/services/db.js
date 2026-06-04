@@ -998,14 +998,14 @@ function computeDoses(lote, receitas, produtos) {
         perItemContrib[idx][recRef.receitaId] = (perItemContrib[idx][recRef.receitaId] || 0) + d
       }
     } else {
-      // receita
+      // receita diretamente adicionada
       const rec = (receitas || []).find(r => r.id === item.refId)
-      if (!rec || !rec.rendimento) return
+      if (!rec) return
       let d
-      if (item.modo === 'peso_liquido' && rec.fatorPerda != null) {
+      if (item.modo === 'peso_liquido' && rec.fatorPerda != null && rec.rendimento) {
         const bruto = (item.valorAlvo || 0) / (1 - rec.fatorPerda / 100)
         d = bruto / rec.rendimento
-      } else if (item.modo === 'unidades') {
+      } else if (item.modo === 'unidades' && rec.rendimento) {
         d = (item.valorAlvo || 0) / rec.rendimento
       } else {
         d = item.qtd || 0
