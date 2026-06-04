@@ -201,6 +201,7 @@ export default function ReceitaForm() {
   ])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [custoBasis, setCustoBasis] = useState('un')  // 'un' | 'peso' — base de exibição do custo
   const [ingDrop, setIngDrop] = useState(null) // { idx, matches[] }
   const ingDropRef = useRef(null)
   const [importandoImg, setImportandoImg] = useState(false)
@@ -366,6 +367,8 @@ export default function ReceitaForm() {
   const rendimentoNum  = isUnitMode ? qtdUnidadesNum : rendLiquidoG
   const custoUnid      = rendimentoNum > 0 ? custoTotal / rendimentoNum : 0
   const unidadeLabel   = isUnitMode ? 'un' : 'g'
+  // Custo por 100g (base de peso) — usa rendimento líquido em gramas
+  const custo100g      = rendLiquidoG > 0 ? custoTotal / rendLiquidoG * 100 : 0
 
   const handleSave = async () => {
     if (!form.nome) { show('Preencha o nome da receita'); return }
@@ -678,20 +681,47 @@ export default function ReceitaForm() {
 
         {custoTotal > 0 && (
           <div style={{ margin: '12px 0 4px', padding: '10px 14px', background: 'var(--teal-light)', borderRadius: 8 }}>
-            <div style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>
-              Custo do lote: R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, color: 'var(--teal)', fontWeight: 600 }}>Custo do lote</span>
+              <span style={{ fontSize: 15, color: 'var(--teal)', fontWeight: 700 }}>R$ {custoTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
-            {rendimentoNum > 0 && (
-              <div style={{ fontSize: 12, color: 'var(--teal)', marginTop: 4 }}>
-                Rendimento: {isUnitMode
-                  ? `${qtdUnidadesNum} un${form.qtdPorUnidade ? ` × ${form.qtdPorUnidade}g/un` : ''}`
-                  : `${rendLiquidoG.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} g${fatorPerdaNum > 0 ? ' (líq.)' : ''}`}
-                {custoUnid > 0 && (
-                  <span style={{ marginLeft: 10, fontWeight: 600 }}>
-                    → R$ {custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{unidadeLabel}
+
+            {/* Toggle base: Por unidade / Por peso (só quando tem unidades) */}
+            {isUnitMode && rendLiquidoG > 0 && (
+              <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderRadius: 8, padding: 3, gap: 2, marginTop: 8 }}>
+                {[['un', 'Por unidade'], ['peso', 'Por peso']].map(([k, lab]) => (
+                  <div key={k} onClick={() => setCustoBasis(k)} style={{
+                    flex: 1, padding: '6px 0', borderRadius: 6, textAlign: 'center',
+                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    background: custoBasis === k ? 'var(--teal)' : 'transparent',
+                    color: custoBasis === k ? '#06140e' : 'var(--text-secondary)', transition: 'all .15s',
+                  }}>{lab}</div>
+                ))}
+              </div>
+            )}
+
+            {rendimentoNum > 0 && (() => {
+              const mostraPeso = !isUnitMode || custoBasis === 'peso'
+              return (
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 8 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {mostraPeso ? 'Custo por 100 g' : 'Custo por unidade'}
                   </span>
-                )}
-                {!isUnitMode && form.porcoes && parseInt(form.porcoes) > 0 && custoTotal > 0 && (
+                  <span style={{ fontSize: 18, color: 'var(--text-primary)', fontWeight: 700 }}>
+                    {mostraPeso
+                      ? `R$ ${custo100g.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : `R$ ${custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}`}
+                  </span>
+                </div>
+              )
+            })()}
+
+            {rendimentoNum > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
+                {isUnitMode
+                  ? `${qtdUnidadesNum} un${form.qtdPorUnidade ? ` · ${form.qtdPorUnidade} g/un` : ''} · líquido ${rendLiquidoG.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} g${fatorPerdaNum > 0 ? ` (perda ${fatorPerdaNum}%)` : ''}`
+                  : `líquido ${rendLiquidoG.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} g${fatorPerdaNum > 0 ? ` (perda ${fatorPerdaNum}%)` : ''}`}
+                {!isUnitMode && form.porcoes && parseInt(form.porcoes) > 0 && (
                   <span> · R$ {(custoTotal / parseInt(form.porcoes)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/porção</span>
                 )}
               </div>

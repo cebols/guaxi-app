@@ -435,6 +435,7 @@ export async function getProdutos() {
       precoIfood:  r.preco_ifood  ?? r.composicao?.precoIfood  ?? null,
       estoqueAtual: r.estoque_atual ?? null,
       estoqueMin:   r.estoque_min  ?? 0,
+      margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
       imagemUrl:   r.imagem_url || null,
       receitas:    (r.composicao?.receitas    || []),
       embalagens:  (r.composicao?.embalagens  || []),
@@ -460,6 +461,7 @@ export async function getProdutos() {
     secao:        r.secao       || '',
     estoqueAtual: r.estoque_atual ?? null,
     estoqueMin:   r.estoque_min  ?? 0,
+    margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
     imagemUrl:   r.imagem_url || null,
     componentes: (r.composicao?.componentes || []),
     receitas: (r.produto_receitas || []).map(pr => {
@@ -524,13 +526,14 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     preco_99:       toNum(prod.preco99),
     preco_ifood:    toNum(prod.precoIfood),
     estoque_min:    parseFloat(prod.estoqueMin) || 0,
+    margem_alvo:    prod.margemAlvo != null && prod.margemAlvo !== '' ? parseFloat(prod.margemAlvo) : null,
     imagem_url:     prod.imagemUrl ?? undefined,
     descricao:      prod.descricao ?? undefined,
     secao:          prod.secao     ?? undefined,
   }
 
   const saved = await upsert('produtos', row, prod.id || null,
-    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'imagem_url'])
+    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'margem_alvo', 'imagem_url'])
   const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)
@@ -555,6 +558,7 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     preco99:     toNum(prod.preco99),
     precoIfood:  toNum(prod.precoIfood),
     custoDireto: toNum(prod.custoDireto),
+    margemAlvo:  prod.margemAlvo != null && prod.margemAlvo !== '' ? parseFloat(prod.margemAlvo) : null,
     fornecedor:  prod.fornecedor  || '',
     whatsapp:    prod.whatsapp    || '',
     linkCompra:  prod.linkCompra  || '',

@@ -100,17 +100,18 @@ export function getCustoEmbalagemEncomenda(cfg, embalagens) {
   return avgEmbCusto(cfg, embalagens, 'embalagemEncomendaIds')
 }
 
-export function calcPrecos(custoTotal, cfg, custoSacola = 0) {
+export function calcPrecos(custoTotal, cfg, custoSacola = 0, marginOverride = null) {
   const c = cfg || getConfig()
-  if (!custoTotal || custoTotal <= 0) return { base: 0, p99: 0, pIfood: 0 }
+  if (!custoTotal || custoTotal <= 0) return { base: 0, p99: 0, pIfood: 0, rateio: 0, custoAjustado: 0 }
   const rateio = (c.unidadesProjetadas || 0) > 0
     ? (c.custoFixoMensal || 0) / c.unidadesProjetadas
     : 0
   const fd = Math.max(0, Math.min(100, parseFloat(c.fatorDesperdicio) || 0))
   const custoAjustado = custoTotal * (1 + fd / 100)
-  const base        = (custoAjustado + rateio) / (1 - (c.margem || 0) / 100)
-  const baseDelivery = (custoAjustado + rateio + custoSacola) / (1 - (c.margem || 0) / 100)
+  const margemPct = marginOverride != null && marginOverride !== '' ? parseFloat(marginOverride) : (c.margem || 0)
+  const base        = (custoAjustado + rateio) / (1 - margemPct / 100)
+  const baseDelivery = (custoAjustado + rateio + custoSacola) / (1 - margemPct / 100)
   const p99    = baseDelivery / (1 - (c.taxa99    || 0) / 100)
   const pIfood = baseDelivery / (1 - (c.taxaIfood || 0) / 100)
-  return { base, p99, pIfood }
+  return { base, p99, pIfood, rateio, custoAjustado }
 }

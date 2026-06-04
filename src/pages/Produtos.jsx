@@ -95,7 +95,7 @@ async function cropToBlob(imgEl, pixelCrop) {
   return new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92))
 }
 
-const FORM_EMPTY = { nome: '', tipo: 'produto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '', imagemUrl: '' }
+const FORM_EMPTY = { nome: '', tipo: 'produto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '', margemAlvo: null, imagemUrl: '' }
 
 function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onClose, hasPrev, hasNext, onPrev, onNext, navLabel }) {
   const [form, setForm] = useState(item
@@ -112,6 +112,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
         preco99:     item.preco99     ?? '',
         precoIfood:  item.precoIfood  ?? '',
         estoqueMin:  item.estoqueMin  ?? '',
+        margemAlvo:  item.margemAlvo ?? null,
         imagemUrl:   item.imagemUrl   || '',
       }
     : { ...FORM_EMPTY }
@@ -230,13 +231,26 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
 
   const cfg         = getConfig()
   const sacolaDelivery = getCustoSacolaDelivery(cfg, embalagens || [])
-  const precos      = calcPrecos(custoTotal, cfg, sacolaDelivery)
+  const precos      = calcPrecos(custoTotal, cfg, sacolaDelivery, form.margemAlvo)
+  const margemGlobal = cfg.margem || 0
+  const margemEfetiva = form.margemAlvo != null && form.margemAlvo !== '' ? parseFloat(form.margemAlvo) : margemGlobal
+  // custo total ajustado p/ cálculo de lucro real por canal (inclui rateio + fator desperdício)
+  const custoComRateio = (precos.custoAjustado || custoTotal) + (precos.rateio || 0)
 
   const platFields = [
-    { key: 'precoDireta', label: 'Direta',  sugerido: precos.base,   color: PLAT_COLOR.Direta    },
-    { key: 'preco99',     label: '99Food',  sugerido: precos.p99,    color: PLAT_COLOR['99Food'] },
-    { key: 'precoIfood',  label: 'iFood',   sugerido: precos.pIfood, color: PLAT_COLOR.iFood     },
+    { key: 'precoDireta', label: 'Direta',  sub: 'Venda própria', sugerido: precos.base,   taxa: 0,                      sacola: 0,              color: PLAT_COLOR.Direta    },
+    { key: 'preco99',     label: '99Food',  sub: `taxa ${cfg.taxa99 || 0}%`,  sugerido: precos.p99,    taxa: (cfg.taxa99 || 0) / 100,    sacola: sacolaDelivery, color: PLAT_COLOR['99Food'] },
+    { key: 'precoIfood',  label: 'iFood',   sub: `taxa ${cfg.taxaIfood || 0}%`, sugerido: precos.pIfood, taxa: (cfg.taxaIfood || 0) / 100, sacola: sacolaDelivery, color: PLAT_COLOR.iFood     },
   ]
+
+  // Lucro líquido + margem por canal a partir do preço praticado (ou sugerido)
+  const calcPlat = (p) => {
+    const preco = parseFloat(String(form[p.key]).replace(',', '.')) || p.sugerido
+    const lucro = preco * (1 - p.taxa) - custoComRateio - p.sacola
+    const margem = preco ? (lucro / preco) * 100 : 0
+    const tone = margem >= 50 ? '#22b886' : margem >= 30 ? '#f0b429' : '#f07070'
+    return { preco, lucro, margem, tone, usandoSug: !String(form[p.key]).trim() }
+  }
 
   const autoSaveTimer = useRef(null)
   const [autoSaved, setAutoSaved] = useState(false)
@@ -453,16 +467,15 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                 {comboRows.map((row, i) => {
                   const lineCost = (row.custoUnit || 0) * (parseFloat(row.quantidade) || 1)
                   return (
-                    <div key={i} style={{ padding: '8px 0', borderBottom: i < comboRows.length - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <input className="field-input" style={{ flex: 1, marginBottom: 0, fontSize: 13 }}
-                          list="combo-prod-list" placeholder="Produto" value={row.nome}
-                          onChange={e => handleComboSelect(i, e.target.value)} />
-                        <input className="item-qty" type="text" inputMode="decimal" placeholder="Qtd"
-                          value={row.quantidade} onChange={e => setComboField(i, 'quantidade', e.target.value)} />
-                        {comboRows.length > 1 && <button className="item-rm" onClick={() => removeCombo(i)}>&#215;</button>}
-                      </div>
-                      {lineCost > 0 && <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 3 }}>{fmtR(row.custoUnit)}/un × {row.quantidade} = <strong>{fmtR(lineCost)}</strong></div>}
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '7px 0', borderBottom: i < comboRows.length - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
+                      <input className="field-input" style={{ flex: 1, marginBottom: 0, fontSize: 13 }}
+                        list="combo-prod-list" placeholder="Produto" value={row.nome}
+                        onChange={e => handleComboSelect(i, e.target.value)} />
+                      <span style={{ width: 56, textAlign: 'right', fontSize: 12, fontWeight: 700, color: lineCost > 0 ? 'var(--teal)' : 'var(--text-tertiary)', flexShrink: 0 }}>{lineCost > 0 ? fmtR(lineCost) : '—'}</span>
+                      <input className="item-qty" type="text" inputMode="decimal" placeholder="Qtd"
+                        value={row.quantidade} onChange={e => setComboField(i, 'quantidade', e.target.value)} />
+                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 28, flexShrink: 0 }}>un</span>
+                      {comboRows.length > 1 && <button className="item-rm" onClick={() => removeCombo(i)}>&#215;</button>}
                     </div>
                   )
                 })}
@@ -481,20 +494,18 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                 {recRowsLive.map((row, i) => {
                   const lineCost = (row.custoUnid || 0) * (parseFloat(row.quantidade) || 1)
                   return (
-                    <div key={i} style={{ padding: '8px 0', borderBottom: i < recRows.length - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <input className="field-input" style={{ flex: 1, marginBottom: 0, fontSize: 13 }}
-                          list="receitas-list" placeholder="Receita" value={row.nome} onChange={e => handleRecSelect(i, e.target.value)} />
-                        <input className="item-qty" type="text" inputMode="decimal" placeholder="Qtd"
-                          value={row.quantidade} onChange={e => setRecField(i, 'quantidade', e.target.value)} />
-                        <select className="item-qty" style={{ width: 52, fontSize: 12, padding: '0 2px' }}
-                          value={row.unidade} onChange={e => setRecUnit(i, e.target.value)}>
-                          <option value="un">un</option>
-                          <option value="g">g</option>
-                        </select>
-                        {recRows.length > 1 && <button className="item-rm" onClick={() => removeRec(i)}>&#215;</button>}
-                      </div>
-                      {lineCost > 0 && <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 3 }}>R$ {row.custoUnid.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}/{row.unidade} × {row.quantidade} = <strong>R$ {lineCost.toLocaleString('pt-BR', { minimumFractionDigits: 4, maximumFractionDigits: 4 })}</strong></div>}
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '7px 0', borderBottom: i < recRows.length - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
+                      <input className="field-input" style={{ flex: 1, marginBottom: 0, fontSize: 13 }}
+                        list="receitas-list" placeholder="Receita" value={row.nome} onChange={e => handleRecSelect(i, e.target.value)} />
+                      <span style={{ width: 56, textAlign: 'right', fontSize: 12, fontWeight: 700, color: lineCost > 0 ? 'var(--teal)' : 'var(--text-tertiary)', flexShrink: 0 }}>{lineCost > 0 ? fmtR(lineCost) : '—'}</span>
+                      <input className="item-qty" type="text" inputMode="decimal" placeholder="Qtd"
+                        value={row.quantidade} onChange={e => setRecField(i, 'quantidade', e.target.value)} />
+                      <select className="item-qty" style={{ width: 48, fontSize: 12, padding: '0 2px' }}
+                        value={row.unidade} onChange={e => setRecUnit(i, e.target.value)}>
+                        <option value="un">un</option>
+                        <option value="g">g</option>
+                      </select>
+                      {recRows.length > 1 && <button className="item-rm" onClick={() => removeRec(i)}>&#215;</button>}
                     </div>
                   )
                 })}
@@ -503,20 +514,25 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 3v8M3 7h8" stroke="var(--teal)" strokeWidth="1.4" strokeLinecap="round"/></svg>
                   Adicionar receita
                 </button>
+                {recRowsLive.some(r => r.receitaId) && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: '0.5px solid var(--border-light-color)' }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>Subtotal receitas</span>
+                    <span style={{ fontSize: 14, color: 'var(--teal)', fontWeight: 700 }}>{fmtR(recRowsLive.reduce((s, r) => s + (r.custoUnid || 0) * (parseFloat(r.quantidade) || 1), 0))}</span>
+                  </div>
+                )}
 
                 <div style={{ ...fieldLabel, marginTop: 14 }}>Embalagens</div>
                 {embRows.map((row, i) => {
                   const lineCost = (row.custoUnit || 0) * (parseFloat(row.quantidade) || 1)
                   return (
-                    <div key={i} style={{ padding: '8px 0', borderBottom: i < embRows.length - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <input className="field-input" style={{ flex: 1, marginBottom: 0, fontSize: 13 }}
-                          list="embalagens-list" placeholder="Embalagem" value={row.nome} onChange={e => handleEmbSelect(i, e.target.value)} />
-                        <input className="item-qty" type="text" inputMode="decimal" placeholder="Qtd"
-                          value={row.quantidade} onChange={e => setEmbField(i, 'quantidade', e.target.value)} />
-                        {embRows.length > 1 && <button className="item-rm" onClick={() => removeEmb(i)}>&#215;</button>}
-                      </div>
-                      {lineCost > 0 && <div style={{ fontSize: 11, color: 'var(--teal)', paddingTop: 3 }}>{fmtR(row.custoUnit)}/un × {row.quantidade} = <strong>{fmtR(lineCost)}</strong></div>}
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '7px 0', borderBottom: i < embRows.length - 1 ? '0.5px solid var(--border-light-color)' : 'none' }}>
+                      <input className="field-input" style={{ flex: 1, marginBottom: 0, fontSize: 13 }}
+                        list="embalagens-list" placeholder="Embalagem" value={row.nome} onChange={e => handleEmbSelect(i, e.target.value)} />
+                      <span style={{ width: 56, textAlign: 'right', fontSize: 12, fontWeight: 700, color: lineCost > 0 ? 'var(--teal)' : 'var(--text-tertiary)', flexShrink: 0 }}>{lineCost > 0 ? fmtR(lineCost) : '—'}</span>
+                      <input className="item-qty" type="text" inputMode="decimal" placeholder="Qtd"
+                        value={row.quantidade} onChange={e => setEmbField(i, 'quantidade', e.target.value)} />
+                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)', width: 28, flexShrink: 0 }}>un</span>
+                      {embRows.length > 1 && <button className="item-rm" onClick={() => removeEmb(i)}>&#215;</button>}
                     </div>
                   )
                 })}
@@ -525,6 +541,12 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 3v8M3 7h8" stroke="var(--teal)" strokeWidth="1.4" strokeLinecap="round"/></svg>
                   Adicionar embalagem
                 </button>
+                {embRows.some(e => e.embalagemId) && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, paddingTop: 8, borderTop: '0.5px solid var(--border-light-color)' }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>Subtotal embalagens</span>
+                    <span style={{ fontSize: 14, color: 'var(--teal)', fontWeight: 700 }}>{fmtR(embRows.reduce((s, e) => s + (e.custoUnit || 0) * (parseFloat(e.quantidade) || 1), 0))}</span>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -533,36 +555,82 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
           <div style={blockStyle}>
             <div style={blockTitle}>Preços e Estoque</div>
 
-            {/* Custo total summary */}
+            {/* Custo total + breakdown */}
             <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '8px 10px', borderRadius: 8, background: 'var(--teal-light)',
+              padding: '10px 12px', borderRadius: 10, background: 'var(--teal-light)',
               border: '0.5px solid rgba(34,184,134,0.13)', marginBottom: 12,
             }}>
-              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Custo total</span>
-              <span style={{ fontSize: 14, color: 'var(--teal)', fontWeight: 700 }}>
-                {custoTotal > 0 ? fmtR(custoTotal) : '—'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Custo total</span>
+                <span style={{ fontSize: 18, color: 'var(--teal)', fontWeight: 700 }}>
+                  {custoComRateio > 0 ? fmtR(custoComRateio) : '—'}
+                </span>
+              </div>
+              {custoTotal > 0 && (
+                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 4 }}>
+                  {isAvulso
+                    ? `Item ${fmtR(custoTotal)} · rateio ${fmtR(precos.rateio || 0)}`
+                    : `Insumos ${fmtR(custoTotal)} · rateio ${fmtR(precos.rateio || 0)}`}
+                  {(precos.custoAjustado > custoTotal) ? ` · desperdício +${fmtR(precos.custoAjustado - custoTotal)}` : ''}
+                </div>
+              )}
+
+              {/* Margem-alvo segmented */}
+              <div style={{ marginTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Margem-alvo</span>
+                  <span style={{ fontSize: 11, color: 'var(--teal)', fontWeight: 700 }}>
+                    {margemEfetiva}%{form.margemAlvo == null ? ' (global)' : ''}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderRadius: 9, padding: 3, gap: 2 }}>
+                  {[{ v: null, lab: 'Global' }, { v: 50 }, { v: 55 }, { v: 60 }, { v: 65 }, { v: 70 }].map(({ v, lab }) => {
+                    const active = form.margemAlvo == null ? v == null : parseFloat(form.margemAlvo) === v
+                    return (
+                      <div key={lab || v} onClick={() => { set('margemAlvo', v); schedulePriceAutoSave() }} style={{
+                        flex: 1, padding: '7px 0', borderRadius: 6, textAlign: 'center',
+                        fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                        background: active ? 'var(--teal)' : 'transparent',
+                        color: active ? '#06140e' : 'var(--text-secondary)', transition: 'all .15s',
+                      }}>{lab || v}</div>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
 
-            {/* Preço de venda */}
-            <div style={{ ...fieldLabel, marginBottom: 6 }}>Preço de venda</div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
-              {platFields.map(({ key, label, sugerido, color }) => (
-                <div key={key} style={{ flex: 1 }}>
-                  <div style={{ fontSize: 10, color, fontWeight: 600, marginBottom: 3 }}>{label}</div>
-                  <input className="field-input" type="text" inputMode="decimal"
-                    placeholder={custoTotal > 0 ? fmtR(sugerido).replace('R$ ', '') : '—'}
-                    value={form[key]} onChange={e => { set(key, e.target.value); schedulePriceAutoSave() }}
-                    style={{ fontSize: 14, fontWeight: 600, textAlign: 'center', marginBottom: 0 }} />
-                  {custoTotal > 0 && (
-                    <div style={{ fontSize: 9, color: 'var(--text-tertiary)', textAlign: 'center', marginTop: 2 }}>
-                      sug. {fmtR(sugerido).replace('R$ ', '')}
+            {/* Preço por canal — lucro + margem */}
+            <div style={{ ...fieldLabel, marginBottom: 4 }}>Preço por canal</div>
+            {platFields.map((p) => {
+              const c = calcPlat(p)
+              return (
+                <div key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderTop: '0.5px solid var(--border-light-color)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{p.label}</span>
+                      <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>{p.sub}</span>
                     </div>
-                  )}
+                    {custoTotal > 0 && (
+                      <div style={{ fontSize: 11, color: c.tone, fontWeight: 600, marginTop: 3 }}>
+                        Lucro {fmtR(c.lucro)} <span style={{ color: 'var(--text-tertiary)', fontWeight: 500 }}>· {c.margem.toFixed(0)}% margem</span>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ width: 96, flexShrink: 0 }}>
+                    <input className="field-input" type="text" inputMode="decimal"
+                      placeholder={custoTotal > 0 ? p.sugerido.toFixed(2).replace('.', ',') : '—'}
+                      value={form[p.key]} onChange={e => { set(p.key, e.target.value); schedulePriceAutoSave() }}
+                      style={{ fontSize: 14, fontWeight: 600, textAlign: 'center', marginBottom: 0 }} />
+                    {custoTotal > 0 && (
+                      <div style={{ fontSize: 9, color: c.usandoSug ? p.color : 'var(--text-tertiary)', textAlign: 'center', marginTop: 2 }}>
+                        {c.usandoSug ? 'usando sugerido' : `sug. ${p.sugerido.toFixed(2).replace('.', ',')}`}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
+              )
+            })}
 
             {/* Estoque mínimo */}
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

@@ -227,6 +227,8 @@ ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS link_compra     text d
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS estoque_atual   numeric;
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS estoque_min     numeric default 0;
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS secao           text default '';
+-- Margem-alvo por produto (NULL = usa margem global de Configurações)
+ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS margem_alvo     numeric default null;
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS user_id         uuid default auth.uid() references auth.users(id) on delete cascade;
 
 ALTER TABLE produto_receitas     ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
