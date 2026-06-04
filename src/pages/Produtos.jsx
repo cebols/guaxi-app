@@ -97,7 +97,7 @@ async function cropToBlob(imgEl, pixelCrop) {
 
 const FORM_EMPTY = { nome: '', tipo: 'produto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '', imagemUrl: '' }
 
-function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onClose }) {
+function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onClose, hasPrev, hasNext, onPrev, onNext, navLabel }) {
   const [form, setForm] = useState(item
     ? {
         nome:        item.nome,
@@ -288,12 +288,25 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
               {item ? 'Editar produto' : 'Novo produto'}
             </span>
           </div>
-          <button onClick={handle} disabled={saving || !form.nome} style={{
-            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-            fontSize: 14, fontWeight: 600, color: saving || !form.nome ? 'var(--text-tertiary)' : 'var(--teal)',
-          }}>
-            {saving ? 'Salvando…' : 'Salvar'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {(hasPrev || hasNext) && (
+              <>
+                <button onClick={onPrev} disabled={!hasPrev} style={{ background: 'none', border: 'none', cursor: hasPrev ? 'pointer' : 'default', padding: '4px 6px', display: 'flex', alignItems: 'center', color: hasPrev ? 'var(--text-secondary)' : 'var(--border)', borderRadius: 6 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+                {navLabel && <span style={{ fontSize: 11, color: 'var(--text-tertiary)', minWidth: 36, textAlign: 'center' }}>{navLabel}</span>}
+                <button onClick={onNext} disabled={!hasNext} style={{ background: 'none', border: 'none', cursor: hasNext ? 'pointer' : 'default', padding: '4px 6px', display: 'flex', alignItems: 'center', color: hasNext ? 'var(--text-secondary)' : 'var(--border)', borderRadius: 6 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+              </>
+            )}
+            <button onClick={handle} disabled={saving || !form.nome} style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+              fontSize: 14, fontWeight: 600, color: saving || !form.nome ? 'var(--text-tertiary)' : 'var(--teal)',
+            }}>
+              {saving ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
         </div>
 
         {/* Scrollable content */}
@@ -1028,19 +1041,30 @@ export default function Produtos() {
         )}
       </div>
 
-      {sheet?.type === 'produto' && (
-        <ProdutoForm
-          item={sheet.item}
-          receitas={receitas}
-          embalagens={embalagens}
-          produtos={produtos}
-          insumos={insumos}
-          fornecedoresList={fornecedoresList}
-          onSave={handleSave}
-          onDelete={handleDelete}
-          onClose={() => setSheet(null)}
-        />
-      )}
+      {sheet?.type === 'produto' && (() => {
+        const lista = produtosFiltrados
+        const idx   = sheet.item ? lista.findIndex(p => p.id === sheet.item.id) : -1
+        const goTo  = (prod) => setSheet({ type: 'produto', item: prod })
+        return (
+          <ProdutoForm
+            key={sheet.item?.id ?? 'new'}
+            item={sheet.item}
+            receitas={receitas}
+            embalagens={embalagens}
+            produtos={produtos}
+            insumos={insumos}
+            fornecedoresList={fornecedoresList}
+            onSave={handleSave}
+            onDelete={handleDelete}
+            onClose={() => setSheet(null)}
+            hasPrev={idx > 0}
+            hasNext={idx >= 0 && idx < lista.length - 1}
+            onPrev={() => idx > 0 && goTo(lista[idx - 1])}
+            onNext={() => idx >= 0 && idx < lista.length - 1 && goTo(lista[idx + 1])}
+            navLabel={idx >= 0 ? `${idx + 1} / ${lista.length}` : ''}
+          />
+        )
+      })()}
 
       {sheet?.type === 'secoes' && (
         <OrganizarSecoesSheet
