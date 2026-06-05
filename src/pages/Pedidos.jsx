@@ -3,7 +3,7 @@ import { useLocation, useNavigate as useRRNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
-import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, deletePedido, adjustEstoqueProduto } from '../services/db'
+import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, updateEncomendaItens, deletePedido, adjustEstoqueProduto } from '../services/db'
 
 const STATUS_OPTS = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
 const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
@@ -767,11 +767,16 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const [tipoEntrega, setTipoEntrega] = useState(pedido.tipoEntrega || 'Retirada')
   const [frete, setFrete]             = useState(pedido.frete > 0 ? String(pedido.frete) : '')
   const [dataEntrega, setDataEntrega] = useState(pedido.dataEntrega || '')
+  const [itens, setItens]             = useState(() => (pedido.itens || []).map(it => ({
+    ...it, quantidade: String(it.quantidade ?? 1), precoUnit: String(it.precoUnit ?? 0),
+  })))
   const [saving, setSaving]           = useState(false)
   const [confirm, setConfirm]         = useState(false)
 
+  const setItem = (i, k, v) => setItens(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
+
   const wa = waLink(pedido.contato)
-  const itensSubtotal = (pedido.itens || []).reduce((s, it) => s + (it.precoUnit||0) * (it.quantidade||1), 0)
+  const itensSubtotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit)||0) * (parseFloat(it.quantidade)||1), 0)
   const freteNum = tipoEntrega === 'Entrega' ? (parseFloat(frete) || 0) : 0
   const totalAtual = itensSubtotal + freteNum
 
@@ -786,6 +791,7 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const handleSave = async () => {
     setSaving(true)
     try {
+      await updateEncomendaItens(pedido.id, itens)
       await updateStatusEncomenda(pedido.id, status, pgto, tipoEntrega, frete, totalAtual, dataEntrega)
       show('Salvo!')
       setTimeout(() => { onSaved(); onBack() }, 700)
@@ -841,19 +847,37 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 10 }}>
             Itens
           </div>
-          {(pedido.itens || []).map((it, i, arr) => (
+          {itens.map((it, i, arr) => {
+            const linha = (parseFloat(it.precoUnit)||0) * (parseFloat(it.quantidade)||1)
+            return (
             <div key={it.id || i} style={{
-              display: 'flex', justifyContent: 'space-between', padding: '6px 0',
+              display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0',
               borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 13,
             }}>
-              <span>
+              <span style={{ flex: 1, minWidth: 0 }}>
                 {it.produto}
                 {alertMap[it.produto] && <span style={{ marginLeft: 6, fontSize: 11, color: '#f59e0b' }}>⚠️</span>}
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 6 }}>×{it.quantidade}</span>
               </span>
-              <span style={{ fontWeight: 600, color: 'var(--teal)' }}>R$ {fmtR((it.precoUnit||0) * (it.quantidade||1))}</span>
+              <input
+                type="text" inputMode="numeric" value={it.quantidade}
+                onChange={e => setItem(i, 'quantidade', e.target.value)}
+                onFocus={e => e.target.select()}
+                style={{ width: 42, textAlign: 'center', padding: '4px 4px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}
+              />
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>×</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>R$</span>
+                <input
+                  type="text" inputMode="decimal" value={it.precoUnit}
+                  onChange={e => setItem(i, 'precoUnit', e.target.value)}
+                  onFocus={e => e.target.select()}
+                  style={{ width: 60, textAlign: 'center', padding: '4px 4px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}
+                />
+              </div>
+              <span style={{ fontWeight: 600, color: 'var(--teal)', minWidth: 64, textAlign: 'right', flexShrink: 0 }}>R$ {fmtR(linha)}</span>
             </div>
-          ))}
+            )
+          })}
           <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', fontWeight: 700, fontSize: 14 }}>
             <span>Total</span>
             <span>R$ {fmtR(totalAtual)}</span>
@@ -1292,7 +1316,7 @@ export default function Pedidos() {
               const stats = [
                 { label: 'Em aberto', value: String(pendentes), sub: pendentes === 1 ? 'pedido' : 'pedidos' },
                 { label: 'Pgto pendente', value: String(abertos), sub: abertos === 1 ? 'pedido' : 'pedidos' },
-                { label: 'A receber', value: `R$ ${Number(aReceber).toLocaleString('pt-BR', { minimumFractionDigits: 0 })}`, sub: '' },
+                { label: 'A receber', value: `R$ ${Number(aReceber).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`, sub: '' },
               ]
               return (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>

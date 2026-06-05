@@ -767,6 +767,18 @@ export async function savePedido(pedido, itens) {
   return id
 }
 
+export async function updateEncomendaItens(id, itens) {
+  // Atualiza preço/qtd de cada item existente (por id)
+  for (const it of itens) {
+    if (!it.id) continue
+    const { error } = await supabase.from('encomenda_itens').update({
+      quantidade: parseFloat(it.quantidade) || 1,
+      preco_unit: parseFloat(it.precoUnit) || 0,
+    }).eq('id', it.id)
+    if (error) throw error
+  }
+}
+
 export async function deletePedido(id) {
   const { data: { user } } = await supabase.auth.getUser()
   const { error } = await supabase.rpc('delete_pedido', { p_id: id, p_user_id: user.id })
