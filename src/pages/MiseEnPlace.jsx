@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
   getReceitas, getInsumos, getProdutos,
-  saveProducao, getProducoes, computeAjustesPendentes,
+  saveProducao, getProducoes, computeAjustesPendentes, recDosesFromRef,
 } from '../services/db'
 
 const THERMAL_TYPES = [
@@ -130,9 +130,9 @@ export default function MiseEnPlace() {
         if (!prod) continue
         for (const rr of (prod.receitas || [])) {
           const rec = (receitas || []).find(r => r.id === rr.receitaId)
-          if (!rec || !rec.rendimento) continue
-          const d = ((rr.quantidade || 1) * (item.qtd || 0)) / rec.rendimento
-          map[rr.receitaId] = (map[rr.receitaId] || 0) + d
+          if (!rec) continue
+          const d = recDosesFromRef(rec, (rr.quantidade || 1) * (item.qtd || 0), rr.unidade)
+          if (d > 0) map[rr.receitaId] = (map[rr.receitaId] || 0) + d
         }
       } else {
         const rec = (receitas || []).find(r => r.id === item.refId)
@@ -527,7 +527,7 @@ function LoteCard({ item, rec, prod, receitas, onUpdate, onRemove }) {
           <div style={{ fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 3 }}>contém</div>
           {(prod.receitas || []).map((rr, i) => (
             <div key={i} style={{ padding: '1px 0' }}>
-              · {fmtQtd((rr.quantidade || 1) * (item.qtd || 0))} {rr.unidadeGera || ''} {rr.nome}
+              · {fmtQtd((rr.quantidade || 1) * (item.qtd || 0))} {rr.unidade || rr.unidadeGera || ''} {rr.nome}
             </div>
           ))}
         </div>

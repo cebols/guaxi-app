@@ -993,8 +993,24 @@ export async function deleteVenda(id) {
 // ─── Mise en place v2 ─────────────────────────────────────────
 // Calcula doses por receita a partir de um lote (produtos+receitas)
 // e retorna { dosesPerReceita, perItemContrib }.
-function computeDoses(lote, receitas, produtos) {
-  const dosesPerReceita = {}            // receitaId -> total doses
+// Converte quantidade de uma receita (em sua unidade de referência g/un) para doses (bateladas).
+// Espelha a semântica de custo de recCustoForUnit em Produtos.jsx:
+//  - "un" de receita feita em g  = 1 batelada inteira
+//  - "g"  de receita feita em un = fração do peso total
+export function recDosesFromRef(rec, quantidade, unidade) {
+  if (!rec) return 0
+  const qty = quantidade || 0
+  const ug = rec.unidadeGera || 'un'
+  const u = unidade || ug
+  if (u === 'un' && ug !== 'un') return qty           // cada un = 1 batelada
+  if (u === 'g' && ug === 'un') {
+    const totalG = rec.pesoLiquido || (rec.rendimento * (rec.qtdPorUnidade || 0))
+    return totalG > 0 ? qty / totalG : 0
+  }
+  return rec.rendimento ? qty / rec.rendimento : 0     // mesma base (un&un ou g&g)
+}
+
+function computeDoses(lote, receitas, produtos) {  const dosesPerReceita = {}            // receitaId -> total doses
   const perItemContrib  = lote.map(() => ({})) // [{receitaId: doses}, ...]
 
   lote.forEach((item, idx) => {
@@ -1003,9 +1019,10 @@ function computeDoses(lote, receitas, produtos) {
       if (!prod) return
       for (const recRef of (prod.receitas || [])) {
         const rec = (receitas || []).find(r => r.id === recRef.receitaId)
-        if (!rec || !rec.rendimento) continue
+        if (!rec) continue
         const amount = (recRef.quantidade || 1) * (item.qtd || 0)
-        const d = amount / rec.rendimento
+        const d = recDosesFromRef(rec, amount, recRef.unidade)
+        if (!(d > 0)) continue
         dosesPerReceita[recRef.receitaId] = (dosesPerReceita[recRef.receitaId] || 0) + d
         perItemContrib[idx][recRef.receitaId] = (perItemContrib[idx][recRef.receitaId] || 0) + d
       }
