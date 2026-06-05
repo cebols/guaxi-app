@@ -354,12 +354,16 @@ export default function ProducaoTodo() {
                       type="text" inputMode="decimal"
                       value={editVal}
                       onChange={e => setQtdEdits(s => ({ ...s, [item.id]: e.target.value }))}
-                      onBlur={() => handleSaveQtd(item)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.target.blur(); handleSaveQtd(item) } }}
                       onFocus={e => e.target.select()}
                       style={{ width: 52, textAlign: 'center', border: '1px solid var(--teal)', borderRadius: 5, padding: '3px 4px', fontSize: 12, background: 'var(--card-bg)', color: 'var(--teal)', fontWeight: 700 }}
                     />
                     <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{unidLabel}</span>
-                    {savingQtd[item.id] && <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>…</span>}
+                    {savingQtd[item.id] ? (
+                      <span style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>…</span>
+                    ) : qtdEdits[item.id] !== undefined ? (
+                      <button onClick={() => handleSaveQtd(item)} style={{ background: 'var(--teal)', border: 'none', color: '#fff', borderRadius: 5, fontSize: 12, fontWeight: 700, padding: '2px 6px', cursor: 'pointer', flexShrink: 0 }}>✓</button>
+                    ) : null}
                     <button onClick={() => setConfirmDelItem(item.id)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 14, cursor: 'pointer', padding: '0 2px' }}>×</button>
                   </div>
                 ) : (
