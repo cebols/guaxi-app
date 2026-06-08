@@ -5,7 +5,6 @@ import { useToast } from '../hooks/useToast'
 import { getConfig, saveConfig, calcPrecos, getCustoSacolaDelivery, CONFIG_DEFAULTS } from '../hooks/useConfig'
 import { getVendas, getEncomendas, getEmbalagens, loadUserConfig, saveUserConfig } from '../services/db'
 import { useAuth } from '../contexts/AuthContext'
-import { SpotlightHint } from '../components/SpotlightHint'
 
 function fmtPct(v) { return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) }
 function fmtR(v) {
@@ -470,14 +469,6 @@ export default function Configuracoes() {
             )}
           </div>
         </div>
-        {showMargemHint && (
-          <SpotlightHint
-            targetRef={margemRef}
-            stepKey="margem"
-            title="Defina sua margem de lucro"
-            body="Essa margem é usada para calcular o preço sugerido de todos os seus produtos. Ajuste para o valor que você precisa ganhar."
-          />
-        )}
 
         {/* ── Ponto de equilíbrio ─────────────────────────── */}
         <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>

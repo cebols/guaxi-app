@@ -4,7 +4,6 @@ import { supabase } from '../lib/supabase'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
-import { SpotlightHint } from '../components/SpotlightHint'
 import { ItemThumb } from '../components/ItemThumb'
 import { ImportarTexto } from '../components/ImportarTexto'
 
@@ -1536,25 +1535,6 @@ export default function Cadastros() {
 
       {toast && <div className="toast">{toast}</div>}
 
-      {/* Hints de onboarding */}
-      {profile?.onboardingDone && (
-        <>
-          <SpotlightHint
-            targetRef={importRef}
-            stepKey="import_insumos"
-            show={(insumos || []).length === 0}
-            title="Importe sua lista de insumos"
-            body="Envie uma foto da sua lista ou importe de uma planilha Excel — o app lê automaticamente nome, unidade e fornecedor."
-          />
-          <SpotlightHint
-            targetRef={importRef}
-            stepKey="fornecedor_links"
-            show={(insumos || []).length > 0}
-            title="Acesso rápido ao fornecedor"
-            body="Cada insumo pode ter o link da loja e o WhatsApp do fornecedor. Toque no insumo para adicionar e faça pedidos em segundos."
-          />
-        </>
-      )}
     </>
   )
 }

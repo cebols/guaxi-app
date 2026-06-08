@@ -588,3 +588,9 @@ CREATE POLICY "users manage own snapshots" ON contagem_snapshots
 -- parent_fator: fração do peso do pai que gera este filho (clara=0.6, gema=0.4)
 ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_insumo_id bigint REFERENCES insumos(id) ON DELETE SET NULL;
 ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_fator numeric DEFAULT NULL;
+
+-- ── Limpeza: receitas de tutorial/seed sem user_id ────────────────────────────
+-- Se uma receita existe com user_id NULL (inserida como demo global), a policy
+-- "user_id = auth.uid()" impede que o usuário a apague via UI.
+-- Rode no Supabase SQL Editor para remover de vez:
+-- DELETE FROM receitas WHERE user_id IS NULL;

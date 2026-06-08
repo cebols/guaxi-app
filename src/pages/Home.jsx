@@ -351,53 +351,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Setup checklist */}
-        {(() => {
-          if (!profile?.onboardingDone) return null
-          if (loadEnc || loadIns || loadProd) return null
-          const cfg = getConfig()
-          const steps = [
-            { label: 'Cadastrar insumos', sub: 'Ingredientes e embalagens', path: '/cadastros', done: (insumos || []).length > 0 },
-            { label: 'Montar seu cardápio', sub: 'Produtos que você vende', path: '/produtos', done: (produtos || []).filter(p => p.tipo !== 'combo').length > 0 },
-            { label: 'Definir margens & custos', sub: 'Margem de lucro e custos fixos', path: '/configuracoes', done: cfg.custoFixoMensal > 0 || cfg.margem !== CONFIG_DEFAULTS.margem },
-            { label: 'Registrar primeiras vendas', sub: 'Anote seus pedidos e encomendas', path: '/pedidos', done: (encomendas || []).length > 0 },
-          ]
-          if (steps.every(s => s.done)) return null
-          const doneCt = steps.filter(s => s.done).length
-          return (
-            <div className="card" style={{ background: 'var(--teal-light)', border: '1px solid var(--teal-dark)', marginBottom: 16 }}>
-              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--teal)', marginBottom: 2 }}>
-                Vamos preparar a {profile?.nomeLoja || 'sua loja'}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--teal)', opacity: 0.7, marginBottom: 14 }}>
-                {doneCt} de {steps.length} concluídos
-              </div>
-              {steps.map((step, i) => (
-                <button key={i} onClick={() => !step.done && navigate(step.path)} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, width: '100%',
-                  padding: '10px 12px', borderRadius: 8, marginBottom: 6, textAlign: 'left',
-                  border: '1px solid rgba(34,184,134,0.2)',
-                  background: step.done ? 'rgba(13,51,38,0.3)' : 'rgba(13,51,38,0.6)',
-                  cursor: step.done ? 'default' : 'pointer', opacity: step.done ? 0.6 : 1,
-                }}>
-                  <div style={{
-                    width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                    background: step.done ? 'transparent' : 'var(--teal)',
-                    border: step.done ? '2px solid var(--teal)' : 'none',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 13, fontWeight: 800, color: step.done ? 'var(--teal)' : '#fff',
-                  }}>{step.done ? '✓' : i + 1}</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--teal)', textDecoration: step.done ? 'line-through' : 'none', opacity: step.done ? 0.7 : 1 }}>{step.label}</div>
-                    {!step.done && <div style={{ fontSize: 11, color: 'var(--teal)', opacity: 0.6, marginTop: 1 }}>{step.sub}</div>}
-                  </div>
-                  {!step.done && <span style={{ color: 'var(--teal)', opacity: 0.5, fontSize: 16 }}>›</span>}
-                </button>
-              ))}
-            </div>
-          )
-        })()}
-
         {/* Action chips */}
         {acoesAgora.length > 0 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>

@@ -3,64 +3,8 @@ import { useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
-import { SpotlightHint } from '../components/SpotlightHint'
 import { getConfig, getCustoSacolaDelivery } from '../hooks/useConfig'
 import { getProdutos, getVendas, saveVenda, deleteVenda, getCompras, getEncomendas, getEmbalagens } from '../services/db'
-
-function MockVendasPreview({ dreRef }) {
-  return (
-    <div style={{ position: 'relative', opacity: 0.8, pointerEvents: 'none' }}>
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center',
-        fontSize: 11, color: 'var(--text-tertiary)', fontStyle: 'italic', zIndex: 1 }}>
-        Preview — seus dados aparecerão aqui
-      </div>
-      <div className="metric-grid" style={{ marginBottom: 12, marginTop: 18 }}>
-        {[
-          { label: 'Faturamento líq.', value: 'R$ 3.240' },
-          { label: 'Lucro líquido',    value: 'R$ 1.458', color: 'var(--teal)' },
-          { label: 'Margem líquida',   value: '45%',      color: 'var(--teal)' },
-          { label: 'Unidades',         value: '87' },
-        ].map(m => (
-          <div key={m.label} className="card" style={{ marginBottom: 0 }}>
-            <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700, marginBottom: 4 }}>{m.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: m.color || 'var(--text-primary)' }}>{m.value}</div>
-          </div>
-        ))}
-      </div>
-      <div ref={dreRef} className="card" style={{ padding: '12px 16px', marginBottom: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>DRE · Este mês</div>
-        {[
-          { label: 'Receita bruta',        value: 'R$ 3.780' },
-          { label: '− Taxas plataformas',  value: '− R$ 540' },
-          { label: '= Receita líquida',    value: 'R$ 3.240', bold: true },
-          { label: '− CMV (custo receitas)', value: '− R$ 1.020' },
-          { label: '− Custos fixos',       value: '− R$ 550' },
-          { label: '= Lucro líquido',      value: 'R$ 1.458', bold: true, color: 'var(--teal)' },
-        ].map(row => (
-          <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between',
-            padding: '6px 0', borderTop: row.bold ? '1px solid var(--border)' : 'none', marginTop: row.bold ? 4 : 0 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{row.label}</span>
-            <span style={{ fontSize: 13, fontWeight: row.bold ? 700 : 400, color: row.color || 'var(--text-primary)' }}>{row.value}</span>
-          </div>
-        ))}
-      </div>
-      <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Canal de venda</div>
-        {[['Direta', 60, 'var(--teal)'], ['iFood', 28, '#ef4444'], ['99Food', 12, '#f59e0b']].map(([plat, pct, cor]) => (
-          <div key={plat} style={{ marginBottom: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: cor }}>{plat}</span>
-              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{pct}%</span>
-            </div>
-            <div style={{ height: 4, background: '#252525', borderRadius: 2 }}>
-              <div style={{ width: `${pct}%`, height: '100%', background: cor, borderRadius: 2 }} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 function DateInput({ value, onChange, className, style }) {
   function toDisplay(iso) {
@@ -1057,7 +1001,6 @@ export default function Vendas() {
   const [customFim, setCustomFim]       = useState(isoToday)
   const { toast, show }       = useToast()
   const { profile }           = useAuth()
-  const mockDreRef            = useRef(null)
 
   const { data: produtos,   loading: lProd }               = useData(getProdutos)
   const { data: vendas,     loading: lVend, reload: rVend } = useData(getVendas)
@@ -1319,12 +1262,7 @@ export default function Vendas() {
               </div>
             )}
 
-            {/* Mock preview para onboarding */}
-            {!loading && todasVendasAll.length === 0 && profile?.onboardingDone && (
-              <MockVendasPreview dreRef={mockDreRef} />
-            )}
-
-            <div className="metric-grid" style={{ marginBottom: 12, display: !loading && todasVendasAll.length === 0 ? 'none' : undefined }}>
+            <div className="metric-grid" style={{ marginBottom: 12 }}>
               {[
                 { label: 'Faturamento líq.', value: fmtR(totalRevNet) },
                 { label: 'Lucro líquido',    value: fmtR(lucroLiquido), color: lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)' },
@@ -1590,15 +1528,6 @@ export default function Vendas() {
 
       {toast && <div className="toast">{toast}</div>}
 
-      {profile?.onboardingDone && (
-        <SpotlightHint
-          targetRef={mockDreRef}
-          stepKey="vendas_dre"
-          show={!lVend && !lEnc && todasVendasAll.length === 0}
-          title="DRE — resultado financeiro do mês"
-          body="Registre suas vendas e o app monta automaticamente seu DRE: receita, CMV, custos fixos e lucro líquido — tudo em tempo real."
-        />
-      )}
     </>
   )
 }
