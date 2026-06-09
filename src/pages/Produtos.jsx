@@ -94,7 +94,7 @@ async function cropToBlob(imgEl, pixelCrop) {
   return new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92))
 }
 
-const FORM_EMPTY = { nome: '', tipo: 'produto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueMin: '', margemAlvo: null, imagemUrl: '' }
+const FORM_EMPTY = { nome: '', tipo: 'produto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueAtual: '', estoqueMin: '', margemAlvo: null, imagemUrl: '' }
 
 function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onClose, hasPrev, hasNext, onPrev, onNext, navLabel }) {
   const [form, setForm] = useState(item
@@ -110,6 +110,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
         precoDireta: item.precoDireta ?? '',
         preco99:     item.preco99     ?? '',
         precoIfood:  item.precoIfood  ?? '',
+        estoqueAtual: item.estoqueAtual ?? '',
         estoqueMin:  item.estoqueMin  ?? '',
         margemAlvo:  item.margemAlvo ?? null,
         imagemUrl:   item.imagemUrl   || '',
@@ -635,8 +636,20 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
               )
             })}
 
-            {/* Estoque mínimo */}
+            {/* Estoque atual e mínimo */}
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Estoque atual</span>
+              <input type="text" inputMode="decimal"
+                placeholder="—"
+                value={form.estoqueAtual}
+                onChange={e => set('estoqueAtual', e.target.value)}
+                style={{
+                  padding: '6px 14px', borderRadius: 6, background: 'var(--bg-input)',
+                  border: '0.5px solid var(--border-light-color)', fontSize: 14, color: 'var(--text-primary)',
+                  fontWeight: 600, width: 64, textAlign: 'center',
+                }} />
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Estoque mínimo</span>
               <input type="text" inputMode="decimal"
                 placeholder="—"

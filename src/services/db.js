@@ -525,6 +525,7 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     preco_direta:   toNum(prod.precoDireta),
     preco_99:       toNum(prod.preco99),
     preco_ifood:    toNum(prod.precoIfood),
+    estoque_atual:  prod.estoqueAtual !== '' && prod.estoqueAtual != null ? parseFloat(prod.estoqueAtual) : null,
     estoque_min:    parseFloat(prod.estoqueMin) || 0,
     margem_alvo:    prod.margemAlvo != null && prod.margemAlvo !== '' ? parseFloat(prod.margemAlvo) : null,
     imagem_url:     prod.imagemUrl ?? undefined,
@@ -533,7 +534,7 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
   }
 
   const saved = await upsert('produtos', row, prod.id || null,
-    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'margem_alvo', 'imagem_url'])
+    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'estoque_atual', 'margem_alvo', 'imagem_url'])
   const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)
