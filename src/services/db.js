@@ -786,13 +786,14 @@ export async function deletePedido(id) {
   if (error) throw error
 }
 
-export async function updateStatusEncomenda(id, status, pgto, tipoEntrega, frete, valor, dataEntrega) {
+export async function updateStatusEncomenda(id, status, pgto, tipoEntrega, frete, valor, dataEntrega, endereco) {
   const update = { status, pgto }
   if (pgto === 'Pago') update.data_pago = new Date().toISOString().split('T')[0]
   if (tipoEntrega !== undefined) update.tipo_entrega = tipoEntrega
   if (frete !== undefined) update.frete = parseFloat(frete) || 0
   if (valor !== undefined) update.valor = valor
   if (dataEntrega !== undefined) update.data_entrega = dataEntrega || null
+  if (endereco !== undefined) update.endereco = endereco || ''
   const { error } = await supabase.from('encomendas').update(update).eq('id', id)
   if (error) {
     if (error.message?.includes('tipo_entrega') || error.message?.includes('frete') || error.message?.includes('data_pago')) {

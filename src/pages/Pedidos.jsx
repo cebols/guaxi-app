@@ -770,6 +770,7 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const [itens, setItens]             = useState(() => (pedido.itens || []).map(it => ({
     ...it, quantidade: String(it.quantidade ?? 1), precoUnit: String(it.precoUnit ?? 0),
   })))
+  const [endereco, setEndereco]       = useState(pedido.endereco || '')
   const [saving, setSaving]           = useState(false)
   const [confirm, setConfirm]         = useState(false)
 
@@ -792,7 +793,7 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
     setSaving(true)
     try {
       await updateEncomendaItens(pedido.id, itens)
-      await updateStatusEncomenda(pedido.id, status, pgto, tipoEntrega, frete, totalAtual, dataEntrega)
+      await updateStatusEncomenda(pedido.id, status, pgto, tipoEntrega, frete, totalAtual, dataEntrega, endereco)
       show('Salvo!')
       setTimeout(() => { onSaved(); onBack() }, 700)
     } catch (e) {
@@ -930,6 +931,25 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
             </select>
           </div>
         )}
+
+        {/* Endereço */}
+        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 8 }}>
+            Endereço de entrega
+          </div>
+          <textarea
+            rows={2}
+            placeholder="Rua, número, bairro..."
+            value={endereco}
+            onChange={e => setEndereco(e.target.value)}
+            style={{
+              width: '100%', boxSizing: 'border-box', resize: 'vertical',
+              background: 'var(--bg-input)', border: '1px solid var(--border)',
+              borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
+              padding: '8px 10px', lineHeight: 1.5,
+            }}
+          />
+        </div>
 
         {/* Obs */}
         {pedido.obs && (
