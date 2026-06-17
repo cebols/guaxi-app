@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { stops, serviceType = 'MOTORCYCLE', language = 'pt_BR' } = req.body || {}
+    const { stops, serviceType = 'CAR', language = 'pt_BR' } = req.body || {}
     if (!Array.isArray(stops) || stops.length < 2) {
       res.status(400).json({ error: 'stops must have at least origin and destination' })
       return
