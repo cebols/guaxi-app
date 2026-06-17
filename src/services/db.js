@@ -1757,7 +1757,7 @@ export async function getCardapioPublico(id) {
 export async function getPublicProdutos(userId) {
   const { data, error } = await supabase
     .from('produtos')
-    .select('id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo, secao')
+    .select('id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo, secao, fragilidade')
     .eq('user_id', userId)
     .gt('estoque_atual', 0)
     .order('nome')
@@ -1771,6 +1771,7 @@ export async function getPublicProdutos(userId) {
     imagemUrl: r.imagem_url || null,
     tipo: r.tipo || 'produto',
     secao: r.secao || '',
+    fragilidade: r.fragilidade || 'robusto',
   }))
 }
 
@@ -1782,7 +1783,7 @@ export async function getPublicDeliveryConfig(userId) {
   } catch { return null }
 }
 
-export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0) {
+export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0, entrega = {}) {
   const itens = carrinho.map(it => ({
     produto_id:   it.produto.id,
     produto_nome: it.produto.nome,
@@ -1798,6 +1799,10 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
     p_obs:         form.obs || '',
     p_itens:       itens,
     p_frete:       freteValor,
+    p_data_entrega: entrega.dataEntrega || null,
+    p_lat:         entrega.lat ?? null,
+    p_lng:         entrega.lng ?? null,
+    p_frag:        entrega.frag || 'robusto',
   })
   if (error) throw error
   return data

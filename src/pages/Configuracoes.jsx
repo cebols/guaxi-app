@@ -126,7 +126,7 @@ export default function Configuracoes() {
   const { data: encomendas }  = useData(getEncomendas)
   const { data: embalagens }  = useData(getEmbalagens)
 
-  const [deliveryCfg, setDeliveryCfg] = useState({ lojaCEP: '', lojaEndereco: '', freteGratis: 0, freteTiers: [] })
+  const [deliveryCfg, setDeliveryCfg] = useState({ lojaCEP: '', lojaEndereco: '', freteGratis: 0, freteTiers: [], diasEntrega: [], lojaLat: null, lojaLng: null })
   useEffect(() => {
     loadUserConfig().then(cfg => {
       if (cfg?.delivery) setDeliveryCfg(d => ({ ...d, ...cfg.delivery }))
@@ -134,20 +134,50 @@ export default function Configuracoes() {
   }, [])
 
   const setDel = (k, v) => setDeliveryCfg(d => ({ ...d, [k]: v }))
+  const toggleDia = (n) => setDeliveryCfg(d => {
+    const has = (d.diasEntrega || []).includes(n)
+    if (has) return { ...d, diasEntrega: d.diasEntrega.filter(x => x !== n) }
+    if ((d.diasEntrega || []).length >= 3) return d // máx 3 dias/semana
+    return { ...d, diasEntrega: [...(d.diasEntrega || []), n].sort() }
+  })
   const addTier = () => setDeliveryCfg(d => ({ ...d, freteTiers: [...d.freteTiers, { ate: '', valor: '' }] }))
   const removeTier = (i) => setDeliveryCfg(d => ({ ...d, freteTiers: d.freteTiers.filter((_, idx) => idx !== i) }))
   const updateTier = (i, k, v) => setDeliveryCfg(d => ({ ...d, freteTiers: d.freteTiers.map((t, idx) => idx === i ? { ...t, [k]: v } : t) }))
+
+  // Geocodifica o CEP da loja para guardar coords (usado no frete por dia, server-side)
+  async function geocodeCep(cep) {
+    const clean = (cep || '').replace(/\D/g, '')
+    if (clean.length !== 8) return null
+    try {
+      const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${clean}`)
+      if (!r.ok) return null
+      const d = await r.json()
+      if (d.latitude && d.longitude) return { lat: parseFloat(d.latitude), lng: parseFloat(d.longitude) }
+      const query = [d.neighborhood, d.city, d.state, 'Brazil'].filter(Boolean).join(', ')
+      const nr = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`, { headers: { 'User-Agent': 'GuaxiApp/1.0' } })
+      const nd = await nr.json()
+      if (nd?.[0]) return { lat: parseFloat(nd[0].lat), lng: parseFloat(nd[0].lon) }
+    } catch { /* ignore */ }
+    return null
+  }
 
   const handleSaveDelivery = async () => {
     const tiers = deliveryCfg.freteTiers
       .filter(t => t.ate !== '' && t.valor !== '')
       .map(t => ({ ate: parseFloat(t.ate) || 0, valor: parseFloat(t.valor) || 0 }))
       .sort((a, b) => a.ate - b.ate)
-    const payload = { lojaCEP: deliveryCfg.lojaCEP, lojaEndereco: deliveryCfg.lojaEndereco, freteGratis: parseFloat(deliveryCfg.freteGratis) || 0, freteTiers: tiers }
+    const coords = await geocodeCep(deliveryCfg.lojaCEP)
+    const payload = {
+      lojaCEP: deliveryCfg.lojaCEP, lojaEndereco: deliveryCfg.lojaEndereco,
+      freteGratis: parseFloat(deliveryCfg.freteGratis) || 0, freteTiers: tiers,
+      diasEntrega: deliveryCfg.diasEntrega || [],
+      lojaLat: coords?.lat ?? deliveryCfg.lojaLat ?? null,
+      lojaLng: coords?.lng ?? deliveryCfg.lojaLng ?? null,
+    }
     const existing = await loadUserConfig()
     await saveUserConfig({ ...(existing || {}), delivery: payload })
-    setDeliveryCfg(d => ({ ...d, freteTiers: tiers }))
-    show('Configuração de delivery salva!')
+    setDeliveryCfg(d => ({ ...d, freteTiers: tiers, lojaLat: payload.lojaLat, lojaLng: payload.lojaLng }))
+    show(coords ? 'Delivery salvo!' : 'Delivery salvo (não consegui geocodar o CEP da loja)')
   }
 
   const toggleEmb = (key, id) => setCfg(c => {
@@ -574,6 +604,24 @@ export default function Configuracoes() {
               onChange={e => setDel('freteGratis', e.target.value)}
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }}
             />
+            <label className="cfg-label">Dias de entrega (máx. 3/semana)</label>
+            <div style={{ display: 'flex', gap: 5, marginBottom: 4 }}>
+              {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((lbl, n) => {
+                const on = (deliveryCfg.diasEntrega || []).includes(n)
+                return (
+                  <div key={n} onClick={() => toggleDia(n)} style={{
+                    flex: 1, padding: '7px 0', borderRadius: 6, textAlign: 'center',
+                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    background: on ? 'var(--teal)' : 'var(--bg-secondary)',
+                    color: on ? '#fff' : 'var(--text-tertiary)',
+                    border: '1px solid var(--border)',
+                  }}>{lbl}</div>
+                )
+              })}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 14 }}>
+              Os dias que o cliente verá no formulário, com o frete agrupado calculado por dia.
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
               <span className="cfg-label" style={{ margin: 0 }}>Faixas de frete</span>
               <button onClick={addTier} style={{ background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 10px', fontSize: 12, color: 'var(--teal)', cursor: 'pointer', fontWeight: 700 }}>+ Faixa</button>

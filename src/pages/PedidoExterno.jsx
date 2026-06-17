@@ -153,6 +153,9 @@ export default function PedidoExterno() {
   const [frete, setFrete]           = useState(null)
   const [freteError, setFreteError] = useState('')
   const [calculandoFrete, setCalcFrete] = useState(false)
+  const [freteDias, setFreteDias]   = useState(null)   // cards de frete por dia
+  const [diaSel, setDiaSel]         = useState(null)   // data escolhida (YYYY-MM-DD)
+  const [coordCliente, setCoordCliente] = useState(null)
   const [deliveryCfg, setDeliveryCfg] = useState(null)
   const [secoesOrdem, setSecoesOrdem] = useState([])
   const [secaoAtiva, setSecaoAtiva]   = useState(null)
@@ -191,6 +194,18 @@ export default function PedidoExterno() {
     () => carrinhoItens.reduce((s, it) => s + (it.produto.precoDireta || 0) * it.qtd, 0),
     [carrinhoItens]
   )
+
+  // Fragilidade do carrinho: se qualquer item é frágil, a viagem toda é frágil (carro)
+  const fragCarrinho = useMemo(
+    () => carrinhoItens.some(it => it.produto.fragilidade === 'fragil') ? 'fragil' : 'robusto',
+    [carrinhoItens]
+  )
+
+  const diaLabel = (dateStr) => {
+    const d = new Date(dateStr + 'T12:00:00')
+    const dd = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+    return `${dd[d.getDay()]} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
 
   const produtosPorSecao = useMemo(() => {
     if (!produtos) return []
@@ -233,7 +248,43 @@ export default function PedidoExterno() {
     } finally {
       setLoadingCep(false)
     }
-    calcularFrete(cep)
+    // Tenta os cards de frete por dia (server-side); se não houver, cai no cálculo por faixa
+    const ok = await calcularFreteDias(cep)
+    if (!ok) calcularFrete(cep)
+  }
+
+  // Cards de frete por dia — custo marginal real calculado server-side (/api/frete-dias)
+  async function calcularFreteDias(cepCliente) {
+    const clean = cepCliente.replace(/\D/g, '')
+    if (clean.length !== 8 || carrinhoItens.length === 0) return false
+    setCalcFrete(true); setFrete(null); setFreteError(''); setFreteDias(null); setDiaSel(null)
+    try {
+      const c = await geocodeCep(clean)
+      const coord = { lat: c.lat, lng: c.lon }
+      setCoordCliente(coord)
+      const r = await fetch('/api/frete-dias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, lat: coord.lat, lng: coord.lng, frag: fragCarrinho, total }),
+      })
+      if (!r.ok) return false
+      const j = await r.json()
+      if (!Array.isArray(j.dias) || j.dias.length === 0) return false
+      setFreteDias(j.dias)
+      const best = [...j.dias].sort((a, b) => a.preco - b.preco)[0]
+      setDiaSel(best.date)
+      setFrete({ valor: best.preco, dia: best.date, viaDias: true })
+      return true
+    } catch {
+      return false
+    } finally {
+      setCalcFrete(false)
+    }
+  }
+
+  const escolherDia = (card) => {
+    setDiaSel(card.date)
+    setFrete({ valor: card.preco, dia: card.date, viaDias: true })
   }
 
   async function geocodeCep(cep) {
@@ -309,11 +360,16 @@ export default function PedidoExterno() {
       ? [form.ruaBairro, form.numero, form.complemento, form.cidade].filter(Boolean).join(', ')
       : ''
 
+    if (form.tipoEntrega === 'Entrega' && freteDias && !diaSel) { alert('Escolha o dia de entrega'); return }
+
     const freteValor = form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0
+    const entrega = form.tipoEntrega === 'Entrega'
+      ? { dataEntrega: diaSel, lat: coordCliente?.lat, lng: coordCliente?.lng, frag: fragCarrinho }
+      : {}
 
     setSubmitting(true)
     try {
-      const id = await submitPedidoExterno(userId, { ...form, endereco }, carrinhoItens, freteValor)
+      const id = await submitPedidoExterno(userId, { ...form, endereco }, carrinhoItens, freteValor, entrega)
       setPedidoId(id)
       setStep('confirm')
     } catch (e) {
@@ -381,7 +437,7 @@ export default function PedidoExterno() {
             </div>
             {frete && frete.valor > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 4px', fontSize: 13, color: '#999', borderTop: '1px solid #2a2a2a' }}>
-                <span>Frete ({frete.distKm.toFixed(1)} km)</span>
+                <span>Frete {frete.viaDias ? `(${diaLabel(frete.dia)})` : `(${frete.distKm.toFixed(1)} km)`}</span>
                 <span>{fmtR(frete.valor)}</span>
               </div>
             )}
@@ -513,7 +569,38 @@ export default function PedidoExterno() {
                   <button onClick={() => calcularFrete(form.cep)} style={{ fontSize: 12, color: 'var(--teal)', background: 'none', border: 'none', cursor: 'pointer' }}>🔄 Tentar novamente</button>
                 </div>
               )}
-              {frete !== null && !calculandoFrete && (
+              {/* Cards de frete por dia — escolha o dia, mais cheio = mais barato */}
+              {freteDias && !calculandoFrete && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, color: '#999', marginBottom: 8 }}>Escolha o dia da entrega:</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {freteDias.map(card => {
+                      const sel = diaSel === card.date
+                      const cheapest = card.preco === Math.min(...freteDias.map(d => d.preco))
+                      return (
+                        <div key={card.date} onClick={() => escolherDia(card)} style={{
+                          flex: '1 1 30%', minWidth: 100, cursor: 'pointer',
+                          background: sel ? 'rgba(34,184,134,0.12)' : '#1a1a1a',
+                          border: `1.5px solid ${sel ? '#22b886' : '#2a2a2a'}`,
+                          borderRadius: 10, padding: '10px 12px', position: 'relative',
+                        }}>
+                          {cheapest && freteDias.length > 1 && (
+                            <div style={{ position: 'absolute', top: -8, right: 8, background: '#22b886', color: '#000', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6 }}>+ barato</div>
+                          )}
+                          <div style={{ fontWeight: 700, fontSize: 13, color: '#e8e8e8' }}>{diaLabel(card.date)}</div>
+                          <div style={{ fontSize: 11, color: '#777', margin: '2px 0 6px' }}>
+                            {card.pedidos > 0 ? `${card.pedidos} pedido${card.pedidos > 1 ? 's' : ''} no dia` : 'primeiro do dia'}
+                          </div>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: card.preco === 0 ? '#22b886' : (sel ? '#22b886' : '#e8e8e8') }}>
+                            {card.preco === 0 ? 'Grátis' : fmtR(card.preco)}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+              {frete !== null && !frete.viaDias && !calculandoFrete && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', background: '#1a1a1a', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
                   <div>
                     <div style={{ fontWeight: 600, color: '#e8e8e8' }}>Frete ({frete.distKm.toFixed(1)} km)</div>

@@ -243,6 +243,9 @@ ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS tipo_entrega text defa
 ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS frete        numeric default 0;
 ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS data_pago    date;
+ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS entrega_lat  numeric;
+ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS entrega_lng  numeric;
+ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS entrega_frag text default 'robusto';
 
 ALTER TABLE encomenda_itens      ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE encomenda_itens      ADD COLUMN IF NOT EXISTS produto_id  bigint references produtos(id) on delete set null;
@@ -455,6 +458,7 @@ CREATE POLICY "produtos public read" ON produtos
 
 -- Função segura para submeter pedido externo (roda como dono)
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb);
+DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric);
 CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_user_id    uuid,
   p_cliente    text,
@@ -463,7 +467,11 @@ CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_endereco   text,
   p_obs        text,
   p_itens      jsonb,
-  p_frete      numeric default 0
+  p_frete      numeric default 0,
+  p_data_entrega date default null,
+  p_lat        numeric default null,
+  p_lng        numeric default null,
+  p_frag       text default 'robusto'
 ) RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -500,9 +508,11 @@ BEGIN
   END LOOP;
 
   INSERT INTO encomendas
-    (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto)
+    (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto,
+     data_entrega, entrega_lat, entrega_lng, entrega_frag)
   VALUES
-    (v_id, p_user_id, p_cliente, p_contato, 'FormExterno', p_tipo_entrega, p_endereco, p_obs, v_total + COALESCE(p_frete, 0), COALESCE(p_frete, 0), 'Pendente', 'Aguardando');
+    (v_id, p_user_id, p_cliente, p_contato, 'FormExterno', p_tipo_entrega, p_endereco, p_obs, v_total + COALESCE(p_frete, 0), COALESCE(p_frete, 0), 'Pendente', 'Aguardando',
+     p_data_entrega, p_lat, p_lng, COALESCE(p_frag, 'robusto'));
 
   INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id, produto_id)
   SELECT v_id,
