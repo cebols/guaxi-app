@@ -94,13 +94,14 @@ async function cropToBlob(imgEl, pixelCrop) {
   return new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92))
 }
 
-const FORM_EMPTY = { nome: '', tipo: 'produto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueAtual: '', estoqueMin: '', margemAlvo: null, imagemUrl: '' }
+const FORM_EMPTY = { nome: '', tipo: 'produto', fragilidade: 'robusto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueAtual: '', estoqueMin: '', margemAlvo: null, imagemUrl: '' }
 
 function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onClose, hasPrev, hasNext, onPrev, onNext, navLabel }) {
   const [form, setForm] = useState(item
     ? {
         nome:        item.nome,
         tipo:        item.tipo        || 'produto',
+        fragilidade: item.fragilidade || 'robusto',
         secao:       item.secao       || '',
         descricao:   item.descricao   || '',
         custoDireto: item.custoDireto ?? '',
@@ -409,6 +410,25 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                     transition: 'all .15s ease',
                   }}>{label}</div>
                 ))}
+              </div>
+            </div>
+
+            {/* Fragilidade segmented — define o veículo na entrega */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={fieldLabel}>Fragilidade (entrega)</div>
+              <div style={{ display: 'flex', background: 'var(--bg-input)', borderRadius: 8, padding: 2, border: '0.5px solid var(--border-light-color)' }}>
+                {[['robusto', '📦 Robusto · moto'], ['fragil', '🍰 Frágil · carro']].map(([val, label]) => (
+                  <div key={val} onClick={() => set('fragilidade', val)} style={{
+                    flex: 1, padding: '7px 0', borderRadius: 6, textAlign: 'center',
+                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                    background: form.fragilidade === val ? 'var(--teal)' : 'transparent',
+                    color: form.fragilidade === val ? '#fff' : 'var(--text-tertiary)',
+                    transition: 'all .15s ease',
+                  }}>{label}</div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
+                Frágil força carro na viagem (estabilidade/refrigeração); robusto pode ir de moto.
               </div>
             </div>
 
@@ -964,6 +984,7 @@ export default function Produtos() {
       await saveProduto({
         nome: `${prod.nome} (cópia)`,
         tipo: prod.tipo,
+        fragilidade: prod.fragilidade,
         custoDireto: prod.custoDireto,
         fornecedor: prod.fornecedor, whatsapp: prod.whatsapp, linkCompra: prod.linkCompra,
         precoDireta: prod.precoDireta, preco99: prod.preco99, precoIfood: prod.precoIfood,

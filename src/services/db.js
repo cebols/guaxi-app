@@ -423,6 +423,7 @@ export async function getProdutos() {
       id: r.id,
       nome: r.nome,
       tipo: r.tipo || 'produto',
+      fragilidade: r.fragilidade || 'robusto',
       custoTotal: r.custo_total || 0,
       custoDireto: r.custo_direto ?? r.composicao?.custoDireto ?? null,
       fornecedor: r.fornecedor || r.composicao?.fornecedor || '',
@@ -447,6 +448,7 @@ export async function getProdutos() {
     id: r.id,
     nome: r.nome,
     tipo: r.tipo || 'produto',
+    fragilidade: r.fragilidade || 'robusto',
     custoTotal: r.custo_total || 0,
     custoDireto: r.custo_direto ?? null,
     fornecedor: r.fornecedor || '',
@@ -515,6 +517,7 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
   const row = {
     nome:           prod.nome,
     tipo:           prod.tipo || 'produto',
+    fragilidade:    prod.fragilidade || 'robusto',
     custo_total:    efectivoCusto,
     custo_direto:   custoDireto,
     fornecedor:     prod.fornecedor  || '',
@@ -534,7 +537,7 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
   }
 
   const saved = await upsert('produtos', row, prod.id || null,
-    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'estoque_atual', 'margem_alvo', 'imagem_url'])
+    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fragilidade', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'estoque_atual', 'margem_alvo', 'imagem_url'])
   const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)

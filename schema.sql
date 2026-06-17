@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS produtos (
   preco_99        numeric,
   preco_ifood     numeric,
   tipo            text    default 'produto',
+  fragilidade     text    default 'robusto',  -- 'robusto' (moto/LALAGO) | 'fragil' (carro/refrigerado)
   custo_direto    numeric,
   fornecedor      text    default '',
   whatsapp        text    default '',
@@ -220,6 +221,7 @@ ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS preco_direta    numeri
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS preco_99        numeric;
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS preco_ifood     numeric;
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS tipo            text default 'produto';
+ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS fragilidade     text default 'robusto';
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS custo_direto    numeric;
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS fornecedor      text default '';
 ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS whatsapp        text default '';
