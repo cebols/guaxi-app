@@ -1755,12 +1755,22 @@ export async function getCardapioPublico(id) {
 // ── Pedido Externo (público, sem auth) ────────────────────────
 
 export async function getPublicProdutos(userId) {
-  const { data, error } = await supabase
+  const base = 'id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo, secao'
+  // Tenta com fragilidade; se a coluna ainda não existir (schema/cache), cai pro básico
+  let { data, error } = await supabase
     .from('produtos')
-    .select('id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo, secao, fragilidade')
+    .select(`${base}, fragilidade`)
     .eq('user_id', userId)
     .gt('estoque_atual', 0)
     .order('nome')
+  if (error) {
+    ;({ data, error } = await supabase
+      .from('produtos')
+      .select(base)
+      .eq('user_id', userId)
+      .gt('estoque_atual', 0)
+      .order('nome'))
+  }
   if (error) throw error
   return (data || []).map(r => ({
     id: r.id,
