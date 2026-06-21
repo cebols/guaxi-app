@@ -267,9 +267,12 @@ export default function PedidoExterno() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, lat: coord.lat, lng: coord.lng, frag: fragCarrinho, total }),
       })
-      if (!r.ok) return false
-      const j = await r.json()
-      if (!Array.isArray(j.dias) || j.dias.length === 0) return false
+      const j = await r.json().catch(() => ({}))
+      if (!r.ok) { setFreteError(j.error || 'Não foi possível calcular o frete por dia'); return false }
+      if (!Array.isArray(j.dias) || j.dias.length === 0) {
+        // Sem dias de entrega configurados → silencioso, usa o cálculo por faixa
+        return false
+      }
       setFreteDias(j.dias)
       const best = [...j.dias].sort((a, b) => a.preco - b.preco)[0]
       setDiaSel(best.date)
@@ -570,28 +573,43 @@ export default function PedidoExterno() {
                 </div>
               )}
               {/* Cards de frete por dia — escolha o dia, mais cheio = mais barato */}
-              {freteDias && !calculandoFrete && (
+              {freteDias && !calculandoFrete && (() => {
+                const precos = freteDias.map(d => d.preco)
+                const minP = Math.min(...precos), maxP = Math.max(...precos)
+                const temVariacao = minP < maxP
+                // melhor dia = mais barato; empate → o que já tem mais pedidos
+                const melhor = temVariacao
+                  ? [...freteDias].filter(d => d.preco === minP).sort((a, b) => b.pedidos - a.pedidos)[0]
+                  : null
+                return (
                 <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, color: '#999', marginBottom: 8 }}>Escolha o dia da entrega:</div>
+                  <div style={{ fontSize: 12, color: '#999', marginBottom: 10 }}>Escolha o dia da entrega:</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {freteDias.map(card => {
                       const sel = diaSel === card.date
-                      const cheapest = card.preco === Math.min(...freteDias.map(d => d.preco))
+                      const isMelhor = melhor && card.date === melhor.date
+                      const isMin = temVariacao && card.preco === minP && !isMelhor
                       return (
                         <div key={card.date} onClick={() => escolherDia(card)} style={{
                           flex: '1 1 30%', minWidth: 100, cursor: 'pointer',
-                          background: sel ? 'rgba(34,184,134,0.12)' : '#1a1a1a',
-                          border: `1.5px solid ${sel ? '#22b886' : '#2a2a2a'}`,
+                          background: isMelhor ? 'rgba(34,184,134,0.16)' : (sel ? 'rgba(34,184,134,0.10)' : '#1a1a1a'),
+                          border: `${isMelhor ? 2 : 1.5}px solid ${isMelhor ? '#22b886' : (sel ? '#22b886' : '#2a2a2a')}`,
                           borderRadius: 10, padding: '10px 12px', position: 'relative',
+                          transform: isMelhor ? 'scale(1.03)' : 'none',
+                          boxShadow: isMelhor ? '0 0 0 3px rgba(34,184,134,0.18), 0 4px 14px rgba(34,184,134,0.25)' : 'none',
+                          transition: 'all .15s ease',
                         }}>
-                          {cheapest && freteDias.length > 1 && (
-                            <div style={{ position: 'absolute', top: -8, right: 8, background: '#22b886', color: '#000', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6 }}>+ barato</div>
+                          {isMelhor && (
+                            <div style={{ position: 'absolute', top: -9, right: 8, background: '#22b886', color: '#000', fontSize: 9.5, fontWeight: 800, padding: '2px 7px', borderRadius: 7 }}>⭐ melhor dia</div>
+                          )}
+                          {isMin && (
+                            <div style={{ position: 'absolute', top: -8, right: 8, background: '#1f6b50', color: '#9ff0cf', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6 }}>+ barato</div>
                           )}
                           <div style={{ fontWeight: 700, fontSize: 13, color: '#e8e8e8' }}>{diaLabel(card.date)}</div>
-                          <div style={{ fontSize: 11, color: '#777', margin: '2px 0 6px' }}>
-                            {card.pedidos > 0 ? `${card.pedidos} pedido${card.pedidos > 1 ? 's' : ''} no dia` : 'primeiro do dia'}
+                          <div style={{ fontSize: 11, color: isMelhor ? '#22b886' : '#777', margin: '2px 0 6px', fontWeight: isMelhor ? 600 : 400 }}>
+                            {card.pedidos > 0 ? `junte-se a ${card.pedidos} pedido${card.pedidos > 1 ? 's' : ''}` : 'primeiro do dia'}
                           </div>
-                          <div style={{ fontWeight: 700, fontSize: 15, color: card.preco === 0 ? '#22b886' : (sel ? '#22b886' : '#e8e8e8') }}>
+                          <div style={{ fontWeight: 700, fontSize: isMelhor ? 17 : 15, color: card.preco === 0 ? '#22b886' : (isMelhor || sel ? '#22b886' : '#e8e8e8') }}>
                             {card.preco === 0 ? 'Grátis' : fmtR(card.preco)}
                           </div>
                         </div>
@@ -599,7 +617,8 @@ export default function PedidoExterno() {
                     })}
                   </div>
                 </div>
-              )}
+                )
+              })()}
               {frete !== null && !frete.viaDias && !calculandoFrete && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', background: '#1a1a1a', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
                   <div>

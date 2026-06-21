@@ -137,7 +137,6 @@ export default function Configuracoes() {
   const toggleDia = (n) => setDeliveryCfg(d => {
     const has = (d.diasEntrega || []).includes(n)
     if (has) return { ...d, diasEntrega: d.diasEntrega.filter(x => x !== n) }
-    if ((d.diasEntrega || []).length >= 3) return d // máx 3 dias/semana
     return { ...d, diasEntrega: [...(d.diasEntrega || []), n].sort() }
   })
   const addTier = () => setDeliveryCfg(d => ({ ...d, freteTiers: [...d.freteTiers, { ate: '', valor: '' }] }))
@@ -604,7 +603,7 @@ export default function Configuracoes() {
               onChange={e => setDel('freteGratis', e.target.value)}
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }}
             />
-            <label className="cfg-label">Dias de entrega (máx. 3/semana)</label>
+            <label className="cfg-label">Dias de entrega</label>
             <div style={{ display: 'flex', gap: 5, marginBottom: 4 }}>
               {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((lbl, n) => {
                 const on = (deliveryCfg.diasEntrega || []).includes(n)

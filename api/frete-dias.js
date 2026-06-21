@@ -18,9 +18,9 @@ const VEICULO = { robusto: 'LALAGO', fragil: 'CAR' }
 const MARGEM  = Number(process.env.FRETE_MARGEM || 5)
 const PISO    = Number(process.env.FRETE_PISO || 10)
 const JANELA  = 14   // procura próximas datas dentro de 2 semanas
-const MAX_DIAS = 3
 
 const iso = (d) => d.toISOString().slice(0, 10)
+const ordSemana = (wd) => (wd + 6) % 7   // segunda=0 ... domingo=6
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
@@ -45,12 +45,14 @@ export default async function handler(req, res) {
     if (!lojaLat || !lojaLng)      { res.status(400).json({ error: 'Loja sem coordenadas (salve o CEP da loja em Configurações)' }); return }
     if (diasSemana.length === 0)   { res.status(200).json({ dias: [] }); return }
 
-    // Próximas datas (até 3) que caem nos dias de entrega configurados
+    // Próxima ocorrência de cada dia da semana configurado (uma por weekday)
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
     const datas = []
-    for (let i = 0; i < JANELA && datas.length < MAX_DIAS; i++) {
+    const vistos = new Set()
+    for (let i = 0; i < JANELA && vistos.size < diasSemana.length; i++) {
       const d = new Date(hoje); d.setDate(hoje.getDate() + i)
-      if (diasSemana.includes(d.getDay())) datas.push(d)
+      const wd = d.getDay()
+      if (diasSemana.includes(wd) && !vistos.has(wd)) { vistos.add(wd); datas.push(d) }
     }
     if (datas.length === 0) { res.status(200).json({ dias: [] }); return }
 
@@ -85,6 +87,9 @@ export default async function handler(req, res) {
 
       dias.push({ date: key, weekday: d.getDay(), pedidos: reservados.length, veiculo, preco, gratis })
     }
+
+    // Ordena por dia da semana: segunda → domingo
+    dias.sort((a, b) => ordSemana(a.weekday) - ordSemana(b.weekday))
 
     res.status(200).json({ dias })
   } catch (e) {
