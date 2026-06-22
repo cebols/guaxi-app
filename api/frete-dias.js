@@ -72,6 +72,11 @@ export default async function handler(req, res) {
     const cliente = stopOf(lat, lng, 'Cliente')
     const gratis  = freteGratis > 0 && total >= freteGratis
 
+    // Custo individual (solo) — teto do preço: o cliente nunca paga mais do que
+    // custaria entregar só pra ele, mesmo que o dia tenha pedidos distantes.
+    const cartVeiculo = frag === 'fragil' ? VEICULO.fragil : VEICULO.robusto
+    const solo = await quoteTotal([loja, cliente], cartVeiculo)
+
     const dias = []
     for (const d of datas) {
       const key = iso(d)
@@ -83,9 +88,13 @@ export default async function handler(req, res) {
       const base       = stopsExist.length === 0 ? 0 : await quoteTotal([loja, ...stopsExist], veiculo)
       const comCliente = await quoteTotal([loja, ...stopsExist, cliente], veiculo)
       const marginal   = comCliente - base
-      const preco      = gratis ? 0 : Math.max(PISO, Math.ceil(marginal + MARGEM))
 
-      dias.push({ date: key, weekday: d.getDay(), pedidos: reservados.length, veiculo, preco, gratis })
+      // Paga o menor entre o marginal do compartilhado e o solo individual
+      const custo = Math.min(marginal, solo)
+      const preco = gratis ? 0 : Math.max(PISO, Math.ceil(custo + MARGEM))
+      const compartilhado = reservados.length > 0 && marginal < solo  // agrupar de fato baratearia
+
+      dias.push({ date: key, weekday: d.getDay(), pedidos: reservados.length, veiculo, preco, gratis, compartilhado })
     }
 
     // Ordena por dia da semana: segunda → domingo
