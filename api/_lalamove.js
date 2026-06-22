@@ -23,6 +23,16 @@ const SANDBOX = {
 
 const creds = (sandbox) => (sandbox ? SANDBOX : PROD)
 
+// Tarifa mínima real da Lalamove por categoria (cotado em produção, piso 500m).
+export const LALAMOVE_BASE = { LALAGO: 7.94, HATCHBACK: 9.13, CAR: 13.14 }
+// Margem por pedido sobre o custo.
+export const FRETE_MARGEM = Number(process.env.FRETE_MARGEM || 3)
+// Piso de frete por veículo = tarifa mínima + margem (nunca sai no prejuízo individual).
+export function pisoFrete(veiculo) {
+  const base = LALAMOVE_BASE[veiculo] ?? LALAMOVE_BASE.CAR
+  return Math.ceil(base + FRETE_MARGEM)
+}
+
 export function lalamoveConfigured(sandbox = false) {
   const c = creds(sandbox)
   return Boolean(c.key && c.secret)

@@ -1,22 +1,20 @@
 import { createClient } from '@supabase/supabase-js'
-import { quoteTotal, stopOf, lalamoveConfigured } from './_lalamove.js'
+import { quoteTotal, stopOf, lalamoveConfigured, FRETE_MARGEM, pisoFrete } from './_lalamove.js'
 
-// Calcula o frete por dia (custo marginal real da Lalamove) para o formulário
-// público. Roda server-side com service-role: as coordenadas dos outros
-// clientes NUNCA saem do servidor — devolve só { date, preco, veiculo }.
+// Calcula o frete por dia (estimativa) para o formulário público. Roda
+// server-side com service-role: as coordenadas dos outros clientes NUNCA saem
+// do servidor — devolve só { date, preco, veiculo }.
 //
 // Env vars (Vercel): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (+ as do Lalamove)
 //
-// Modelo: preço = max(PISO, ceil(marginal + MARGEM))
-//   marginal = cota(loja + pedidos_do_dia + cliente) − cota(loja + pedidos_do_dia)
-// Σ dos marginais telescopa no custo real da viagem ⇒ nunca sai no prejuízo.
+// Estimativa (teto) = max(piso_veiculo, ceil(min(marginal, solo) + MARGEM)).
+// O valor FINAL (mais barato) é recalculado no despacho (rateio blend 50/50).
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 const VEICULO = { robusto: 'LALAGO', fragil: 'CAR' }
-const MARGEM  = Number(process.env.FRETE_MARGEM || 5)
-const PISO    = Number(process.env.FRETE_PISO || 10)
+const MARGEM  = FRETE_MARGEM
 const JANELA  = 14   // procura próximas datas dentro de 2 semanas
 
 const iso = (d) => d.toISOString().slice(0, 10)
@@ -91,7 +89,7 @@ export default async function handler(req, res) {
 
       // Paga o menor entre o marginal do compartilhado e o solo individual
       const custo = Math.min(marginal, solo)
-      const preco = gratis ? 0 : Math.max(PISO, Math.ceil(custo + MARGEM))
+      const preco = gratis ? 0 : Math.max(pisoFrete(veiculo), Math.ceil(custo + MARGEM))
       const compartilhado = reservados.length > 0 && marginal < solo  // agrupar de fato baratearia
 
       dias.push({ date: key, weekday: d.getDay(), pedidos: reservados.length, veiculo, preco, gratis, compartilhado })

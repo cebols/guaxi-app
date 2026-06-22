@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal } from './_lalamove.js'
+import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal, FRETE_MARGEM, pisoFrete } from './_lalamove.js'
 
 // Despacha um envio na Lalamove: cota → cria order → grava order_id/shareLink/status.
 // Ao despachar, REALOCA o frete de cada pedido para sua fração justa do custo real
@@ -12,8 +12,8 @@ import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal } from './_la
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 const SANDBOX      = process.env.LALAMOVE_DISPATCH_SANDBOX !== 'false'   // default: sandbox
-const MARGEM       = Number(process.env.FRETE_MARGEM || 5)
-const PISO         = Number(process.env.FRETE_PISO || 10)
+const MARGEM       = FRETE_MARGEM
+const BLEND        = 0.5   // 50% divisão igual + 50% proporcional à distância
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
@@ -82,10 +82,18 @@ export default async function handler(req, res) {
       catch { solos.push(0) }
     }
     const somaSolo = solos.reduce((a, b) => a + b, 0) || 1
+    const N = pedidos.length
+    // Piso individual só faz sentido pra envio de 1 parada. No compartilhado a
+    // soma do blend já cobre o custo + margem; aplicar piso por parada super-cobra.
+    const floor = N === 1 ? pisoFrete(envio.veiculo || 'CAR') : 0
     const ajustes = []
-    for (let i = 0; i < pedidos.length; i++) {
-      const share   = C * (solos[i] / somaSolo)
-      let   fNovo   = Math.max(PISO, Math.ceil(share + MARGEM))
+    for (let i = 0; i < N; i++) {
+      // Blend 50/50: metade dividido igual, metade proporcional à distância.
+      // Equilibra — perto não paga de menos, longe não é punido. Σ(blend) = C.
+      const igual        = C / N
+      const proporcional = C * (solos[i] / somaSolo)
+      const share        = BLEND * igual + (1 - BLEND) * proporcional
+      let   fNovo   = Math.max(floor, Math.ceil(share + MARGEM))
       const fAntigo = Number(pedidos[i].frete) || 0
       if (fAntigo > 0) fNovo = Math.min(fNovo, fAntigo)   // nunca aumenta o que já foi cotado
       await sb.from('encomendas').update({ frete: fNovo }).eq('id', pedidos[i].id)
