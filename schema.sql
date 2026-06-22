@@ -310,6 +310,27 @@ ALTER TABLE user_config ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "own_data" ON user_config;
 CREATE POLICY "own_data" ON user_config FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
+-- ── Envios (despacho Lalamove: 1 envio = 1+ pedidos agrupados) ─────────────────
+CREATE TABLE IF NOT EXISTS envios (
+  id            bigserial primary key,
+  user_id       uuid    default auth.uid() references auth.users(id) on delete cascade,
+  data_entrega  date,
+  veiculo       text    default 'CAR',
+  status        text    default 'FILA',   -- FILA | ASSIGNING_DRIVER | ON_GOING | PICKED_UP | COMPLETED | CANCELED
+  quotation_id  text,
+  order_id      text,
+  share_link    text,
+  price_total   numeric default 0,
+  driver_nome   text,
+  driver_phone  text,
+  driver_plate  text,
+  created_at    timestamptz default now()
+);
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS envio_id bigint references envios(id) on delete set null;
+ALTER TABLE envios ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own_data" ON envios;
+CREATE POLICY "own_data" ON envios FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
 -- ── Insumo cost history (weekly snapshots) ───────────────────
 CREATE TABLE IF NOT EXISTS insumo_cost_history (
   insumo_id  bigint  not null references insumos(id) on delete cascade,
