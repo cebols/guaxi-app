@@ -13,7 +13,8 @@ import { quoteTotal, stopOf, lalamoveConfigured, FRETE_MARGEM, pisoFrete } from 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-const VEICULO = { robusto: 'LALAGO', fragil: 'CAR' }
+// Veículo fixo por enquanto: tudo cotado como HATCHBACK (fragilidade em hold).
+const VEICULO_PADRAO = 'HATCHBACK'
 const MARGEM  = FRETE_MARGEM
 const JANELA  = 14   // procura próximas datas dentro de 2 semanas
 
@@ -72,15 +73,13 @@ export default async function handler(req, res) {
 
     // Custo individual (solo) — teto do preço: o cliente nunca paga mais do que
     // custaria entregar só pra ele, mesmo que o dia tenha pedidos distantes.
-    const cartVeiculo = frag === 'fragil' ? VEICULO.fragil : VEICULO.robusto
-    const solo = await quoteTotal([loja, cliente], cartVeiculo)
+    const solo = await quoteTotal([loja, cliente], VEICULO_PADRAO)
 
     const dias = []
     for (const d of datas) {
       const key = iso(d)
       const reservados = porDia[key] || []
-      const fragil  = frag === 'fragil' || reservados.some(p => p.entrega_frag === 'fragil')
-      const veiculo = fragil ? VEICULO.fragil : VEICULO.robusto
+      const veiculo = VEICULO_PADRAO
 
       const stopsExist = reservados.map((p, i) => stopOf(p.entrega_lat, p.entrega_lng, `Parada ${i + 1}`))
       const base       = stopsExist.length === 0 ? 0 : await quoteTotal([loja, ...stopsExist], veiculo)

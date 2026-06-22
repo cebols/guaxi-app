@@ -1878,7 +1878,7 @@ export async function gerarEnvios() {
   for (const p of pendentes) (byDay[p.dataEntrega] ||= []).push(p)
   const criados = []
   for (const [dia, peds] of Object.entries(byDay)) {
-    const veiculo = peds.some(p => p.frag === 'fragil') ? 'CAR' : 'LALAGO'
+    const veiculo = 'HATCHBACK'   // fixo por enquanto (fragilidade em hold)
     const { data: envio, error } = await supabase
       .from('envios').insert({ data_entrega: dia, veiculo, status: 'FILA' }).select().single()
     if (error) throw error

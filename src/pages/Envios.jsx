@@ -53,6 +53,7 @@ export default function Envios() {
   const { data: pendentes, loading: l1, reload: rP } = useData(getPedidosParaAgrupar)
   const { data: envios, loading: l2, reload: rE } = useData(getEnvios)
   const [busy, setBusy] = useState(null)
+  const [mapaAberto, setMapaAberto] = useState(null)
 
   const reload = () => { rP(); rE() }
 
@@ -150,13 +151,29 @@ export default function Envios() {
                   <a href={whatsLink(p, e)} target="_blank" rel="noreferrer" style={{ ...btn('#1f6b50', '#9ff0cf'), display: 'inline-block', textDecoration: 'none', fontSize: 11, padding: '4px 9px', marginTop: 4 }}>📲 Tracking p/ {p.cliente.split(' ')[0]}</a>
                 </div>
               ))}
-              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                 <button onClick={() => run('s' + e.id, () => atualizarStatusEnvio(user.id, e.id), (r) => `Status: ${STATUS_LABEL[r.status] || r.status}`)}
                   disabled={busy === 's' + e.id} style={btn('#2a2a2a', '#ccc')}>
                   {busy === 's' + e.id ? '…' : '🔄 Atualizar'}
                 </button>
-                {e.shareLink && <a href={e.shareLink} target="_blank" rel="noreferrer" style={{ ...btn('#2a2a2a', '#ccc'), textDecoration: 'none' }}>🗺️ Mapa</a>}
+                {e.shareLink && (
+                  <button onClick={() => setMapaAberto(mapaAberto === e.id ? null : e.id)} style={btn('#2a2a2a', '#ccc')}>
+                    🗺️ {mapaAberto === e.id ? 'Fechar mapa' : 'Mapa'}
+                  </button>
+                )}
               </div>
+              {e.shareLink && mapaAberto === e.id && (
+                <div style={{ marginTop: 10 }}>
+                  <iframe
+                    src={e.shareLink}
+                    title={`tracking-${e.id}`}
+                    style={{ width: '100%', height: 320, border: '1px solid #2a2a2a', borderRadius: 10 }}
+                  />
+                  <a href={e.shareLink} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: '#22b886', display: 'inline-block', marginTop: 4 }}>
+                    Abrir em nova aba ↗ (se o mapa não carregar aqui)
+                  </a>
+                </div>
+              )}
             </div>
           ))}
         </div>
