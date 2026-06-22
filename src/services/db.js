@@ -1917,6 +1917,17 @@ export async function atualizarStatusEnvio(userId, envioId) {
   return j
 }
 
+// Cota o envio em todas as categorias de veículo (pro modal de despacho).
+export async function cotarEnvio(userId, envioId) {
+  const r = await fetch('/api/lalamove-quotes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, envioId }),
+  })
+  const j = await r.json()
+  if (!r.ok) throw new Error(j.error || 'Falha ao cotar')
+  return j
+}
+
 // Muda campos do envio (ex: veículo) — só antes de despachar.
 export async function atualizarEnvio(envioId, fields) {
   const { error } = await supabase.from('envios').update(fields).eq('id', envioId)
