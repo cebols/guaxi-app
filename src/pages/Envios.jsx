@@ -18,9 +18,10 @@ const STATUS_LABEL = {
   PICKED_UP: 'Coletado · em entrega',
   COMPLETED: 'Entregue',
   CANCELED: 'Cancelado',
+  EXPIRED: 'Expirado',
+  REJECTED: 'Rejeitado',
 }
 const EM_ROTA = ['ASSIGNING_DRIVER', 'ON_GOING', 'PICKED_UP']
-const FINAIS  = ['COMPLETED', 'CANCELED']
 
 function diaLabel(s) {
   if (!s) return '—'
@@ -72,7 +73,9 @@ export default function Envios() {
 
   const fila   = (envios || []).filter(e => e.status === 'FILA')
   const emRota = (envios || []).filter(e => EM_ROTA.includes(e.status))
-  const finais = (envios || []).filter(e => FINAIS.includes(e.status))
+  // Tudo que não é fila nem em-rota cai aqui (COMPLETED/CANCELED/EXPIRED/REJECTED
+  // ou qualquer status desconhecido) — assim nenhum envio some do kanban.
+  const finais = (envios || []).filter(e => e.status !== 'FILA' && !EM_ROTA.includes(e.status))
   const mapEnvio = (envios || []).find(e => e.id === mapaAberto && e.shareLink)
 
   const whatsLink = (p, e) => {
@@ -189,12 +192,18 @@ export default function Envios() {
           <div style={colTitle}>Finalizados · {finais.length}</div>
           {finais.length === 0 && <div style={{ color: '#555', fontSize: 13 }}>Vazio.</div>}
           {finais.map(e => (
-            <div key={e.id} style={{ ...card, opacity: 0.7 }}>
+            <div key={e.id} style={card}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <strong>{diaLabel(e.dataEntrega)}</strong>
-                <span style={{ fontSize: 11, color: e.status === 'COMPLETED' ? '#22b886' : '#f87171', fontWeight: 700 }}>{STATUS_LABEL[e.status]}</span>
+                <span style={{ fontSize: 11, color: e.status === 'COMPLETED' ? '#22b886' : '#f87171', fontWeight: 700 }}>{STATUS_LABEL[e.status] || e.status}</span>
               </div>
-              <div style={{ fontSize: 12, color: '#777', marginTop: 4 }}>{e.pedidos.length} parada(s) · {fmtR(e.precoTotal)}</div>
+              <div style={{ fontSize: 12, color: '#777', margin: '4px 0' }}>{e.pedidos.length} parada(s) · {fmtR(e.precoTotal)}</div>
+              {e.pedidos.length > 0 && e.status !== 'COMPLETED' && (
+                <button onClick={() => run('r' + e.id, () => desfazerEnvio(e.id), 'Pedidos devolvidos para A organizar')}
+                  disabled={busy === 'r' + e.id} style={{ ...btn('#2a2a2a', '#ccc'), marginTop: 4 }}>
+                  {busy === 'r' + e.id ? '…' : '↩︎ Reabrir pedidos'}
+                </button>
+              )}
             </div>
           ))}
         </div>
