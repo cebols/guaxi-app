@@ -1800,7 +1800,7 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
     quantidade:   it.qtd,
     preco_unit:   it.produto.precoDireta || 0,
   }))
-  const { data, error } = await supabase.rpc('submit_pedido_externo', {
+  const baseArgs = {
     p_user_id:     userId,
     p_cliente:     form.nome,
     p_contato:     form.telefone,
@@ -1809,11 +1809,19 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
     p_obs:         form.obs || '',
     p_itens:       itens,
     p_frete:       freteValor,
+  }
+  // Tenta a versão nova (com dia/coords/fragilidade)
+  let { data, error } = await supabase.rpc('submit_pedido_externo', {
+    ...baseArgs,
     p_data_entrega: entrega.dataEntrega || null,
     p_lat:         entrega.lat ?? null,
     p_lng:         entrega.lng ?? null,
     p_frag:        entrega.frag || 'robusto',
   })
+  // Fallback p/ a RPC antiga se a nova ainda não estiver no banco (schema cache)
+  if (error && /Could not find the function|PGRST202/i.test(error.message || '')) {
+    ;({ data, error } = await supabase.rpc('submit_pedido_externo', baseArgs))
+  }
   if (error) throw error
   return data
 }
