@@ -34,6 +34,7 @@ function PageFallback() {
 const NAV_BOTTOM = [
   { path: '/',        label: 'Início',   icon: HomeIcon },
   { path: '/pedidos', label: 'Pedidos',  icon: PedidosIcon },
+  { path: '/envios',  label: 'Envios',   icon: EnviosIcon },
   { path: '/fichas',  label: 'Receitas', icon: FichasIcon },
   { path: '/vendas',  label: 'Vendas',   icon: VendasIcon },
 ]
@@ -362,6 +363,13 @@ function PedidosIcon() {
     <rect x="9" y="3" width="6" height="4" rx="1"/>
     <line x1="9" y1="12" x2="15" y2="12"/>
     <line x1="9" y1="16" x2="13" y2="16"/>
+  </svg>
+}
+function EnviosIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M3 14V6h11v8M14 9h4l3 3v2h-7"/>
+    <circle cx="7" cy="16" r="2"/>
+    <circle cx="17" cy="16" r="2"/>
   </svg>
 }
 function ContagemIcon() {
