@@ -616,6 +616,9 @@ export default function PedidoExterno() {
                       )
                     })}
                   </div>
+                  <div style={{ fontSize: 11, color: '#7a7a7a', marginTop: 8, lineHeight: 1.4 }}>
+                    💡 Frete estimado — pode <strong style={{ color: '#22b886' }}>abaixar</strong> se mais pedidos forem no mesmo dia. Avisamos o valor final antes da entrega.
+                  </div>
                 </div>
                 )
               })()}

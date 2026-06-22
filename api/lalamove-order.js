@@ -1,7 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
-import { lalamove, lalamoveConfigured, stopOf, brPhone } from './_lalamove.js'
+import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal } from './_lalamove.js'
 
 // Despacha um envio na Lalamove: cota → cria order → grava order_id/shareLink/status.
+// Ao despachar, REALOCA o frete de cada pedido para sua fração justa do custo real
+// da viagem agrupada (proporcional ao custo individual/solo), nunca acima do cotado.
 // Despacho usa SANDBOX por padrão (não chama motorista real). Defina
 // LALAMOVE_DISPATCH_SANDBOX=false só quando for pra valer.
 //
@@ -10,6 +12,8 @@ import { lalamove, lalamoveConfigured, stopOf, brPhone } from './_lalamove.js'
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 const SANDBOX      = process.env.LALAMOVE_DISPATCH_SANDBOX !== 'false'   // default: sandbox
+const MARGEM       = Number(process.env.FRETE_MARGEM || 5)
+const PISO         = Number(process.env.FRETE_PISO || 10)
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
@@ -28,7 +32,7 @@ export default async function handler(req, res) {
 
     const { data: pedidos } = await sb
       .from('encomendas')
-      .select('id, cliente, contato, endereco, obs, entrega_lat, entrega_lng')
+      .select('id, cliente, contato, endereco, obs, entrega_lat, entrega_lng, frete')
       .eq('envio_id', envioId)
       .eq('user_id', userId)
       .not('entrega_lat', 'is', null)
@@ -68,20 +72,42 @@ export default async function handler(req, res) {
     if (!order.ok) { res.status(order.status).json({ error: order.json?.errors?.[0]?.message || 'Falha ao criar pedido' }); return }
     const od = order.json.data
 
-    // 3) Grava no envio
+    // 3) Realoca o frete: cada pedido paga a fração justa do custo real da viagem
+    //    (proporcional ao custo individual/solo). Nunca acima do que foi cotado.
+    const C = Number(od.priceBreakdown?.total) || Number(qd.priceBreakdown?.total) || 0
+    const lojaStop = stopOf(delivery.lojaLat, delivery.lojaLng, delivery.lojaEndereco || 'Loja')
+    const solos = []
+    for (const p of pedidos) {
+      try { solos.push(await quoteTotal([lojaStop, stopOf(p.entrega_lat, p.entrega_lng, p.endereco || 'Cliente')], envio.veiculo || 'CAR', 'pt_BR', { sandbox: SANDBOX })) }
+      catch { solos.push(0) }
+    }
+    const somaSolo = solos.reduce((a, b) => a + b, 0) || 1
+    const ajustes = []
+    for (let i = 0; i < pedidos.length; i++) {
+      const share   = C * (solos[i] / somaSolo)
+      let   fNovo   = Math.max(PISO, Math.ceil(share + MARGEM))
+      const fAntigo = Number(pedidos[i].frete) || 0
+      if (fAntigo > 0) fNovo = Math.min(fNovo, fAntigo)   // nunca aumenta o que já foi cotado
+      await sb.from('encomendas').update({ frete: fNovo }).eq('id', pedidos[i].id)
+      ajustes.push({ id: pedidos[i].id, cliente: pedidos[i].cliente, antes: fAntigo, depois: fNovo })
+    }
+
+    // 4) Grava no envio
     await sb.from('envios').update({
       quotation_id: qd.quotationId,
       order_id:     od.orderId,
       share_link:   od.shareLink || null,
       status:       od.status || 'ASSIGNING_DRIVER',
-      price_total:  Number(od.priceBreakdown?.total) || 0,
+      price_total:  C,
     }).eq('id', envioId)
 
     res.status(200).json({
       orderId: od.orderId,
       status: od.status,
       shareLink: od.shareLink,
-      price: od.priceBreakdown?.total,
+      custo: C,
+      cobrado: ajustes.reduce((s, a) => s + a.depois, 0),
+      ajustes,   // frete antes/depois por pedido — pra avisar os clientes
       currency: od.priceBreakdown?.currency,
       sandbox: SANDBOX,
     })
