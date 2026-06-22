@@ -1916,3 +1916,20 @@ export async function atualizarStatusEnvio(userId, envioId) {
   if (!r.ok) throw new Error(j.error || 'Falha ao atualizar status')
   return j
 }
+
+// Muda campos do envio (ex: veículo) — só antes de despachar.
+export async function atualizarEnvio(envioId, fields) {
+  const { error } = await supabase.from('envios').update(fields).eq('id', envioId)
+  if (error) throw error
+}
+
+// Cancela o envio na Lalamove e devolve os pedidos pra "A organizar".
+export async function cancelarEnvio(userId, envioId) {
+  const r = await fetch('/api/lalamove-cancel', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, envioId }),
+  })
+  const j = await r.json()
+  if (!r.ok) throw new Error(j.error || 'Falha ao cancelar')
+  return j
+}
