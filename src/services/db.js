@@ -1825,3 +1825,94 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
   if (error) throw error
   return data
 }
+
+// ── Envios (agrupamento + despacho Lalamove) ──────────────────────────────────
+
+const FINAIS = ['Entregue', 'Cancelado']
+
+// Pedidos de Entrega com dia + coords, ainda não agrupados num envio.
+export async function getPedidosParaAgrupar() {
+  const { data, error } = await supabase
+    .from('encomendas')
+    .select('id, cliente, contato, endereco, obs, valor, frete, data_entrega, entrega_lat, entrega_lng, entrega_frag, status, encomenda_itens(produto, quantidade)')
+    .eq('tipo_entrega', 'Entrega')
+    .is('envio_id', null)
+    .not('data_entrega', 'is', null)
+    .not('entrega_lat', 'is', null)
+    .order('data_entrega')
+  if (error) throw error
+  return (data || [])
+    .filter(r => !FINAIS.includes(r.status))
+    .map(r => ({
+      id: r.id, cliente: r.cliente, contato: r.contato || '', endereco: r.endereco || '',
+      obs: r.obs || '', valor: r.valor || 0, frete: r.frete || 0,
+      dataEntrega: r.data_entrega, frag: r.entrega_frag || 'robusto',
+      itens: (r.encomenda_itens || []).map(i => ({ produto: i.produto, quantidade: i.quantidade })),
+    }))
+}
+
+// Envios + os pedidos de cada um.
+export async function getEnvios() {
+  const { data, error } = await supabase
+    .from('envios')
+    .select('*, encomendas(id, cliente, contato, endereco, obs, valor, frete, entrega_frag, encomenda_itens(produto, quantidade))')
+    .order('data_entrega')
+  if (error) throw error
+  return (data || []).map(e => ({
+    id: e.id, dataEntrega: e.data_entrega, veiculo: e.veiculo, status: e.status,
+    orderId: e.order_id, shareLink: e.share_link, precoTotal: e.price_total || 0,
+    driverNome: e.driver_nome, driverPhone: e.driver_phone, driverPlate: e.driver_plate,
+    pedidos: (e.encomendas || []).map(p => ({
+      id: p.id, cliente: p.cliente, contato: p.contato || '', endereco: p.endereco || '',
+      obs: p.obs || '', valor: p.valor || 0, frete: p.frete || 0, frag: p.entrega_frag || 'robusto',
+      itens: (p.encomenda_itens || []).map(i => ({ produto: i.produto, quantidade: i.quantidade })),
+    })),
+  }))
+}
+
+// Agrupa automaticamente os pedidos pendentes: 1 envio por dia.
+// Veículo = CAR se houver algum frágil no dia, senão LALAGO.
+export async function gerarEnvios() {
+  const pendentes = await getPedidosParaAgrupar()
+  const byDay = {}
+  for (const p of pendentes) (byDay[p.dataEntrega] ||= []).push(p)
+  const criados = []
+  for (const [dia, peds] of Object.entries(byDay)) {
+    const veiculo = peds.some(p => p.frag === 'fragil') ? 'CAR' : 'LALAGO'
+    const { data: envio, error } = await supabase
+      .from('envios').insert({ data_entrega: dia, veiculo, status: 'FILA' }).select().single()
+    if (error) throw error
+    const { error: upErr } = await supabase
+      .from('encomendas').update({ envio_id: envio.id }).in('id', peds.map(p => p.id))
+    if (upErr) throw upErr
+    criados.push(envio.id)
+  }
+  return criados
+}
+
+// Desfaz um envio (desvincula pedidos e apaga). Só se ainda não despachado.
+export async function desfazerEnvio(envioId) {
+  await supabase.from('encomendas').update({ envio_id: null }).eq('envio_id', envioId)
+  const { error } = await supabase.from('envios').delete().eq('id', envioId)
+  if (error) throw error
+}
+
+export async function despacharEnvio(userId, envioId) {
+  const r = await fetch('/api/lalamove-order', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, envioId }),
+  })
+  const j = await r.json()
+  if (!r.ok) throw new Error(j.error || 'Falha ao despachar')
+  return j
+}
+
+export async function atualizarStatusEnvio(userId, envioId) {
+  const r = await fetch('/api/lalamove-status', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, envioId }),
+  })
+  const j = await r.json()
+  if (!r.ok) throw new Error(j.error || 'Falha ao atualizar status')
+  return j
+}

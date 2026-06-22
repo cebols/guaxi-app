@@ -10,6 +10,10 @@ const SECTIONS = [
         icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3" width="14" height="13" rx="2" stroke="currentColor" strokeWidth="1.4"/><path d="M5 7h8M5 10h5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>,
       },
       {
+        label: 'Envios', path: '/envios',
+        icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M1 12V5h10v7M11 8h3.5L17 11v1h-6" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/><circle cx="5" cy="13" r="1.6" stroke="currentColor" strokeWidth="1.4"/><circle cx="13" cy="13" r="1.6" stroke="currentColor" strokeWidth="1.4"/></svg>,
+      },
+      {
         label: 'Vendas', path: '/vendas',
         icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><polyline points="17 5 10 12 6.5 8.5 1 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/><polyline points="13 5 17 5 17 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>,
       },

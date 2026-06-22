@@ -9,6 +9,7 @@ import Login from './pages/Login'
 const Onboarding   = lazy(() => import('./pages/Onboarding'))
 const Home         = lazy(() => import('./pages/Home'))
 const Pedidos      = lazy(() => import('./pages/Pedidos'))
+const Envios       = lazy(() => import('./pages/Envios'))
 const Contagem     = lazy(() => import('./pages/Contagem'))
 const Fichas       = lazy(() => import('./pages/Fichas'))
 const Cozinha      = lazy(() => import('./pages/Cozinha'))
@@ -274,6 +275,7 @@ export default function App() {
           <Routes>
             <Route path="/"                    element={<Home />} />
             <Route path="/pedidos"             element={<Pedidos />} />
+            <Route path="/envios"              element={<Envios />} />
             <Route path="/contagem"            element={<Contagem />} />
             <Route path="/fichas"              element={<Fichas />} />
             <Route path="/fichas/nova"         element={<ReceitaForm />} />
