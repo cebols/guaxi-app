@@ -12,8 +12,9 @@ export function lalamoveConfigured() {
   return Boolean(KEY && SECRET)
 }
 
-export function stopOf(lat, lng, address = '') {
-  return { coordinates: { lat: String(lat), lng: String(lng) }, address }
+export function stopOf(lat, lng, address = 'Parada') {
+  // Lalamove exige address não-vazio em toda parada (pattern '.+')
+  return { coordinates: { lat: String(lat), lng: String(lng) }, address: address || 'Parada' }
 }
 
 // Retorna o total (number) de uma cotação multi-stop, ou lança erro.

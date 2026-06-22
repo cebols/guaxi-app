@@ -79,7 +79,7 @@ export default async function handler(req, res) {
       const fragil  = frag === 'fragil' || reservados.some(p => p.entrega_frag === 'fragil')
       const veiculo = fragil ? VEICULO.fragil : VEICULO.robusto
 
-      const stopsExist = reservados.map(p => stopOf(p.entrega_lat, p.entrega_lng))
+      const stopsExist = reservados.map((p, i) => stopOf(p.entrega_lat, p.entrega_lng, `Parada ${i + 1}`))
       const base       = stopsExist.length === 0 ? 0 : await quoteTotal([loja, ...stopsExist], veiculo)
       const comCliente = await quoteTotal([loja, ...stopsExist, cliente], veiculo)
       const marginal   = comCliente - base
