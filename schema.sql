@@ -606,3 +606,8 @@ ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_fator numeric DEFAULT NULL;
 -- "user_id = auth.uid()" impede que o usuário a apague via UI.
 -- Rode no Supabase SQL Editor para remover de vez:
 -- DELETE FROM receitas WHERE user_id IS NULL;
+
+-- ── Recarrega o schema cache do PostgREST ─────────────────────────────────────
+-- Deve ser a ÚLTIMA instrução: garante que colunas/funções novas fiquem
+-- imediatamente visíveis para a API (evita erro "... in the schema cache").
+NOTIFY pgrst, 'reload schema';
