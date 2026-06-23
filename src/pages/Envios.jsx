@@ -48,20 +48,39 @@ function PedidoMini({ p }) {
 }
 
 // Cabeçalho compacto clicável + resumo. Children = detalhe (mostrado se aberto).
+function Chip({ children, color, bg }) {
+  return <span style={{ fontSize: 11, fontWeight: 700, color: color || '#bbb', background: bg || '#242424', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{children}</span>
+}
+
 function CardBase({ titulo, tag, peds, aberto, onToggle, children, footer }) {
+  const [hov, setHov] = useState(false)
   return (
-    <div style={card}>
-      <div onClick={onToggle} style={{ cursor: 'pointer' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <strong>{aberto ? '▾' : '▸'} {titulo}</strong>
-          {tag}
+    <div style={{ ...card, padding: 0, overflow: 'hidden', borderColor: aberto ? '#3a3a3a' : (hov ? '#383838' : '#2a2a2a'), boxShadow: hov ? '0 2px 10px rgba(0,0,0,.35)' : 'none', transition: 'border-color .12s, box-shadow .12s' }}>
+      <div onClick={onToggle} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
+        style={{ cursor: 'pointer', padding: '11px 12px 10px', background: hov ? '#1f1f1f' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <strong style={{ fontSize: 15 }}>{titulo}</strong>
+            {tag}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
+            <Chip>📦 {peds.length} ped</Chip>
+            <Chip>🧁 {nItens(peds)} itens</Chip>
+            <Chip color="#e8e8e8" bg="#2e2e2e">{fmtR(vTotal(peds))}</Chip>
+            <Chip color="#22b886" bg="rgba(34,184,134,.13)">frete {fmtR(fTotal(peds))}</Chip>
+          </div>
         </div>
-        <div style={{ fontSize: 11.5, color: '#999', marginTop: 4 }}>
-          {peds.length} pedido(s) · {nItens(peds)} itens · valor {fmtR(vTotal(peds))} · frete {fmtR(fTotal(peds))}
+        <div style={{ flexShrink: 0, width: 26, height: 26, borderRadius: '50%', background: aberto ? '#22b886' : '#262626', border: `1px solid ${aberto ? '#22b886' : '#3a3a3a'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: aberto ? '#000' : '#9a9a9a' }}>
+          {aberto ? '▲' : '▼'}
         </div>
       </div>
-      {aberto && <div style={{ marginTop: 6 }}>{peds.map(p => <PedidoMini key={p.id} p={p} />)}{children}</div>}
-      {footer}
+      {(aberto || footer) && (
+        <div style={{ padding: '0 12px 12px' }}>
+          {aberto && peds.map(p => <PedidoMini key={p.id} p={p} />)}
+          {aberto && children}
+          {footer}
+        </div>
+      )}
     </div>
   )
 }
