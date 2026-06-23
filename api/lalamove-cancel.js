@@ -28,9 +28,9 @@ export default async function handler(req, res) {
       lalamoveCancel = r.ok ? 'cancelado' : (r.json?.errors?.[0]?.message || `falha (${r.status})`)
     }
 
-    // Desvincula pedidos (voltam pra A organizar) e marca envio como CANCELED
+    // Desvincula pedidos (voltam pra A organizar) e apaga o envio
     await sb.from('encomendas').update({ envio_id: null }).eq('envio_id', envioId)
-    await sb.from('envios').update({ status: 'CANCELED' }).eq('id', envioId)
+    await sb.from('envios').delete().eq('id', envioId)
 
     res.status(200).json({ ok: true, lalamoveCancel })
   } catch (e) {

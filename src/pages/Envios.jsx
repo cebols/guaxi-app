@@ -110,7 +110,11 @@ export default function Envios() {
   for (const p of (pendentes || [])) (porDia[p.dataEntrega] ||= []).push(p)
   const fila   = (envios || []).filter(e => e.status === 'FILA')
   const emRota = (envios || []).filter(e => EM_ROTA.includes(e.status))
-  const finais = (envios || []).filter(e => e.status !== 'FILA' && !EM_ROTA.includes(e.status))
+  // Finalizados: entregues, ou envios que falharam mas ainda têm pedidos pra reabrir.
+  // Esconde "husks" vazios (cancelados/expirados sem pedidos — já voltaram à coluna 1).
+  const finais = (envios || []).filter(e =>
+    e.status !== 'FILA' && !EM_ROTA.includes(e.status) &&
+    !(e.pedidos.length === 0 && e.status !== 'COMPLETED'))
   const mapEnvio = (envios || []).find(e => e.id === mapaAberto && e.shareLink)
 
   const whatsLink = (p, e) => {
