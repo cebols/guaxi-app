@@ -331,6 +331,21 @@ ALTER TABLE envios ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "own_data" ON envios;
 CREATE POLICY "own_data" ON envios FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
+-- ── Agente WhatsApp: histórico de conversas ─────────────────
+-- Escrita/leitura só pelo Edge Function via service_role (RLS bypassa).
+-- Não amarra em user_id porque msg entra antes de identificar cliente.
+CREATE TABLE IF NOT EXISTS agent_conversas (
+  id         bigserial primary key,
+  telefone   text        not null,
+  role       text        not null check (role in ('user', 'assistant')),
+  conteudo   text        not null,
+  created_at timestamptz default now()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_conversas_tel_created
+  ON agent_conversas (telefone, created_at DESC);
+ALTER TABLE agent_conversas ENABLE ROW LEVEL SECURITY;
+-- Sem policy: bloqueia acesso anon/authenticated; só service_role passa.
+
 -- ── Insumo cost history (weekly snapshots) ───────────────────
 CREATE TABLE IF NOT EXISTS insumo_cost_history (
   insumo_id  bigint  not null references insumos(id) on delete cascade,
