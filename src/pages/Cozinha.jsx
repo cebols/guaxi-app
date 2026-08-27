@@ -1,4 +1,4 @@
-import { useState, Fragment, useEffect } from 'react'
+import { useState, Fragment, useEffect, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { getReceitas, deleteReceitas, saveReceita, getInsumos, setProducaoRecipeDoses } from '../services/db'
@@ -124,15 +124,33 @@ export default function Cozinha() {
       }
     }
   }
-  // Ao sair do campo: resincroniza display e persiste doses na produção (estoque dinâmico)
-  const commitField = () => {
-    setEditingField(null)
-    if (prodId && id && fator > 0) {
-      setProducaoRecipeDoses(prodId, Number(id), fator).catch(() => {})
-    }
+  // Persiste doses na produção (estoque dinâmico). Serializado + guard do último
+  // valor pra evitar corrida entre onBlur (fire-and-forget) e goBack (awaited),
+  // que poderia debitar estoque em dobro se a receita já estiver checada.
+  const persistLock = useRef(Promise.resolve())
+  const lastPersisted = useRef(dosesParam > 0 ? Math.round(dosesParam * 100) / 100 : null)
+  const persistDoses = (value) => {
+    if (!prodId || !id || !(value > 0)) return Promise.resolve()
+    persistLock.current = persistLock.current.then(async () => {
+      if (lastPersisted.current != null && Math.abs(lastPersisted.current - value) < 1e-6) return
+      try {
+        await setProducaoRecipeDoses(prodId, Number(id), value)
+        lastPersisted.current = value
+      } catch {}
+    })
+    return persistLock.current
   }
 
-  const goBack = () => navigate(-1)
+  // Ao sair do campo: resincroniza display e persiste doses na produção
+  const commitField = () => {
+    setEditingField(null)
+    persistDoses(fator)
+  }
+
+  const goBack = async () => {
+    await persistDoses(fator)
+    navigate(-1)
+  }
 
   const [expandedSubs, setExpandedSubs] = useState(new Set())
 
