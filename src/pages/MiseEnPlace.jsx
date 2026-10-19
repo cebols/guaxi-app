@@ -96,7 +96,7 @@ export default function MiseEnPlace() {
       .map(r => ({ tipo: 'receita', id: r.id, nome: r.nome, sub: `${r.tipo !== 'Outro' ? r.tipo + ' · ' : ''}rende ${fmtQtd(r.rendimento)} ${r.unidadeGera}` }))
     if (filtroThermal) recs = recs.filter(r => recHasThermal((receitas || []).find(rx => rx.id === r.id), filtroThermal))
     // Fora do cardápio só aparece buscando pelo nome
-    const prods = (produtos || []).filter(p => p.tipo !== 'avulso' && norm(p.nome).includes(q) && (q || p.ativo !== false))
+    const prods = (produtos || []).filter(p => p.tipo !== 'avulso' && p.tipo !== 'combo' && !(p.componentes || []).length && norm(p.nome).includes(q) && (q || p.ativo !== false))
       .map(p => ({ tipo: 'produto', id: p.id, nome: p.nome, sub: p.ativo === false ? 'fora do cardápio' : `${(p.receitas || []).length} receita(s)` }))
     if (filtroTipo === 'receitas') return recs
     if (filtroTipo === 'produtos') return filtroThermal ? [] : prods

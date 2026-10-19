@@ -699,7 +699,7 @@ function AddItemSheet({ receitas, produtos, saving, onClose, onConfirmar }) {
     const q = norm(busca)
     const recs = receitas.filter(r => norm(r.nome).includes(q))
       .map(r => ({ tipo: 'receita', id: r.id, nome: r.nome, sub: `rende ${r.rendimento} ${r.unidadeGera}` }))
-    const prods = produtos.filter(p => p.tipo !== 'avulso' && norm(p.nome).includes(q) && (q || p.ativo !== false))
+    const prods = produtos.filter(p => p.tipo !== 'avulso' && p.tipo !== 'combo' && !(p.componentes || []).length && norm(p.nome).includes(q) && (q || p.ativo !== false))
       .map(p => ({ tipo: 'produto', id: p.id, nome: p.nome, sub: `${(p.receitas || []).length} receita(s)` }))
     if (filtroTipo === 'receitas') return recs
     if (filtroTipo === 'produtos') return prods
