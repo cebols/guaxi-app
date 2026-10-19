@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
-import { getEncomendas, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas, updateProducaoChecks } from '../services/db'
+import { getEncomendas, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas, updateProducaoChecks, insumosDoCardapio } from '../services/db'
 import { getConfig, CONFIG_DEFAULTS } from '../hooks/useConfig'
 import { NovoPedidoSheet } from './Pedidos'
 import { useToast } from '../hooks/useToast'
@@ -288,7 +288,8 @@ export default function Home() {
 
   const insumosFut = aplicarAjuste(insumos || [], ajustes?.insumos)
   const produtosFut = aplicarAjuste(produtos || [], ajustes?.produtos)
-  const alertasInsumos = insumosFut.filter(i => i.estoqueAtual !== null && i.estoqueMin > 0 && nivelEstoque(i.estoqueAtual, i.estoqueMin) < 2)
+  const insumosUso = insumosDoCardapio(produtos, receitas, insumos)
+  const alertasInsumos = insumosFut.filter(i => insumosUso.has(Number(i.id)) && i.estoqueAtual !== null && i.estoqueMin > 0 && nivelEstoque(i.estoqueAtual, i.estoqueMin) < 2)
   const alertasEmb = (embalagens || []).filter(e => e.estoqueAtual !== null && e.estoqueMin > 0 && nivelEstoque(e.estoqueAtual, e.estoqueMin) < 2)
   const alertasProd = produtosFut.filter(p => p.ativo !== false && p.estoqueAtual !== null && p.estoqueMin > 0 && nivelEstoque(p.estoqueAtual, p.estoqueMin) < 2)
   const totalAlertas = alertasInsumos.length + alertasEmb.length + alertasProd.length

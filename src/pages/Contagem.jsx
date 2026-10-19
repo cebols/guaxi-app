@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getInsumos, getEmbalagens, getProdutos, getReceitas, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueReceitas, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, updateEstoqueMinReceitas, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes, saveContagemSnapshot, getContagemSnapshots, restoreContagemSnapshot } from '../services/db'
+import { getInsumos, getEmbalagens, getProdutos, getReceitas, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueReceitas, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, updateEstoqueMinReceitas, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes, saveContagemSnapshot, getContagemSnapshots, restoreContagemSnapshot, insumosDoCardapio } from '../services/db'
 
 function selUnit(sel) {
   if (!sel) return 0
@@ -1122,8 +1122,19 @@ export default function Contagem() {
 
   function norm(s) { return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase() }
 
-  const itensComEstoque = useMemo(() => itensDoTab.filter(i => i.estoqueAtual > 0), [itensDoTab])
-  const itensSemEstoque = useMemo(() => itensDoTab.filter(i => !(i.estoqueAtual > 0)), [itensDoTab])
+  // Insumos: só os que entram em algum produto do cardápio ficam na lista principal
+  const insumosUsoIds = useMemo(() => insumosDoCardapio(produtos, receitas, insumos), [produtos, receitas, insumos])
+  const insumosFora = useMemo(() => (insumos || []).filter(i => !insumosUsoIds.has(Number(i.id))), [insumos, insumosUsoIds])
+  const itensBase = useMemo(() => tab === 'insumos'
+    ? (insumos || []).filter(i => insumosUsoIds.has(Number(i.id)))
+    : itensDoTab, [tab, insumos, insumosUsoIds, itensDoTab])
+  const itensComEstoque = useMemo(() => itensBase.filter(i => i.estoqueAtual > 0), [itensBase])
+  const itensSemEstoque = useMemo(() => itensBase.filter(i => !(i.estoqueAtual > 0)), [itensBase])
+  const [insForaAberto, setInsForaAberto] = useState(false)
+  const insumosForaFiltrados = useMemo(() => {
+    const q = norm(busca)
+    return q ? insumosFora.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q)) : insumosFora
+  }, [insumosFora, busca])
 
   const itensFiltrados = useMemo(() => {
     const q = norm(busca)
@@ -1443,7 +1454,7 @@ export default function Contagem() {
               const contagem = tab === 'insumos' ? contagemIns : contagemEmb
               const onChange = tab === 'insumos' ? setIns : setEmb
               const minVals  = tab === 'insumos' ? minIns : minEmb
-              const todosItens = tab === 'insumos' ? (insumos || []) : (embalagens || [])
+              const todosItens = itensBase
               const semFiltrados = itensSemEstoqueFiltrados
 
               return (
@@ -1482,6 +1493,15 @@ export default function Contagem() {
                     </button>
                   )}
                   {!busca && semEstoqueAberto && <StockTab itens={itensSemEstoque} contagem={contagem} onChange={onChange} minValues={minVals} sortBy={sortContagem} />}
+                  {tab === 'insumos' && insumosForaFiltrados.length > 0 && (
+                    <>
+                      <button onClick={() => setInsForaAberto(v => !v)} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', marginBottom: 8, borderRadius: 8, border: '1px dashed var(--border-color)', background: 'transparent', color: 'var(--text-tertiary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Fora do cardápio ({insumosForaFiltrados.length}) · não entram em nenhum produto ativo</span>
+                        <span>{insForaAberto || busca ? '▲' : '▼'}</span>
+                      </button>
+                      {(insForaAberto || busca) && <StockTab itens={insumosForaFiltrados} contagem={contagem} onChange={onChange} minValues={minVals} sortBy={sortContagem} />}
+                    </>
+                  )}
                   <button onClick={handleEnviar} style={{ width: '100%', padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}>
                     Enviar contagem →
                   </button>

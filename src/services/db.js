@@ -1165,6 +1165,30 @@ export function planejarLote(lote, receitas, produtos, estoqueInicial = {}) {
   return { porItem, dosesTopo: soma('dosesContrib'), subDoses: soma('subDoses'), usoEstoque: soma('usoEstoque'), debitos: soma('debitos') }
 }
 
+// Insumos usados (direta ou indiretamente, via preparos) pelos produtos do cardápio.
+// Inclui o insumo "pai" de co-produtos (ovo → clara/gema), que é o que se compra.
+export function insumosDoCardapio(produtos, receitas, insumos = []) {
+  const n = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+  const byId = new Map((receitas || []).map(r => [Number(r.id), r]))
+  const ids = new Set(), nomes = new Set(), visit = new Set()
+  const walk = (rid, depth = 0) => {
+    if (visit.has(rid) || depth > 8) return
+    visit.add(rid)
+    for (const ing of (byId.get(rid)?.ingredientes || [])) {
+      if (ing.subReceitaId) walk(Number(ing.subReceitaId), depth + 1)
+      else if (ing.insumoId) ids.add(Number(ing.insumoId))
+      else if (ing.nome) nomes.add(n(ing.nome))
+    }
+  }
+  for (const p of (produtos || [])) {
+    if (p.tipo === 'combo' || p.ativo === false) continue
+    for (const rr of (p.receitas || [])) if (rr.receitaId) walk(Number(rr.receitaId))
+  }
+  for (const ins of (insumos || [])) if (nomes.has(n(ins.nome))) ids.add(Number(ins.id))
+  for (const ins of (insumos || [])) if (ids.has(Number(ins.id)) && ins.parentInsumoId) ids.add(Number(ins.parentInsumoId))
+  return ids
+}
+
 export async function getEstoqueReceitas() {
   const { data } = await supabase.from('receitas').select('id, estoque_atual')
   return Object.fromEntries((data || []).filter(r => r.estoque_atual > 0).map(r => [Number(r.id), r.estoque_atual]))
