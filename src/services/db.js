@@ -1028,40 +1028,146 @@ export function recDosesFromRef(rec, quantidade, unidade) {
   return rec.rendimento ? qty / rec.rendimento : 0     // mesma base (un&un ou g&g)
 }
 
-function computeDoses(lote, receitas, produtos) {  const dosesPerReceita = {}            // receitaId -> total doses
-  const perItemContrib  = lote.map(() => ({})) // [{receitaId: doses}, ...]
+// ── Planejamento com estoque de preparos ─────────────────────────────────────
+// Desconta o que já existe pronto (receitas.estoque_atual, na unidadeGera) antes
+// de mandar produzir. Processa a cadeia de cima pra baixo: se a gianduia vem do
+// estoque, a pasta que iria dentro dela também não é pedida.
+// Receita adicionada explicitamente ao lote é produzida integralmente (não desconta
+// estoque dela mesma) — mas os preparos dentro dela descontam.
 
-  lote.forEach((item, idx) => {
-    if (item.tipo === 'produto') {
-      const prod = (produtos || []).find(p => p.id === item.refId)
-      if (!prod) return
-      for (const recRef of (prod.receitas || [])) {
-        const rec = (receitas || []).find(r => r.id === recRef.receitaId)
-        if (!rec) continue
-        const amount = (recRef.quantidade || 1) * (item.qtd || 0)
-        const d = recDosesFromRef(rec, amount, recRef.unidade)
-        if (!(d > 0)) continue
-        dosesPerReceita[recRef.receitaId] = (dosesPerReceita[recRef.receitaId] || 0) + d
-        perItemContrib[idx][recRef.receitaId] = (perItemContrib[idx][recRef.receitaId] || 0) + d
-      }
-    } else {
-      // receita diretamente adicionada
-      const rec = (receitas || []).find(r => r.id === item.refId)
-      if (!rec) return
-      let d
-      if (item.modo === 'peso_liquido' && rec.fatorPerda != null && rec.rendimento) {
-        const bruto = (item.valorAlvo || 0) / (1 - rec.fatorPerda / 100)
-        d = bruto / rec.rendimento
-      } else if (item.modo === 'unidades' && rec.rendimento) {
-        d = (item.valorAlvo || 0) / rec.rendimento
-      } else {
-        d = item.qtd || 0
-      }
-      dosesPerReceita[item.refId] = (dosesPerReceita[item.refId] || 0) + d
-      perItemContrib[idx][item.refId] = d
+function ordemTopologica(raizes, byId) {
+  const visit = new Set(), ordem = []
+  const dfs = (id, depth) => {
+    if (visit.has(id) || depth > 8) return
+    visit.add(id)
+    for (const ing of (byId.get(id)?.ingredientes || [])) if (ing.subReceitaId) dfs(Number(ing.subReceitaId), depth + 1)
+    ordem.push(id)
+  }
+  for (const r of raizes) dfs(r, 0)
+  return ordem.reverse() // pais antes dos filhos
+}
+
+// Expande insumos de `rec` com `doses`, escalando cada sub-receita pela fração que
+// de fato será produzida (fracoes[s]). Sub-receitas que são topo do item ficam de
+// fora — os insumos delas entram pela entrada própria.
+function expandNet(receitas, rec, doses, fracoes = {}, topo = new Set(), depth = 0) {
+  if (depth > 5) return {}
+  const debitos = {}
+  for (const ing of (rec.ingredientes || [])) {
+    if (ing.insumoId) {
+      debitos[ing.insumoId] = (debitos[ing.insumoId] || 0) + ing.quantidade * doses
+    } else if (ing.subReceitaId) {
+      const sid = Number(ing.subReceitaId)
+      if (topo.has(sid)) continue
+      const subRec = (receitas || []).find(r => r.id === sid)
+      if (!subRec) continue
+      const f = fracoes[sid] ?? 1
+      if (!(f > 0)) continue
+      const subBatches = (ing.quantidade * doses) / (subRec.rendimento || 1) * f
+      const subDeb = expandNet(receitas, subRec, subBatches, fracoes, topo, depth + 1)
+      for (const [id, q] of Object.entries(subDeb)) debitos[id] = (debitos[id] || 0) + q
     }
-  })
-  return { dosesPerReceita, perItemContrib }
+  }
+  return debitos
+}
+
+// Doses de sub-receitas (não-topo) geradas por `rec` com `doses`
+function subDosesNet(receitas, rec, doses, fracoes = {}, topo = new Set(), depth = 0, acc = {}) {
+  if (depth > 5) return acc
+  for (const ing of (rec.ingredientes || [])) {
+    if (!ing.subReceitaId) continue
+    const sid = Number(ing.subReceitaId)
+    if (topo.has(sid)) continue
+    const subRec = (receitas || []).find(r => r.id === sid)
+    if (!subRec) continue
+    const f = fracoes[sid] ?? 1
+    const subBatches = (ing.quantidade * doses) / (subRec.rendimento || 1) * f
+    if (!(subBatches > 0)) continue
+    acc[sid] = (acc[sid] || 0) + subBatches
+    subDosesNet(receitas, subRec, subBatches, fracoes, topo, depth + 1, acc)
+  }
+  return acc
+}
+
+// Planeja um item do lote. `estoque` ({recId: qtd}) é consumido (mutado).
+export function planejarItem(item, receitas, produtos, estoque = {}) {
+  const byId = new Map((receitas || []).map(r => [Number(r.id), r]))
+  const bruto = {}  // recId -> qtd demandada que pode vir do estoque
+  const fixo  = {}  // recId -> doses a produzir de qualquer jeito
+  const topo  = new Set()
+
+  if (item.tipo === 'produto') {
+    const prod = (produtos || []).find(p => p.id === item.refId)
+    for (const recRef of (prod?.receitas || [])) {
+      const rid = Number(recRef.receitaId)
+      const rec = byId.get(rid)
+      if (!rec) continue
+      const d = recDosesFromRef(rec, (recRef.quantidade || 1) * (item.qtd || 0), recRef.unidade)
+      if (!(d > 0)) continue
+      topo.add(rid)
+      if (rec.rendimento > 0) bruto[rid] = (bruto[rid] || 0) + d * rec.rendimento
+      else fixo[rid] = (fixo[rid] || 0) + d
+    }
+  } else {
+    const rid = Number(item.refId)
+    const rec = byId.get(rid)
+    if (rec) {
+      let d
+      if (item.modo === 'peso_liquido' && rec.fatorPerda != null && rec.rendimento) d = (item.valorAlvo || 0) / (1 - rec.fatorPerda / 100) / rec.rendimento
+      else if (item.modo === 'unidades' && rec.rendimento) d = (item.valorAlvo || 0) / rec.rendimento
+      else d = item.qtd || 0
+      if (d > 0) { topo.add(rid); fixo[rid] = (fixo[rid] || 0) + d }
+    }
+  }
+
+  const produzir = {}, usoEstoque = {}, fracoes = {}
+  for (const rid of ordemTopologica([...topo], byId)) {
+    const rec = byId.get(rid)
+    if (!rec) continue
+    const rend = rec.rendimento || 0
+    const qtdBruta = bruto[rid] || 0
+    const usado = Math.min(Math.max(0, estoque[rid] || 0), qtdBruta)
+    if (usado > 0) { estoque[rid] = (estoque[rid] || 0) - usado; usoEstoque[rid] = usado }
+    const dosesBrutas = (rend > 0 ? qtdBruta / rend : 0) + (fixo[rid] || 0)
+    const dosesNet    = (rend > 0 ? (qtdBruta - usado) / rend : 0) + (fixo[rid] || 0)
+    fracoes[rid] = dosesBrutas > 0 ? dosesNet / dosesBrutas : 1
+    if (dosesNet > 1e-9) produzir[rid] = dosesNet
+    for (const ing of (rec.ingredientes || [])) {
+      if (!ing.subReceitaId || !(dosesNet > 0)) continue
+      const sid = Number(ing.subReceitaId)
+      bruto[sid] = (bruto[sid] || 0) + ing.quantidade * dosesNet
+    }
+  }
+
+  const dosesContrib = {}, debitosPorReceita = {}, subDoses = {}, debitos = {}
+  for (const [ridStr, d] of Object.entries(produzir)) {
+    const rid = Number(ridStr)
+    if (topo.has(rid)) {
+      dosesContrib[rid] = d
+      const deb = expandNet(receitas, byId.get(rid), d, fracoes, topo)
+      debitosPorReceita[rid] = deb
+      for (const [id, q] of Object.entries(deb)) debitos[id] = (debitos[id] || 0) + q
+    } else {
+      subDoses[rid] = d
+    }
+  }
+  return { dosesContrib, debitosPorReceita, debitos, subDoses, usoEstoque, fracoes, topo: [...topo] }
+}
+
+// Planeja o lote inteiro compartilhando o mesmo estoque (itens consomem em ordem)
+export function planejarLote(lote, receitas, produtos, estoqueInicial = {}) {
+  const estoque = { ...estoqueInicial }
+  const porItem = (lote || []).map(item => planejarItem(item, receitas, produtos, estoque))
+  const soma = (key) => porItem.reduce((acc, p) => {
+    for (const [k, v] of Object.entries(p[key])) acc[k] = (acc[k] || 0) + v
+    return acc
+  }, {})
+  return { porItem, dosesTopo: soma('dosesContrib'), subDoses: soma('subDoses'), usoEstoque: soma('usoEstoque'), debitos: soma('debitos') }
+}
+
+export async function getEstoqueReceitas() {
+  const { data } = await supabase.from('receitas').select('id, estoque_atual')
+  return Object.fromEntries((data || []).filter(r => r.estoque_atual > 0).map(r => [Number(r.id), r.estoque_atual]))
 }
 
 // Expande ingredientes de uma receita recursivamente (inclui subreceitas)
@@ -1131,90 +1237,78 @@ async function ajustarEstoqueReceita(id, delta) {
   await supabase.from('receitas').update({ estoque_atual: Math.max(0, base + delta) }).eq('id', id)
 }
 
-export async function saveProducao(lote, receitas, produtos) {
-  try {
-    const { perItemContrib } = computeDoses(lote, receitas, produtos)
-
-    const { data: prod, error } = await supabase.from('producoes').insert({ created_at: new Date().toISOString() }).select().single()
-    if (error) throw error
-
-    const itemsToInsert = lote.map((item, idx) => {
-      const contribDoses = perItemContrib[idx]
-      const itemDebitos = {}
-      const debitosPorReceita = {}
-      for (const [recIdStr, d] of Object.entries(contribDoses)) {
-        const rec = receitas.find(r => r.id === Number(recIdStr))
-        if (!rec) continue
-        const recDeb = expandIngredients(receitas, rec, d)
-        for (const [insId, q] of Object.entries(recDeb)) {
-          itemDebitos[insId] = (itemDebitos[insId] || 0) + q
-        }
-        debitosPorReceita[recIdStr] = recDeb
-      }
-
-      let credito = null
-      if (item.tipo === 'produto') {
-        credito = { tipo: 'produto', id: item.refId, qtd: item.qtd }
-      } else {
-        const rec = receitas.find(r => r.id === item.refId)
-        let qtdCredit
-        if (item.modo === 'peso_liquido') qtdCredit = item.valorAlvo || 0
-        else if (item.modo === 'unidades') qtdCredit = item.valorAlvo || 0
-        else qtdCredit = rendimentoLiquidoCalc(rec, item.qtd || 0)
-        credito = { tipo: 'receita', id: item.refId, qtd: qtdCredit }
-      }
-
-      const hasReceitas = Object.keys(contribDoses).length > 0
-      const snapshot = {
-        debitos: itemDebitos,
-        credito,
-        dosesContrib: contribDoses,
-        debitosPorReceita,
-        creditoAplicadoNaCriacao: !hasReceitas,
-      }
-
-      if (item.tipo === 'produto') {
-        return {
-          producao_id: prod.id,
-          tipo: 'produto',
-          produto_id: item.refId,
-          produto_nome: item.nome,
-          quantidade: item.qtd,
-          snapshot,
-        }
-      } else {
-        const rec = receitas.find(r => r.id === item.refId)
-        let rendTotal
-        if (item.modo === 'peso_liquido') rendTotal = item.valorAlvo
-        else if (item.modo === 'unidades') rendTotal = item.valorAlvo
-        else rendTotal = (item.qtd || 0) * (rec?.rendimento || 0)
-        return {
-          producao_id: prod.id,
-          tipo: 'receita',
-          receita_id: item.refId,
-          receita_nome: item.nome,
-          quantidade: item.qtd,
-          modo: item.modo || 'doses',
-          valor_alvo: item.valorAlvo ?? null,
-          rendimento_total: rendTotal,
-          unidade_gera: rec?.unidadeGera || 'un',
-          snapshot,
-        }
-      }
-    })
-
-    const { error: insErr } = await supabase.from('producao_itens').insert(itemsToInsert)
-    if (insErr) throw insErr
-
-    // Itens sem receitas (avulsos): crédito aplicado imediatamente
-    for (let idx = 0; idx < lote.length; idx++) {
-      const item = lote[idx]
-      const hasReceitas = Object.keys(perItemContrib[idx]).length > 0
-      if (!hasReceitas && item.tipo === 'produto') {
-        await ajustarEstoqueProduto(item.refId, item.qtd || 0)
-      }
+function montarItensProducao(producaoId, lote, receitas, plano) {
+  return lote.map((item, idx) => {
+    const p = plano.porItem[idx]
+    let credito
+    if (item.tipo === 'produto') {
+      credito = { tipo: 'produto', id: item.refId, qtd: item.qtd }
+    } else {
+      const rec = receitas.find(r => r.id === item.refId)
+      const qtdCredit = (item.modo === 'peso_liquido' || item.modo === 'unidades')
+        ? (item.valorAlvo || 0)
+        : rendimentoLiquidoCalc(rec, item.qtd || 0)
+      credito = { tipo: 'receita', id: item.refId, qtd: qtdCredit }
     }
 
+    const hasReceitas = Object.keys(p.dosesContrib).length > 0
+    const snapshot = {
+      debitos: p.debitos,
+      credito,
+      dosesContrib: p.dosesContrib,
+      debitosPorReceita: p.debitosPorReceita,
+      subDoses: p.subDoses,
+      usoEstoque: p.usoEstoque,   // preparos tirados do estoque (já debitados na criação)
+      fracoes: p.fracoes,
+      topo: p.topo,
+      creditoAplicadoNaCriacao: !hasReceitas,
+    }
+
+    if (item.tipo === 'produto') {
+      return { producao_id: producaoId, tipo: 'produto', produto_id: item.refId, produto_nome: item.nome, quantidade: item.qtd, snapshot }
+    }
+    const rec = receitas.find(r => r.id === item.refId)
+    const rendTotal = (item.modo === 'peso_liquido' || item.modo === 'unidades')
+      ? item.valorAlvo
+      : (item.qtd || 0) * (rec?.rendimento || 0)
+    return {
+      producao_id: producaoId, tipo: 'receita', receita_id: item.refId, receita_nome: item.nome,
+      quantidade: item.qtd, modo: item.modo || 'doses', valor_alvo: item.valorAlvo ?? null,
+      rendimento_total: rendTotal, unidade_gera: rec?.unidadeGera || 'un', snapshot,
+    }
+  })
+}
+
+async function aplicarUsoEstoque(usoEstoque, sinal) {
+  for (const [rid, q] of Object.entries(usoEstoque || {})) {
+    if (q > 0) await ajustarEstoqueReceita(Number(rid), sinal * q)
+  }
+}
+
+async function persistirItens(producaoId, lote, receitas, produtos, usarEstoque) {
+  const estoque = usarEstoque ? await getEstoqueReceitas() : {}
+  const plano = planejarLote(lote, receitas, produtos, estoque)
+  const rows = montarItensProducao(producaoId, lote, receitas, plano)
+  const { error } = await supabase.from('producao_itens').insert(rows)
+  if (error) throw error
+
+  // Preparos usados do estoque saem na hora (reservados pra esta produção)
+  await aplicarUsoEstoque(plano.usoEstoque, -1)
+
+  // Itens sem nada a produzir (avulso, ou tudo coberto pelo estoque): crédito imediato
+  for (let idx = 0; idx < lote.length; idx++) {
+    const item = lote[idx]
+    if (item.tipo === 'produto' && Object.keys(plano.porItem[idx].dosesContrib).length === 0) {
+      await ajustarEstoqueProduto(item.refId, item.qtd || 0)
+    }
+  }
+}
+
+export async function saveProducao(lote, receitas, produtos, { usarEstoque = true } = {}) {
+  try {
+    const { data: prod, error } = await supabase.from('producoes').insert({ created_at: new Date().toISOString() }).select().single()
+    if (error) throw error
+    await persistirItens(prod.id, lote, receitas, produtos, usarEstoque)
     return prod.id
   } catch (e) {
     if (e?.code === '42P01' || e?.message?.includes('producoes')) return null
@@ -1222,61 +1316,8 @@ export async function saveProducao(lote, receitas, produtos) {
   }
 }
 
-export async function addProducaoItens(producaoId, lote, receitas, produtos) {
-  const { perItemContrib } = computeDoses(lote, receitas, produtos)
-
-  const itemsToInsert = lote.map((item, idx) => {
-    const contribDoses = perItemContrib[idx]
-    const itemDebitos = {}
-    const debitosPorReceita = {}
-    for (const [recIdStr, d] of Object.entries(contribDoses)) {
-      const rec = receitas.find(r => r.id === Number(recIdStr))
-      if (!rec) continue
-      const recDeb = expandIngredients(receitas, rec, d)
-      for (const [insId, q] of Object.entries(recDeb)) {
-        itemDebitos[insId] = (itemDebitos[insId] || 0) + q
-      }
-      debitosPorReceita[recIdStr] = recDeb
-    }
-
-    let credito = null
-    if (item.tipo === 'produto') {
-      credito = { tipo: 'produto', id: item.refId, qtd: item.qtd }
-    } else {
-      const rec = receitas.find(r => r.id === item.refId)
-      let qtdCredit
-      if (item.modo === 'peso_liquido') qtdCredit = item.valorAlvo || 0
-      else if (item.modo === 'unidades') qtdCredit = item.valorAlvo || 0
-      else qtdCredit = rendimentoLiquidoCalc(rec, item.qtd || 0)
-      credito = { tipo: 'receita', id: item.refId, qtd: qtdCredit }
-    }
-
-    const hasReceitas = Object.keys(contribDoses).length > 0
-    const snapshot = {
-      debitos: itemDebitos, credito, dosesContrib: contribDoses,
-      debitosPorReceita, creditoAplicadoNaCriacao: !hasReceitas,
-    }
-
-    if (item.tipo === 'produto') {
-      return { producao_id: producaoId, tipo: 'produto', produto_id: item.refId, produto_nome: item.nome, quantidade: item.qtd, snapshot }
-    } else {
-      const rec = receitas.find(r => r.id === item.refId)
-      let rendTotal
-      if (item.modo === 'peso_liquido') rendTotal = item.valorAlvo
-      else if (item.modo === 'unidades') rendTotal = item.valorAlvo
-      else rendTotal = (item.qtd || 0) * (rec?.rendimento || 0)
-      return { producao_id: producaoId, tipo: 'receita', receita_id: item.refId, receita_nome: item.nome, quantidade: item.qtd, modo: item.modo || 'doses', valor_alvo: item.valorAlvo ?? null, rendimento_total: rendTotal, unidade_gera: rec?.unidadeGera || 'un', snapshot }
-    }
-  })
-
-  const { error } = await supabase.from('producao_itens').insert(itemsToInsert)
-  if (error) throw error
-
-  for (let idx = 0; idx < lote.length; idx++) {
-    const item = lote[idx]
-    const hasReceitas = Object.keys(perItemContrib[idx]).length > 0
-    if (!hasReceitas && item.tipo === 'produto') await ajustarEstoqueProduto(item.refId, item.qtd || 0)
-  }
+export async function addProducaoItens(producaoId, lote, receitas, produtos, { usarEstoque = true } = {}) {
+  await persistirItens(producaoId, lote, receitas, produtos, usarEstoque)
 }
 
 export async function updateProducaoItemQtd(itemId, quantidade, valorAlvo) {
@@ -1313,7 +1354,22 @@ export async function setProducaoRecipeDoses(prodId, recId, newTotalDoses) {
     const oldDoses = snap.dosesContrib[recIdStr] || 0
     const newDoses = oldDoses * scale
     const oldDeb = (snap.debitosPorReceita || {})[recIdStr] || {}
-    const newDeb = expandIngredients(receitas, rec, newDoses)
+    const novoFmt = !!snap.fracoes
+    const topoSet = new Set((snap.topo || Object.keys(snap.dosesContrib)).map(Number))
+    const newDeb = novoFmt
+      ? expandNet(receitas, rec, newDoses, snap.fracoes, topoSet)
+      : expandIngredients(receitas, rec, newDoses)
+    // Preparos internos acompanham a nova quantidade
+    let newSubDoses = snap.subDoses
+    if (novoFmt) {
+      newSubDoses = { ...(snap.subDoses || {}) }
+      const antes = subDosesNet(receitas, rec, oldDoses, snap.fracoes, topoSet)
+      const depois = subDosesNet(receitas, rec, newDoses, snap.fracoes, topoSet)
+      for (const sid of new Set([...Object.keys(antes), ...Object.keys(depois)])) {
+        const v = (newSubDoses[sid] || 0) - (antes[sid] || 0) + (depois[sid] || 0)
+        if (v > 1e-9) newSubDoses[sid] = v; else delete newSubDoses[sid]
+      }
+    }
 
     if (checkSet.has(recIdStr)) {
       const ids = new Set([...Object.keys(oldDeb), ...Object.keys(newDeb)])
@@ -1338,7 +1394,7 @@ export async function setProducaoRecipeDoses(prodId, recId, newTotalDoses) {
       newCredito = { ...snap.credito, qtd: newQtd }
     }
 
-    updates.push({ id: item.id, snapshot: { ...snap, dosesContrib: newDosesContrib, debitosPorReceita: newDebitosPorReceita, debitos: newTotalDebitos, credito: newCredito } })
+    updates.push({ id: item.id, snapshot: { ...snap, dosesContrib: newDosesContrib, debitosPorReceita: newDebitosPorReceita, debitos: newTotalDebitos, credito: newCredito, subDoses: newSubDoses } })
   }
 
   if (Object.keys(deltaInsumos).length) await aplicarDebitosInsumos(deltaInsumos, -1)
@@ -1416,6 +1472,7 @@ export async function fixSubreceitasRetroativas() {
     for (const item of p.itens) {
       const snap = item.snapshot
       if (!snap?.debitosPorReceita || !snap?.dosesContrib) continue
+      if (snap.fracoes) continue // formato com estoque de preparos: já calculado certo
 
       const newDebitosPorReceita = {}
       let changed = false
@@ -1569,6 +1626,8 @@ async function reverterAplicado(item, checks) {
   if (item.snapshot.creditoAplicadoNaCriacao || itemCompleto(item, checkSet)) {
     await aplicarCreditoItem(item, -1)
   }
+  // Devolve ao estoque os preparos que esta produção tinha tirado
+  await aplicarUsoEstoque(item.snapshot.usoEstoque, +1)
 }
 
 export async function deleteProducaoItem(itemId) {

@@ -131,7 +131,15 @@ export default function ProducaoTodo() {
 
   const debitosTotais = useMemo(() => {
     if (!prod || !receitas) return []
-    const debitos = computeDebitos(dosesPerReceita, receitas)
+    // Formato novo: débitos já vêm líquidos do estoque de preparos no snapshot
+    const debitos = {}
+    for (const item of prod.itens) {
+      const snap = item.snapshot
+      const parcial = snap?.fracoes && snap.debitosPorReceita
+        ? Object.values(snap.debitosPorReceita).reduce((acc, d) => { for (const [k, v] of Object.entries(d)) acc[k] = (acc[k] || 0) + v; return acc }, {})
+        : computeDebitos(snap?.dosesContrib || {}, receitas)
+      for (const [k, v] of Object.entries(parcial)) debitos[k] = (debitos[k] || 0) + v
+    }
     const map = {}
     for (const [insumoId, q] of Object.entries(debitos)) {
       const ins = (insumos || []).find(i => String(i.id) === String(insumoId))
@@ -141,6 +149,14 @@ export default function ProducaoTodo() {
   }, [prod, insumos, receitas, dosesPerReceita])
 
   const faltas = debitosTotais.filter(d => d.estoque != null && d.estoque < d.necessario)
+
+  // Preparos que esta produção tirou do estoque (já descontados na criação)
+  const usoEstoque = useMemo(() => {
+    if (!prod) return []
+    const map = {}
+    for (const item of prod.itens) for (const [rid, q] of Object.entries(item.snapshot?.usoEstoque || {})) map[rid] = (map[rid] || 0) + q
+    return Object.entries(map).map(([rid, q]) => ({ rec: (receitas || []).find(r => r.id === Number(rid)), q })).filter(x => x.rec)
+  }, [prod, receitas])
 
   const subReceitasTotal = useMemo(() => {
     if (!prod || !receitas) return []
@@ -162,8 +178,19 @@ export default function ProducaoTodo() {
       }
     }
 
-    for (const [recIdStr, doses] of Object.entries(dosesPerReceita)) {
-      walk(Number(recIdStr), doses)
+    for (const item of prod.itens) {
+      const snap = item.snapshot
+      if (snap?.fracoes) {
+        // Formato novo: preparos internos já descontados do estoque
+        for (const [sid, d] of Object.entries(snap.subDoses || {})) {
+          const subRec = (receitas || []).find(r => r.id === Number(sid))
+          if (!subRec) continue
+          if (!map[sid]) map[sid] = { rec: subRec, totalDoses: 0 }
+          map[sid].totalDoses += d
+        }
+      } else {
+        for (const [recIdStr, doses] of Object.entries(snap?.dosesContrib || {})) walk(Number(recIdStr), doses)
+      }
     }
 
     return Object.entries(map)
@@ -412,6 +439,21 @@ export default function ProducaoTodo() {
               placeholder="Buscar receita ou preparação..."
               style={{ width: '100%', boxSizing: 'border-box', padding: '11px 12px 11px 36px', borderRadius: 12, border: '1.5px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, outline: 'none' }}
             />
+          </div>
+        )}
+
+        {/* Do estoque */}
+        {usoEstoque.length > 0 && (
+          <div className="card" style={{ padding: '10px 14px', marginBottom: 12, borderLeft: '3px solid var(--teal)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--teal)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+              Do estoque · não precisa fazer
+            </div>
+            {usoEstoque.map(({ rec, q }) => (
+              <div key={rec.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0' }}>
+                <span>{rec.nome}</span>
+                <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{fmtQtd(q)} {rec.unidadeGera}</span>
+              </div>
+            ))}
           </div>
         )}
 

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
   getReceitas, getInsumos, getProdutos,
-  saveProducao, getProducoes, computeAjustesPendentes, recDosesFromRef,
+  saveProducao, getProducoes, computeAjustesPendentes, planejarLote,
 } from '../services/db'
 
 const THERMAL_TYPES = [
@@ -122,53 +122,31 @@ export default function MiseEnPlace() {
     setLote(l => l.filter((_, i) => i !== idx))
   }
 
-  // Doses por receita (somando produtos + receitas)
-  const dosesPerReceita = useMemo(() => {
-    const map = {}
-    for (const item of lote) {
-      if (item.tipo === 'produto') {
-        const prod = (produtos || []).find(p => p.id === item.refId)
-        if (!prod) continue
-        for (const rr of (prod.receitas || [])) {
-          const rec = (receitas || []).find(r => r.id === rr.receitaId)
-          if (!rec) continue
-          const d = recDosesFromRef(rec, (rr.quantidade || 1) * (item.qtd || 0), rr.unidade)
-          if (d > 0) map[rr.receitaId] = (map[rr.receitaId] || 0) + d
-        }
-      } else {
-        const rec = (receitas || []).find(r => r.id === item.refId)
-        if (!rec) continue
-        const d = dosesParaItem(item, rec)
-        map[item.refId] = (map[item.refId] || 0) + d
-      }
-    }
-    return map
-  }, [lote, produtos, receitas])
+  // Plano descontando preparos que já estão prontos no estoque
+  const [usarEstoque, setUsarEstoque] = useState(true)
+  const plano = useMemo(() => {
+    const estoque = {}
+    if (usarEstoque) for (const r of (receitas || [])) if (r.estoqueAtual > 0) estoque[Number(r.id)] = r.estoqueAtual
+    return planejarLote(lote, receitas || [], produtos || [], estoque)
+  }, [lote, produtos, receitas, usarEstoque])
 
-  // Mise en place TOTAL (somado) — para checar faltas no estoque
+  // Tudo que de fato vai ao fogo: receitas do lote + preparos internos
+  const dosesPerReceita = useMemo(() => {
+    const map = { ...plano.dosesTopo }
+    for (const [rid, d] of Object.entries(plano.subDoses)) map[rid] = (map[rid] || 0) + d
+    return map
+  }, [plano])
+
+  // Insumos necessários (já líquidos do estoque de preparos) — checa faltas
   const debitosTotais = useMemo(() => {
-    const map = {}
-    for (const [recIdStr, doses] of Object.entries(dosesPerReceita)) {
-      const rec = (receitas || []).find(r => r.id === Number(recIdStr))
-      if (!rec) continue
-      for (const ing of (rec.ingredientes || [])) {
-        const key = ing.insumoId ? `id:${ing.insumoId}` : `n:${norm(ing.nome)}`
-        if (!map[key]) map[key] = { insumoId: ing.insumoId, nome: ing.nome, unidade: ing.unidade, necessario: 0 }
-        map[key].necessario += ing.quantidade * doses
-      }
-    }
     const aju = computeAjustesPendentes(producoes || [])
-    const estMap = Object.fromEntries((insumos || []).map(i => {
-      const base = i.estoque ?? i.estoqueAtual ?? null
-      if (base == null) return [i.id, null]
-      const delta = aju.insumos?.[i.id] || 0
-      return [i.id, Math.max(0, base + delta)]
-    }))
-    return Object.values(map).map(it => ({
-      ...it,
-      estoque: it.insumoId ? (estMap[it.insumoId] ?? null) : null,
-    }))
-  }, [dosesPerReceita, receitas, insumos, producoes])
+    return Object.entries(plano.debitos).map(([insId, q]) => {
+      const ins = (insumos || []).find(i => String(i.id) === String(insId))
+      const base = ins ? (ins.estoque ?? ins.estoqueAtual ?? null) : null
+      const estoque = base == null ? null : Math.max(0, base + (aju.insumos?.[insId] || 0))
+      return { insumoId: Number(insId), nome: ins?.nome || `insumo#${insId}`, unidade: ins?.unidade || 'g', necessario: q, estoque }
+    }).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+  }, [plano, insumos, producoes])
 
   const temFalta = debitosTotais.some(d => d.estoque != null && d.estoque < d.necessario)
 
@@ -208,7 +186,7 @@ export default function MiseEnPlace() {
   async function handleConfirmar() {
     setConfirmando(true)
     try {
-      const prodId = await saveProducao(lote, receitas || [], produtos || [])
+      const prodId = await saveProducao(lote, receitas || [], produtos || [], { usarEstoque })
       setLote([])
       setSheet(null)
       if (prodId) navigate(`/producao/${prodId}`)
@@ -398,6 +376,9 @@ export default function MiseEnPlace() {
           produtos={produtos || []}
           dosesPerReceita={dosesPerReceita}
           debitosTotais={debitosTotais}
+          usoEstoque={plano.usoEstoque}
+          usarEstoque={usarEstoque}
+          onToggleEstoque={() => setUsarEstoque(v => !v)}
           confirmando={confirmando}
           onClose={() => setSheet(null)}
           onConfirmar={handleConfirmar}
@@ -537,7 +518,7 @@ function LoteCard({ item, rec, prod, receitas, onUpdate, onRemove }) {
   )
 }
 
-function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais, confirmando, onClose, onConfirmar, onUpdateItem }) {
+function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais, usoEstoque = {}, usarEstoque, onToggleEstoque, confirmando, onClose, onConfirmar, onUpdateItem }) {
   const [showDebit, setShowDebit] = useState(false)
   const [showCompras, setShowCompras] = useState(false)
   const faltas = debitosTotais.filter(d => d.estoque != null && d.estoque < d.necessario)
@@ -607,6 +588,37 @@ function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais,
             </div>
           )
         })}
+
+        {/* Preparos prontos no estoque */}
+        <div style={{ marginTop: 14, border: `1px solid ${usarEstoque ? 'var(--teal)' : 'var(--border)'}`, borderRadius: 8, padding: '10px 12px' }}>
+          <div onClick={onToggleEstoque} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: usarEstoque ? 'var(--teal)' : 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Usar preparos do estoque
+            </span>
+            <div style={{ width: 34, height: 20, borderRadius: 10, position: 'relative', background: usarEstoque ? 'var(--teal)' : 'var(--border)', flexShrink: 0 }}>
+              <div style={{ position: 'absolute', top: 2, left: usarEstoque ? 16 : 2, width: 16, height: 16, borderRadius: 8, background: '#fff', transition: 'left .15s' }} />
+            </div>
+          </div>
+          {usarEstoque && Object.keys(usoEstoque).length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              {Object.entries(usoEstoque).map(([rid, q]) => {
+                const rec = receitas.find(r => r.id === Number(rid))
+                if (!rec) return null
+                return (
+                  <div key={rid} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontSize: 12 }}>
+                    <span>{rec.nome}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--teal)' }}>{fmtQtd(q)} {rec.unidadeGera} do estoque</span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 6 }}>
+            {!usarEstoque ? 'Desligado: tudo é feito do zero.'
+              : Object.keys(usoEstoque).length ? 'Isso sai do estoque ao confirmar. Só o que falta vai pra produção.'
+              : 'Nenhum preparo necessário está no estoque.'}
+          </div>
+        </div>
 
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 14, marginBottom: 6 }}>Mise en place por receita</div>
         {Object.entries(dosesPerReceita).map(([recIdStr, doses]) => {
@@ -708,7 +720,7 @@ function ReciboSheet({ lote, receitas, produtos, dosesPerReceita, debitosTotais,
         )}
 
         <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 10, marginBottom: 4 }}>
-          Debita insumos · soma produtos/receitas no estoque · salva no histórico.
+          Debita insumos · usa preparos do estoque · soma produtos/receitas no estoque · salva no histórico.
         </div>
         <button
           disabled={confirmando}
