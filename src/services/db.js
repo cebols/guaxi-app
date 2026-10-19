@@ -1667,8 +1667,10 @@ export async function deleteReceita(id) {
 }
 
 export async function deleteReceitas(ids) {
-  const { error } = await supabase.from('receitas').delete().in('id', ids)
+  // .select() devolve as linhas realmente apagadas — RLS bloqueia sem erro
+  const { data, error } = await supabase.from('receitas').delete().in('id', ids).select('id')
   if (error) throw error
+  if ((data || []).length < ids.length) throw new Error('Não foi possível apagar uma ou mais receitas (sem permissão no banco).')
 }
 
 // ── User Config ───────────────────────────────────────────────
