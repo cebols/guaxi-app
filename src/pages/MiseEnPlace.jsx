@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
   getReceitas, getInsumos, getProdutos,
-  saveProducao, getProducoes, computeAjustesPendentes, planejarLote,
+  saveProducao, getProducoes, computeAjustesPendentes, planejarLote, lotePadraoProduto,
 } from '../services/db'
 
 const THERMAL_TYPES = [
@@ -109,7 +109,8 @@ export default function MiseEnPlace() {
       return
     }
     if (tipo === 'produto') {
-      setLote(l => [...l, { tipo: 'produto', refId: item.id, nome: item.nome, qtd: 1 }])
+      const prod = (produtos || []).find(p => p.id === item.id)
+      setLote(l => [...l, { tipo: 'produto', refId: item.id, nome: item.nome, qtd: lotePadraoProduto(prod, receitas) }])
     } else {
       setLote(l => [...l, { tipo: 'receita', refId: item.id, nome: item.nome, qtd: 1, modo: 'doses', valorAlvo: null }])
     }
@@ -453,6 +454,10 @@ function LoteCard({ item, rec, prod, receitas, onUpdate, onRemove }) {
             />
             <button onClick={() => onUpdate({ qtd: (item.qtd || 0) + 1 })} style={btnStyle}>+</button>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>unidades</span>
+            {prod && (() => {
+              const lp = lotePadraoProduto(prod, receitas)
+              return lp > 1 ? <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>· 1 receita = {lp} un</span> : null
+            })()}
           </>
         )}
         {isReceita && item.modo === 'doses' && (

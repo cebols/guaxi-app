@@ -4,7 +4,7 @@ import { useData } from '../hooks/useData'
 import {
   getProducao, getReceitas, getInsumos, getProdutos,
   updateProducaoChecks, deleteProducao, deleteProducaoItem,
-  addProducaoItens, updateProducaoItemQtd, computeDebitos,
+  addProducaoItens, updateProducaoItemQtd, computeDebitos, lotePadraoProduto,
 } from '../services/db'
 
 function norm(s) {
@@ -708,7 +708,7 @@ function AddItemSheet({ receitas, produtos, saving, onClose, onConfirmar }) {
 
   function toggle(tipo, item) {
     if (inLote(tipo, item.id)) { setLote(l => l.filter(x => !(x.tipo === tipo && x.refId === item.id))); return }
-    if (tipo === 'produto') setLote(l => [...l, { tipo: 'produto', refId: item.id, nome: item.nome, qtd: 1 }])
+    if (tipo === 'produto') setLote(l => [...l, { tipo: 'produto', refId: item.id, nome: item.nome, qtd: lotePadraoProduto(produtos.find(p => p.id === item.id), receitas) }])
     else setLote(l => [...l, { tipo: 'receita', refId: item.id, nome: item.nome, qtd: 1, modo: 'doses', valorAlvo: null }])
   }
 

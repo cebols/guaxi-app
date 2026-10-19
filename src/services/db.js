@@ -1028,6 +1028,22 @@ export function recDosesFromRef(rec, quantidade, unidade) {
   return rec.rendimento ? qty / rec.rendimento : 0     // mesma base (un&un ou g&g)
 }
 
+// Quantas unidades do produto saem de 1 receita (a "fornada" padrão).
+// Usa a receita que define unidades (unidadeGera 'un', ex: brownie rende 25 un);
+// sem ela, a receita que rende mais unidades do produto (ex: mousse 1000 g ÷ 150 g = 6).
+export function lotePadraoProduto(prod, receitas) {
+  let melhorUn = 0, melhorOutro = 0
+  for (const rr of (prod?.receitas || [])) {
+    const rec = (receitas || []).find(r => Number(r.id) === Number(rr.receitaId))
+    const dosesPorUn = recDosesFromRef(rec, rr.quantidade || 1, rr.unidade)
+    if (!(dosesPorUn > 0)) continue
+    const un = Math.floor(1 / dosesPorUn + 1e-6)
+    if (rec.unidadeGera === 'un') melhorUn = Math.max(melhorUn, un)
+    else melhorOutro = Math.max(melhorOutro, un)
+  }
+  return Math.max(1, melhorUn || melhorOutro || 1)
+}
+
 // ── Planejamento com estoque de preparos ─────────────────────────────────────
 // Desconta o que já existe pronto (receitas.estoque_atual, na unidadeGera) antes
 // de mandar produzir. Processa a cadeia de cima pra baixo: se a gianduia vem do
