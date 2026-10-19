@@ -644,6 +644,9 @@ ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_fator numeric DEFAULT NULL;
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS ativo boolean NOT NULL DEFAULT true;
 ALTER TABLE produtos ALTER COLUMN ativo SET DEFAULT false;
 
+-- Fornada: quantas unidades saem numa produção (travessa, forma...). Vazio = deriva da receita.
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS fornada integer;
+
 -- ── Limpeza: receitas de tutorial/seed sem user_id ────────────────────────────
 -- Se uma receita existe com user_id NULL (inserida como demo global), a policy
 -- "user_id = auth.uid()" impede que o usuário a apague via UI.

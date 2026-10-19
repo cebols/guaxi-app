@@ -150,7 +150,7 @@ function OrganizarCardapioSheet({ produtos, onSave, onClose }) {
   )
 }
 
-const FORM_EMPTY = { nome: '', tipo: 'produto', fragilidade: 'robusto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueAtual: '', estoqueMin: '', margemAlvo: null, imagemUrl: '', ativo: false }
+const FORM_EMPTY = { nome: '', tipo: 'produto', fragilidade: 'robusto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueAtual: '', estoqueMin: '', fornada: '', margemAlvo: null, imagemUrl: '', ativo: false }
 
 function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onClose, hasPrev, hasNext, onPrev, onNext, navLabel }) {
   const [form, setForm] = useState(item
@@ -169,6 +169,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
         precoIfood:  item.precoIfood  ?? '',
         estoqueAtual: item.estoqueAtual ?? '',
         estoqueMin:  item.estoqueMin  ?? '',
+        fornada:     item.fornada     ?? '',
         margemAlvo:  item.margemAlvo ?? null,
         imagemUrl:   item.imagemUrl   || '',
         ativo:       item.ativo ?? true,
@@ -753,6 +754,23 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                   fontWeight: 600, width: 64, textAlign: 'center',
                 }} />
             </div>
+            {form.tipo !== 'combo' && (
+              <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Fornada (un)</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>Quanto sai numa produção — já vem assim no planejamento</div>
+                </div>
+                <input type="text" inputMode="numeric"
+                  placeholder="—"
+                  value={form.fornada}
+                  onChange={e => set('fornada', e.target.value.replace(/\D/g, ''))}
+                  style={{
+                    padding: '6px 14px', borderRadius: 6, background: 'var(--bg-input)',
+                    border: '0.5px solid var(--border-light-color)', fontSize: 14, color: 'var(--text-primary)',
+                    fontWeight: 600, width: 64, textAlign: 'center', flexShrink: 0,
+                  }} />
+              </div>
+            )}
           </div>
           </div>{/* /form-grid-rail */}
          </div>{/* /form-grid */}
@@ -1070,7 +1088,7 @@ export default function Produtos() {
         custoDireto: prod.custoDireto,
         fornecedor: prod.fornecedor, whatsapp: prod.whatsapp, linkCompra: prod.linkCompra,
         precoDireta: prod.precoDireta, preco99: prod.preco99, precoIfood: prod.precoIfood,
-        estoqueMin: prod.estoqueMin, componentes,
+        estoqueMin: prod.estoqueMin, fornada: prod.fornada, componentes,
       }, recItems, embItems)
       rProd()
       show('Duplicado!')

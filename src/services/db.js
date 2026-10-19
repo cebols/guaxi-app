@@ -437,6 +437,7 @@ export async function getProdutos() {
       estoqueAtual: r.estoque_atual ?? null,
       estoqueMin:   r.estoque_min  ?? 0,
       ativo:        r.ativo ?? true,
+      fornada:      r.fornada ?? null,
       margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
       imagemUrl:   r.imagem_url || null,
       receitas:    (r.composicao?.receitas    || []),
@@ -465,6 +466,7 @@ export async function getProdutos() {
     estoqueAtual: r.estoque_atual ?? null,
     estoqueMin:   r.estoque_min  ?? 0,
     ativo:        r.ativo ?? true,
+    fornada:      r.fornada ?? null,
     margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
     imagemUrl:   r.imagem_url || null,
     componentes: (r.composicao?.componentes || []),
@@ -537,10 +539,11 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     descricao:      prod.descricao ?? undefined,
     secao:          prod.secao     ?? undefined,
     ativo:          prod.ativo === undefined ? undefined : !!prod.ativo,
+    fornada:        prod.fornada === undefined ? undefined : (parseInt(prod.fornada) > 0 ? parseInt(prod.fornada) : null),
   }
 
   const saved = await upsert('produtos', row, prod.id || null,
-    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fragilidade', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'estoque_atual', 'margem_alvo', 'imagem_url', 'ativo'])
+    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fragilidade', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'estoque_atual', 'margem_alvo', 'imagem_url', 'ativo', 'fornada'])
   const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)
@@ -1028,10 +1031,12 @@ export function recDosesFromRef(rec, quantidade, unidade) {
   return rec.rendimento ? qty / rec.rendimento : 0     // mesma base (un&un ou g&g)
 }
 
-// Quantas unidades do produto saem de 1 receita (a "fornada" padrão).
+// Quantas unidades do produto saem de uma produção (a "fornada").
+// Campo `fornada` do produto tem prioridade; sem ele, deriva da receita:
 // Usa a receita que define unidades (unidadeGera 'un', ex: brownie rende 25 un);
 // sem ela, a receita que rende mais unidades do produto (ex: mousse 1000 g ÷ 150 g = 6).
 export function lotePadraoProduto(prod, receitas) {
+  if (prod?.fornada > 0) return prod.fornada  // definido no produto: manda
   let melhorUn = 0, melhorOutro = 0
   for (const rr of (prod?.receitas || [])) {
     const rec = (receitas || []).find(r => Number(r.id) === Number(rr.receitaId))
