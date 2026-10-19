@@ -637,6 +637,13 @@ CREATE POLICY "users manage own snapshots" ON contagem_snapshots
 ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_insumo_id bigint REFERENCES insumos(id) ON DELETE SET NULL;
 ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_fator numeric DEFAULT NULL;
 
+-- ── Cardápio: produto ativo ou fora do cardápio ───────────────────────────────
+-- Existentes ficam ativos (default true no ADD); novos nascem fora do cardápio.
+-- Fora do cardápio = some da contagem, planejamento e link público; continua
+-- em pedido manual, vendas e histórico.
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS ativo boolean NOT NULL DEFAULT true;
+ALTER TABLE produtos ALTER COLUMN ativo SET DEFAULT false;
+
 -- ── Limpeza: receitas de tutorial/seed sem user_id ────────────────────────────
 -- Se uma receita existe com user_id NULL (inserida como demo global), a policy
 -- "user_id = auth.uid()" impede que o usuário a apague via UI.

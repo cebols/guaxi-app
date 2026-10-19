@@ -18,6 +18,9 @@ const TIPO_COLOR = {
   'Outro':         '',
 }
 
+// Categorias antigas que misturavam papel com tipo — receitas assim pedem revisão
+const TIPOS_LEGADOS = new Set(['Base', 'Produto Final'])
+
 function fmt(val) {
   return val.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
@@ -102,6 +105,7 @@ function norm(s) {
   }
 
   const filtradas = (receitas || []).filter(r => {
+    if (filtroTipo === '__revisar') return TIPOS_LEGADOS.has(r.tipo) && norm(r.nome).includes(norm(busca))
     if (filtroTipo !== 'todos' && r.tipo !== filtroTipo) return false
     return norm(r.nome).includes(norm(busca))
   })
@@ -234,6 +238,24 @@ function norm(s) {
             )}
           </div>
 
+          {/* Receitas com categoria antiga (Base / Produto Final) */}
+          {(() => {
+            const n = (receitas || []).filter(r => TIPOS_LEGADOS.has(r.tipo)).length
+            if (!n && filtroTipo !== '__revisar') return null
+            const ativo = filtroTipo === '__revisar'
+            return (
+              <button onClick={() => setFiltroTipo(ativo ? 'todos' : '__revisar')} style={{
+                width: '100%', textAlign: 'left', marginBottom: 10, padding: '10px 12px', borderRadius: 12, cursor: 'pointer',
+                background: 'rgba(245,158,11,0.08)', border: `1px solid ${ativo ? '#f59e0b' : '#92400e'}`, color: '#f59e0b', fontSize: 12,
+              }}>
+                <div style={{ fontWeight: 700 }}>{ativo ? '✕ Sair da revisão' : `Revisar ${n} receita(s) com categoria antiga`}</div>
+                <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+                  "Base" e "Produto Final" saíram. Troque por uma categoria culinária (Massa, Pasta / Pralinê…). Produto final se cadastra em Produtos.
+                </div>
+              </button>
+            )
+          })()}
+
           {/* Category dropdown */}
           {tiposDisponiveis.length > 1 && (
             <div style={{ position: 'relative', marginBottom: 10 }}>
@@ -248,7 +270,7 @@ function norm(s) {
                   fontSize: 13, fontWeight: filtroTipo !== 'todos' ? 600 : 400,
                 }}
               >
-                <span>{filtroTipo === 'todos' ? 'Filtrar por categoria' : filtroTipo}</span>
+                <span>{filtroTipo === 'todos' ? 'Filtrar por categoria' : filtroTipo === '__revisar' ? 'Revisando categorias antigas' : filtroTipo}</span>
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style={{ transform: catOpen ? 'rotate(180deg)' : 'none', transition: 'transform .15s', flexShrink: 0 }}>
                   <path d="M3 5l4 4 4-4" stroke="var(--text-tertiary)" strokeWidth="1.4" strokeLinecap="round"/>
                 </svg>

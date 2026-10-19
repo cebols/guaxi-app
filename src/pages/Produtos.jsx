@@ -9,7 +9,7 @@ import { ItemThumb } from '../components/ItemThumb'
 import { getConfig, calcPrecos, getCustoSacolaDelivery } from '../hooks/useConfig'
 import {
   getProdutos, saveProduto, deleteProduto,
-  getReceitas, getEmbalagens, getInsumos, bulkUpdateSecoes,
+  getReceitas, getEmbalagens, getInsumos, bulkUpdateSecoes, updateProdutosAtivo,
   saveUserConfig, loadUserConfig,
 } from '../services/db'
 
@@ -94,7 +94,63 @@ async function cropToBlob(imgEl, pixelCrop) {
   return new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92))
 }
 
-const FORM_EMPTY = { nome: '', tipo: 'produto', fragilidade: 'robusto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueAtual: '', estoqueMin: '', margemAlvo: null, imagemUrl: '' }
+function Switch({ on }) {
+  return (
+    <div style={{ width: 38, height: 22, borderRadius: 11, flexShrink: 0, position: 'relative', background: on ? 'var(--teal)' : 'var(--border-color, #444)', transition: 'background .15s' }}>
+      <div style={{ position: 'absolute', top: 2, left: on ? 18 : 2, width: 18, height: 18, borderRadius: 9, background: '#fff', transition: 'left .15s' }} />
+    </div>
+  )
+}
+
+function OrganizarCardapioSheet({ produtos, onSave, onClose }) {
+  const [estado, setEstado] = useState(() => Object.fromEntries(produtos.map(p => [p.id, p.ativo !== false])))
+  const [busca, setBusca]   = useState('')
+  const [saving, setSaving] = useState(false)
+  const norm = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  const lista = [...produtos]
+    .filter(p => !busca || norm(p.nome).includes(norm(busca)))
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'))
+  const alterados = produtos.filter(p => estado[p.id] !== (p.ativo !== false))
+  const totalAtivos = Object.values(estado).filter(Boolean).length
+
+  const salvar = async () => {
+    setSaving(true)
+    try {
+      await onSave(alterados.map(p => ({ id: p.id, ativo: estado[p.id] })))
+      onClose()
+    } catch (e) { alert('Erro: ' + e.message) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Sheet title="Organizar cardápio" onClose={onClose}>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+        {totalAtivos} de {produtos.length} no cardápio. Fora do cardápio some da contagem, do planejamento e do link de pedido.
+      </div>
+      <input className="field-input" placeholder="Buscar..." value={busca} onChange={e => setBusca(e.target.value)} style={{ marginBottom: 8 }} />
+      <div style={{ maxHeight: '55vh', overflowY: 'auto', marginBottom: 12 }}>
+        {lista.map(p => {
+          const on = estado[p.id]
+          return (
+            <div key={p.id} onClick={() => setEstado(s => ({ ...s, [p.id]: !s[p.id] }))}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 2px', borderBottom: '0.5px solid var(--border)', cursor: 'pointer' }}>
+              <ItemThumb url={p.imagemUrl} nome={p.nome} size={32} radius={6} />
+              <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: on ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>
+                {p.nome}<TipoBadge tipo={p.tipo} />
+              </div>
+              <Switch on={on} />
+            </div>
+          )
+        })}
+      </div>
+      <button className="btn-primary" onClick={salvar} disabled={saving || alterados.length === 0}>
+        {saving ? 'Salvando...' : alterados.length ? `Salvar ${alterados.length} alteração(ões)` : 'Nada alterado'}
+      </button>
+    </Sheet>
+  )
+}
+
+const FORM_EMPTY = { nome: '', tipo: 'produto', fragilidade: 'robusto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueAtual: '', estoqueMin: '', margemAlvo: null, imagemUrl: '', ativo: false }
 
 function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onClose, hasPrev, hasNext, onPrev, onNext, navLabel }) {
   const [form, setForm] = useState(item
@@ -115,6 +171,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
         estoqueMin:  item.estoqueMin  ?? '',
         margemAlvo:  item.margemAlvo ?? null,
         imagemUrl:   item.imagemUrl   || '',
+        ativo:       item.ativo ?? true,
       }
     : { ...FORM_EMPTY }
   )
@@ -377,6 +434,21 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                 <div style={fieldLabel}>Nome *</div>
                 <input className="field-input" style={{ marginBottom: 0 }} placeholder="ex: Choux Craquelin" value={form.nome} onChange={e => set('nome', e.target.value)} />
               </div>
+            </div>
+
+            {/* No cardápio */}
+            <div onClick={() => set('ativo', !form.ativo)} style={{
+              display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '10px 12px',
+              borderRadius: 8, cursor: 'pointer', background: 'var(--bg-input)',
+              border: `0.5px solid ${form.ativo ? 'var(--teal)' : 'var(--border-light-color)'}`,
+            }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: form.ativo ? 'var(--teal)' : 'var(--text-primary)' }}>No cardápio</div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                  {form.ativo ? 'Aparece na contagem, no planejamento e no link de pedido' : 'Pontual: só pedido manual, fora da contagem e do planejamento'}
+                </div>
+              </div>
+              <Switch on={form.ativo} />
             </div>
 
             {/* Seção */}
@@ -938,7 +1010,10 @@ export default function Produtos() {
   }, [insumos, embalagens, produtos])
 
   const TIPO_MAP = { Todos: null, Produzido: 'produto', Avulso: 'avulso', Combo: 'combo' }
-  const produtosFiltrados = (produtos || []).filter(p => !TIPO_MAP[filtroTipo] || p.tipo === TIPO_MAP[filtroTipo])
+  const doTipo = (produtos || []).filter(p => !TIPO_MAP[filtroTipo] || p.tipo === TIPO_MAP[filtroTipo])
+  const ativosFiltrados = doTipo.filter(p => p.ativo !== false)
+  const foraFiltrados   = doTipo.filter(p => p.ativo === false)
+  const produtosFiltrados = [...ativosFiltrados, ...foraFiltrados]
 
 
   const [duplicando, setDuplicando] = useState(null)
@@ -957,6 +1032,13 @@ export default function Produtos() {
     await deleteProduto(id)
     rProd()
     show('Excluído!')
+  }
+
+  const handleSaveAtivos = async (items) => {
+    if (!items.length) return
+    await updateProdutosAtivo(items)
+    rProd()
+    show('Cardápio salvo!')
   }
 
   const handleSaveSecoes = async (items, ordem) => {
@@ -1030,7 +1112,11 @@ export default function Produtos() {
       </div>
 
       <div className="page-inner" style={{ paddingTop: 12 }}>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => setSheet({ type: 'cardapio' })} style={{
+            order: 2, marginLeft: 'auto', fontSize: 12, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
+            border: '1px solid var(--teal)', background: 'transparent', color: 'var(--teal)', fontWeight: 600,
+          }}>Organizar cardápio</button>
           {Object.keys(TIPO_MAP).map(t => (
             <button key={t} onClick={() => setFiltroTipo(t)} style={{
               fontSize: 12, padding: '4px 12px', borderRadius: 20,
@@ -1059,10 +1145,11 @@ export default function Produtos() {
                         <th></th>
                       </tr></thead>
                       <tbody>
-                        {produtosFiltrados.map(prod => {
+                        {(() => {
+                          const row = (prod, fora) => {
                           const p = calcPrecos(prod.custoTotal, cfg, custoSacola)
                           return (
-                            <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })}>
+                            <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })} style={fora ? { opacity: 0.5 } : undefined}>
                               <td style={{ fontWeight: 600 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                   <ItemThumb url={prod.imagemUrl} nome={prod.nome} size={32} radius={6} />
@@ -1087,7 +1174,13 @@ export default function Produtos() {
                               </td>
                             </tr>
                           )
-                        })}
+                          }
+                          return <>
+                            {ativosFiltrados.map(p => row(p, false))}
+                            {foraFiltrados.length > 0 && <tr><td colSpan={8} style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5, paddingTop: 14 }}>Fora do cardápio ({foraFiltrados.length})</td></tr>}
+                            {foraFiltrados.map(p => row(p, true))}
+                          </>
+                        })()}
                       </tbody>
                     </table></div>
                 }
@@ -1106,10 +1199,10 @@ export default function Produtos() {
                   </div>
                 </>
               ) : (
-                <div className="card card-flush" style={{ padding: '0 14px' }}>
-                  {produtosFiltrados.map(prod => {
+                (() => {
+                  const row = (prod, fora) => {
                     return (
-                      <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })}>
+                      <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })} style={fora ? { opacity: 0.5 } : undefined}>
                         <ItemThumb url={prod.imagemUrl} nome={prod.nome} size={48} radius={8} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div className="list-item-name" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1141,8 +1234,21 @@ export default function Produtos() {
                         </button>
                       </div>
                     )
-                  })}
-                </div>
+                  }
+                  return <>
+                    {ativosFiltrados.length > 0 && (
+                      <div className="card card-flush" style={{ padding: '0 14px' }}>
+                        {ativosFiltrados.map(p => row(p, false))}
+                      </div>
+                    )}
+                    {foraFiltrados.length > 0 && <>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5, margin: '16px 0 6px' }}>Fora do cardápio ({foraFiltrados.length})</div>
+                      <div className="card card-flush" style={{ padding: '0 14px' }}>
+                        {foraFiltrados.map(p => row(p, true))}
+                      </div>
+                    </>}
+                  </>
+                })()
               )}
             </div>
           </div>
@@ -1173,6 +1279,14 @@ export default function Produtos() {
           />
         )
       })()}
+
+      {sheet?.type === 'cardapio' && (
+        <OrganizarCardapioSheet
+          produtos={produtos || []}
+          onSave={handleSaveAtivos}
+          onClose={() => setSheet(null)}
+        />
+      )}
 
       {sheet?.type === 'secoes' && (
         <OrganizarSecoesSheet

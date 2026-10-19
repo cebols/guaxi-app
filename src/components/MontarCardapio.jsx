@@ -12,7 +12,7 @@ const PRECO_OPTS = [
 ]
 
 export function MontarCardapio({ produtos, nomeLoja, cfg, custoSacola, secoesOrdem = [], onClose }) {
-  const [sel, setSel] = useState([])
+  const [sel, setSel] = useState(() => (produtos || []).filter(p => p.ativo !== false).map(p => p.id))
   const [size, setSize] = useState('a4')
   const [comFotos, setComFotos] = useState(true)
   const [precoTipo, setPrecoTipo] = useState('direta')

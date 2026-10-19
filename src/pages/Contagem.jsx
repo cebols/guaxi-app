@@ -186,6 +186,11 @@ function StockTab({ itens, contagem, onChange, minValues, labelPedir = 'pedir', 
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{item.nome}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>mín. {effectiveMin} {item.unidade}</div>
+                    {item.usadoEm !== undefined && (
+                      <div style={{ fontSize: 11, color: item.usadoEm ? 'var(--text-tertiary)' : '#f59e0b', marginTop: 1 }}>
+                        {item.usadoEm ? `→ ${item.usadoEm}` : 'não usado em nada'}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <input
@@ -893,7 +898,7 @@ function ConsultarView({ insumos, embalagens, produtos, ajustes, onVoltar, onRel
   const [busca, setBusca] = useState('')
 
   const produtosParaConsulta = useMemo(() => (produtos || [])
-    .filter(p => p.tipo !== 'combo')
+    .filter(p => p.tipo !== 'combo' && p.ativo !== false)
     .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' })),
     [produtos])
 
@@ -1039,7 +1044,7 @@ export default function Contagem() {
   const location = useLocation()
   const [vista, setVista]   = useState(() => location.state?.startCount ? 'contagem' : null)
   const [tab, setTab]       = useState('insumos')
-  const [subProd, setSubProd] = useState('produtos') // sub-filtro dentro da aba produtos: 'produtos' | 'receitas'
+  const [foraAberto, setForaAberto] = useState(false)
   const [busca, setBusca]   = useState('')
   const [filtroContagem, setFiltroContagem] = useState('todos')
   const [sortContagem, setSortContagem] = useState('categoria')
@@ -1062,17 +1067,50 @@ export default function Contagem() {
   const setProd = (id, val) => setContagemProd(c => ({ ...c, [id]: val }))
   const setRec  = (id, val) => setContagemRec(c  => ({ ...c, [id]: val }))
 
-  const produtosParaContagem = useMemo(() => (produtos || [])
-    .filter(p => p.tipo !== 'combo')
+  // Só produtos que estão no cardápio entram na contagem
+  const produtosAtivos = useMemo(() => (produtos || [])
+    .filter(p => p.tipo !== 'combo' && p.ativo !== false), [produtos])
+
+  const produtosParaContagem = useMemo(() => produtosAtivos
     .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' })),
-    [produtos])
+    [produtosAtivos])
 
-  const receitasParaContagem = useMemo(() => (receitas || [])
-    .map(r => ({ ...r, unidade: r.unidadeGera || 'un', categoria: r.tipo || 'Outro' })),
-    [receitas])
+  // Preparos: receitas entre o insumo e o produto final.
+  // Base = só insumos; Composto = usa outro preparo. Receitas que nenhum
+  // produto do cardápio usa (direta ou indiretamente) ficam num grupo à parte.
+  const { preparosAtivos, preparosFora } = useMemo(() => {
+    const recs = receitas || []
+    const byId = new Map(recs.map(r => [Number(r.id), r]))
+    const usadoEm = {}
+    const addUso = (id, nome) => { const k = Number(id); (usadoEm[k] ||= new Set()).add(nome) }
+    for (const r of recs) for (const ing of (r.ingredientes || [])) if (ing.subReceitaId) addUso(ing.subReceitaId, r.nome)
+    for (const p of (produtos || [])) for (const rr of (p.receitas || [])) if (rr.receitaId) addUso(rr.receitaId, p.nome)
 
-  // Dentro da aba "produtos", o sub-filtro alterna entre produtos e receitas
-  const isRec = tab === 'produtos' && subProd === 'receitas'
+    const alcancaveis = new Set()
+    const walk = (id, depth = 0) => {
+      const k = Number(id)
+      if (depth > 8 || alcancaveis.has(k)) return
+      alcancaveis.add(k)
+      for (const ing of (byId.get(k)?.ingredientes || [])) if (ing.subReceitaId) walk(ing.subReceitaId, depth + 1)
+    }
+    for (const p of produtosAtivos) for (const rr of (p.receitas || [])) if (rr.receitaId) walk(rr.receitaId)
+
+    const toItem = r => {
+      const composto = (r.ingredientes || []).some(i => i.subReceitaId)
+      const usos = [...(usadoEm[Number(r.id)] || [])]
+      return { ...r, unidade: r.unidadeGera || 'un', categoria: composto ? 'Compostos' : 'Bases', _ordem: composto ? 1 : 0, usadoEm: usos.length ? usos.join(', ') : null }
+    }
+    const sortFn = (a, b) => a._ordem - b._ordem || (a.nome || '').localeCompare(b.nome || '', 'pt-BR')
+    const all = recs.map(toItem)
+    return {
+      preparosAtivos: all.filter(r => alcancaveis.has(Number(r.id))).sort(sortFn),
+      preparosFora:   all.filter(r => !alcancaveis.has(Number(r.id))).sort(sortFn),
+    }
+  }, [receitas, produtos, produtosAtivos])
+
+  const receitasParaContagem = useMemo(() => [...preparosAtivos, ...preparosFora], [preparosAtivos, preparosFora])
+
+  const isRec = tab === 'preparos'
   const prodData     = isRec ? receitasParaContagem : produtosParaContagem
   const prodContagem = isRec ? contagemRec : contagemProd
   const prodSetter   = isRec ? setRec : setProd
@@ -1093,12 +1131,14 @@ export default function Contagem() {
     return itensComEstoque.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
   }, [itensComEstoque, busca])
 
-  // For products/recipes: show ALL (including zero stock) filtered by search
-  const produtosFiltrados = useMemo(() => {
+  // Produtos/preparos: mostra todos (inclusive estoque zero), filtrados pela busca
+  const filtraBusca = (list) => {
     const q = norm(busca)
-    if (!q) return prodData
-    return prodData.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
-  }, [prodData, busca])
+    if (!q) return list
+    return list.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
+  }
+  const produtosFiltrados = useMemo(() => filtraBusca(isRec ? preparosAtivos : produtosParaContagem), [isRec, preparosAtivos, produtosParaContagem, busca])
+  const preparosForaFiltrados = useMemo(() => filtraBusca(preparosFora), [preparosFora, busca])
 
   const itensSemEstoqueFiltrados = useMemo(() => {
     const q = norm(busca)
@@ -1281,7 +1321,7 @@ export default function Contagem() {
   }
 
   // ── Vista: null (home) ou 'contagem' ──────────────────────────────────────
-  const loading = tab === 'insumos' ? loadIns : tab === 'embalagens' ? loadEmb : isRec ? loadRec : loadProd
+  const loading = tab === 'insumos' ? loadIns : tab === 'embalagens' ? loadEmb : isRec ? (loadRec || loadProd) : loadProd
 
   if (vista === null) {
     const totalInsumos = (insumos || []).length
@@ -1371,9 +1411,9 @@ export default function Contagem() {
       </div>
 
       <div className="page-inner" style={{ paddingTop: 16 }}>
-        <div className="tab-bar">
-          {[['insumos','Insumos'],['embalagens','Embalagens'],['produtos','Produtos'],['gastos','Gastos']].map(([key, label]) => (
-            <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => changeTab(key)}>{label}</button>
+        <div className="tab-bar" style={{ overflowX: 'auto' }}>
+          {[['insumos','Insumos'],['embalagens','Embalagens'],['preparos','Preparos'],['produtos','Produtos'],['gastos','Gastos']].map(([key, label]) => (
+            <button key={key} className={`tab-btn ${tab === key ? 'active' : ''}`} onClick={() => changeTab(key)} style={{ whiteSpace: 'nowrap', flexShrink: 0 }}>{label}</button>
           ))}
         </div>
 
@@ -1450,19 +1490,25 @@ export default function Contagem() {
               )
             })()}
 
-            {tab === 'produtos' && (
+            {(tab === 'produtos' || tab === 'preparos') && (
               <>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-                  {[{ k: 'produtos', l: 'Produtos' }, { k: 'receitas', l: 'Receitas' }].map(s => (
-                    <button key={s.k} onClick={() => { setSubProd(s.k); setBusca('') }} style={{
-                      fontSize: 12, padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
-                      border: `1px solid ${subProd === s.k ? 'var(--teal)' : 'var(--border-color)'}`,
-                      background: subProd === s.k ? 'var(--teal)' : 'transparent',
-                      color: subProd === s.k ? '#fff' : 'var(--text-secondary)', fontWeight: subProd === s.k ? 600 : 400,
-                    }}>{s.l}</button>
-                  ))}
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
+                  {isRec
+                    ? 'Receitas prontas guardadas (pastas, pralinês, massas...). Só as que algum produto do cardápio usa.'
+                    : 'Só produtos que estão no cardápio.'}
                 </div>
-                <StockTab itens={produtosFiltrados} contagem={prodContagem} onChange={prodSetter} minValues={prodMin} labelPedir="produzir" />
+                {produtosFiltrados.length > 0
+                  ? <StockTab itens={produtosFiltrados} contagem={prodContagem} onChange={prodSetter} minValues={prodMin} labelPedir="produzir" />
+                  : <div className="empty" style={{ marginTop: 8 }}><span>{isRec ? 'Nenhum preparo usado no cardápio' : 'Nenhum produto no cardápio — ative em Produtos → Organizar cardápio'}</span></div>}
+                {isRec && preparosForaFiltrados.length > 0 && (
+                  <>
+                    <button onClick={() => setForaAberto(v => !v)} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', margin: '8px 0', borderRadius: 8, border: '1px dashed var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Não usados no cardápio ({preparosForaFiltrados.length})</span>
+                      <span>{foraAberto || busca ? '▲' : '▼'}</span>
+                    </button>
+                    {(foraAberto || busca) && <StockTab itens={preparosForaFiltrados} contagem={prodContagem} onChange={prodSetter} minValues={prodMin} labelPedir="produzir" />}
+                  </>
+                )}
                 <button onClick={handleEnviar} style={{ width: '100%', padding: 12, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', margin: '12px 0' }}>
                   Enviar contagem →
                 </button>

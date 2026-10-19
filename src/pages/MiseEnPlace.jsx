@@ -95,8 +95,9 @@ export default function MiseEnPlace() {
     let recs = (receitas || []).filter(r => norm(r.nome).includes(q))
       .map(r => ({ tipo: 'receita', id: r.id, nome: r.nome, sub: `${r.tipo !== 'Outro' ? r.tipo + ' · ' : ''}rende ${fmtQtd(r.rendimento)} ${r.unidadeGera}` }))
     if (filtroThermal) recs = recs.filter(r => recHasThermal((receitas || []).find(rx => rx.id === r.id), filtroThermal))
-    const prods = (produtos || []).filter(p => p.tipo !== 'avulso' && norm(p.nome).includes(q))
-      .map(p => ({ tipo: 'produto', id: p.id, nome: p.nome, sub: `${(p.receitas || []).length} receita(s)` }))
+    // Fora do cardápio só aparece buscando pelo nome
+    const prods = (produtos || []).filter(p => p.tipo !== 'avulso' && norm(p.nome).includes(q) && (q || p.ativo !== false))
+      .map(p => ({ tipo: 'produto', id: p.id, nome: p.nome, sub: p.ativo === false ? 'fora do cardápio' : `${(p.receitas || []).length} receita(s)` }))
     if (filtroTipo === 'receitas') return recs
     if (filtroTipo === 'produtos') return filtroThermal ? [] : prods
     return filtroThermal ? recs : [...prods, ...recs]
@@ -176,7 +177,7 @@ export default function MiseEnPlace() {
     const aju = computeAjustesPendentes(producoes || [])
     const noLote = new Set(lote.filter(x => x.tipo === 'produto').map(x => x.refId))
     return (produtos || [])
-      .filter(p => p.tipo !== 'combo' && p.tipo !== 'avulso' && p.estoqueMin > 0 && !noLote.has(p.id))
+      .filter(p => p.tipo !== 'combo' && p.tipo !== 'avulso' && p.ativo !== false && p.estoqueMin > 0 && !noLote.has(p.id))
       .map(p => {
         const futuro = Math.max(0, (p.estoqueAtual ?? 0) + (aju.produtos?.[p.id] || 0))
         const falta = p.estoqueMin - futuro

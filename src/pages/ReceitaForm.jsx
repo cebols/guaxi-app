@@ -11,7 +11,10 @@ function norm(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 }
 
-const TIPO_OPTS = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
+// Só categorias culinárias. O papel na cadeia (base/composto) é derivado da ficha;
+// produto final é cadastrado em Produtos.
+const TIPO_OPTS = ['Massa', 'Recheio', 'Cobertura', 'Creme', 'Pasta / Pralinê', 'Calda', 'Bolo', 'Torta', 'Outro']
+const TIPOS_LEGADOS = new Set(['Base', 'Produto Final'])
 
 // Sugestão de forma redonda baseada no volume (ml ≈ g para massas)
 const DIAMS = [15, 18, 20, 21, 22, 24, 26, 28, 30]
@@ -501,7 +504,7 @@ export default function ReceitaForm() {
             onChange={e => setField('tipo', e.target.value)}
           />
           <datalist id="tipo-opts">
-            {[...new Set([...TIPO_OPTS, ...(receitas || []).map(r => r.tipo).filter(Boolean)])].map(t => (
+            {[...new Set([...TIPO_OPTS, ...(receitas || []).map(r => r.tipo).filter(t => t && !TIPOS_LEGADOS.has(t))])].map(t => (
               <option key={t} value={t} />
             ))}
           </datalist>

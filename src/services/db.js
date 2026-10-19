@@ -436,6 +436,7 @@ export async function getProdutos() {
       precoIfood:  r.preco_ifood  ?? r.composicao?.precoIfood  ?? null,
       estoqueAtual: r.estoque_atual ?? null,
       estoqueMin:   r.estoque_min  ?? 0,
+      ativo:        r.ativo ?? true,
       margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
       imagemUrl:   r.imagem_url || null,
       receitas:    (r.composicao?.receitas    || []),
@@ -463,6 +464,7 @@ export async function getProdutos() {
     secao:        r.secao       || '',
     estoqueAtual: r.estoque_atual ?? null,
     estoqueMin:   r.estoque_min  ?? 0,
+    ativo:        r.ativo ?? true,
     margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
     imagemUrl:   r.imagem_url || null,
     componentes: (r.composicao?.componentes || []),
@@ -534,10 +536,11 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     imagem_url:     prod.imagemUrl ?? undefined,
     descricao:      prod.descricao ?? undefined,
     secao:          prod.secao     ?? undefined,
+    ativo:          prod.ativo === undefined ? undefined : !!prod.ativo,
   }
 
   const saved = await upsert('produtos', row, prod.id || null,
-    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fragilidade', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'estoque_atual', 'margem_alvo', 'imagem_url'])
+    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fragilidade', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'estoque_atual', 'margem_alvo', 'imagem_url', 'ativo'])
   const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)
@@ -598,6 +601,14 @@ export async function updateEstoqueProdutos(items) {
   await Promise.all(
     items.map(({ id, estoqueAtual }) =>
       supabase.from('produtos').update({ estoque_atual: estoqueAtual }).eq('id', id)
+    )
+  )
+}
+
+export async function updateProdutosAtivo(items) {
+  await Promise.all(
+    items.map(({ id, ativo }) =>
+      supabase.from('produtos').update({ ativo: !!ativo }).eq('id', id).then(({ error }) => { if (error) throw error })
     )
   )
 }
@@ -811,7 +822,7 @@ export async function updateStatusEncomenda(id, status, pgto, tipoEntrega, frete
 
 // ── Receitas ──────────────────────────────────────────────────
 
-const TIPO_ORDER = ['Bolo', 'Torta', 'Massa', 'Recheio', 'Cobertura', 'Base', 'Produto Final', 'Outro']
+const TIPO_ORDER = ['Massa', 'Recheio', 'Cobertura', 'Creme', 'Pasta / Pralinê', 'Calda', 'Bolo', 'Torta', 'Outro']
 
 export async function getReceitas() {
   const [recRes, ingRes] = await Promise.all([
@@ -1756,23 +1767,19 @@ export async function getCardapioPublico(id) {
 
 export async function getPublicProdutos(userId) {
   const base = 'id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo, secao'
-  // Tenta com fragilidade; se a coluna ainda não existir (schema/cache), cai pro básico
-  let { data, error } = await supabase
-    .from('produtos')
-    .select(`${base}, fragilidade`)
-    .eq('user_id', userId)
-    .gt('estoque_atual', 0)
-    .order('nome')
-  if (error) {
+  // Tenta com colunas novas (fragilidade, ativo); se ainda não existirem, cai pro básico
+  let data, error
+  for (const cols of [`${base}, fragilidade, ativo`, `${base}, fragilidade`, base]) {
     ;({ data, error } = await supabase
       .from('produtos')
-      .select(base)
+      .select(cols)
       .eq('user_id', userId)
       .gt('estoque_atual', 0)
       .order('nome'))
+    if (!error) break
   }
   if (error) throw error
-  return (data || []).map(r => ({
+  return (data || []).filter(r => r.ativo !== false).map(r => ({
     id: r.id,
     nome: r.nome,
     descricao: r.descricao || '',
