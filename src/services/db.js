@@ -668,8 +668,10 @@ export async function adjustEstoqueProduto(id, delta) {
 }
 
 export async function deleteProduto(id) {
-  const { error } = await supabase.from('produtos').delete().eq('id', id)
+  // .select() devolve a linha realmente apagada — RLS bloqueia sem erro
+  const { data, error } = await supabase.from('produtos').delete().eq('id', id).select('id')
   if (error) throw error
+  if (!(data || []).length) throw new Error('Não foi possível apagar o produto (sem permissão no banco).')
 }
 
 // ── Clientes ──────────────────────────────────────────────────
