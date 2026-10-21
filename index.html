@@ -14,6 +14,42 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Boot watchdog: se o app não desenhar nada em 10s (cache velho, rede travada,
+         erro de JS), mostra o erro e um botão pra limpar cache. ES5 de propósito. -->
+    <script>
+      (function () {
+        var erros = []
+        window.addEventListener('error', function (e) { erros.push((e.message || 'erro') + (e.filename ? ' @ ' + e.filename.split('/').pop() + ':' + e.lineno : '')) })
+        window.addEventListener('unhandledrejection', function (e) { erros.push('promise: ' + ((e.reason && (e.reason.message || e.reason)) || '?')) })
+        window.__limparERecarregar = function () {
+          var tarefas = []
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            tarefas.push(navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister() })) }))
+          }
+          if (window.caches && caches.keys) {
+            tarefas.push(caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k) })) }))
+          }
+          Promise.all(tarefas).then(function () { location.reload() }, function () { location.reload() })
+        }
+        setTimeout(function () {
+          var root = document.getElementById('root')
+          if (root && root.childNodes.length) return
+          var box = document.createElement('div')
+          box.id = 'boot-falhou'
+          box.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;background:#121212;color:#eee;font:15px system-ui,sans-serif;padding:32px 24px;overflow:auto'
+          box.innerHTML = '<div style="font-size:20px;font-weight:700;margin-bottom:8px">O app não carregou</div>' +
+            '<div style="color:#aaa;margin-bottom:20px">Pode ser cache antigo ou internet travada.</div>' +
+            '<button onclick="__limparERecarregar()" style="background:#14b8a6;color:#fff;border:0;border-radius:10px;padding:14px 18px;font-size:15px;font-weight:700;margin-bottom:12px;width:100%">Limpar cache e recarregar</button>' +
+            '<button onclick="location.reload()" style="background:none;color:#aaa;border:1px solid #444;border-radius:10px;padding:12px 18px;font-size:14px;width:100%">Só recarregar</button>' +
+            '<div style="margin-top:24px;font:12px monospace;color:#888;white-space:pre-wrap;word-break:break-word">' +
+            (erros.length ? erros.join('\n').replace(/</g, '&lt;') : 'Nenhum erro registrado (provavelmente rede lenta).') +
+            '\n' + navigator.userAgent + '</div>'
+          document.body.appendChild(box)
+          // Se o app acabar carregando depois, some com o aviso
+          new MutationObserver(function (m, obs) { if (root.childNodes.length) { box.remove(); obs.disconnect() } }).observe(root, { childList: true })
+        }, 10000)
+      })()
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
