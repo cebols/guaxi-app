@@ -59,6 +59,9 @@ function dosesParaItem(item, rec) {
   return item.qtd || 0
 }
 
+// Última versão vista de cada produção: a tela abre na hora com ela e atualiza em seguida
+const cacheProducao = new Map()
+
 export default function ProducaoTodo() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -72,8 +75,9 @@ export default function ProducaoTodo() {
   const { data: insumos, reload: reloadInsumos } = useData(getInsumos)
   const { data: produtos } = useData(getProdutos)
 
-  const [prod, setProd]             = useState(null)
-  const [loading, setLoading]       = useState(true)
+  const [prod, setProdState]        = useState(() => cacheProducao.get(String(id)) || null)
+  const [loading, setLoading]       = useState(() => !cacheProducao.has(String(id)))
+  const setProd = (p) => { if (p) cacheProducao.set(String(id), p); setProdState(p) }
   const [showDebit, setShowDebit]   = useState(false)
   const [showBases, setShowBases]   = useState(true)
   const [showCompras, setShowCompras] = useState(false)
@@ -90,7 +94,7 @@ export default function ProducaoTodo() {
   const [busca, setBusca]           = useState('')
 
   async function reload() {
-    setLoading(true)
+    if (!cacheProducao.has(String(id))) setLoading(true)
     await aguardarDosesPendentes() // edição feita no modo cozinha ainda salvando
     const p = await getProducao(id)
     setProd(p)
@@ -225,6 +229,7 @@ export default function ProducaoTodo() {
   async function handleDelProd() {
     setConfirmDel(false)
     await deleteProducao(prod.id)
+    cacheProducao.delete(String(id))
     navigate('/mise-en-place')
   }
 

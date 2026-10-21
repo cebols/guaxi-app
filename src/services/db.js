@@ -1378,18 +1378,22 @@ export async function updateProducaoItemQtd(itemId, quantidade, valorAlvo) {
 // recarregar (voltar pelo botão do celular desmonta o modo cozinha sem aguardar).
 let _dosesPendentes = Promise.resolve()
 export function aguardarDosesPendentes() { return _dosesPendentes }
+export function registrarDosesPendentes(p) {
+  _dosesPendentes = Promise.all([_dosesPendentes, Promise.resolve(p).catch(() => {})]).then(() => {})
+}
 
-export function setProducaoRecipeDoses(prodId, recId, newTotalDoses) {
-  const p = _setProducaoRecipeDoses(prodId, recId, newTotalDoses)
-  _dosesPendentes = Promise.all([_dosesPendentes, p.catch(() => {})]).then(() => {})
+// `receitas` opcional: quem já tem a lista carregada evita um fetch pesado
+export function setProducaoRecipeDoses(prodId, recId, newTotalDoses, receitas = null) {
+  const p = _setProducaoRecipeDoses(prodId, recId, newTotalDoses, receitas)
+  registrarDosesPendentes(p)
   return p
 }
 
 async function salvarSnapshots(updates) {
-  for (const u of updates) {
-    const { error } = await supabase.from('producao_itens').update({ snapshot: u.snapshot }).eq('id', u.id)
-    if (error) throw error
-  }
+  const res = await Promise.all(updates.map(u =>
+    supabase.from('producao_itens').update({ snapshot: u.snapshot }).eq('id', u.id)))
+  const falha = res.find(r => r.error)
+  if (falha) throw falha.error
 }
 
 // Preparação (sub-receita): escala a fração produzida dela em cada item e
@@ -1428,12 +1432,12 @@ async function setSubDoses(prod, receitas, recIdStr, newTotalDoses) {
   await salvarSnapshots(updates)
 }
 
-async function _setProducaoRecipeDoses(prodId, recId, newTotalDoses) {
+async function _setProducaoRecipeDoses(prodId, recId, newTotalDoses, receitasCarregadas) {
   if (!prodId || !recId || !(newTotalDoses > 0)) return
   const recIdStr = String(recId)
   const [{ data: prod }, receitas] = await Promise.all([
-    supabase.from('producoes').select('checks, producao_itens(*)').eq('id', prodId).single(),
-    getReceitas(),
+    supabase.from('producoes').select('checks, producao_itens(id, snapshot)').eq('id', prodId).single(),
+    receitasCarregadas?.length ? receitasCarregadas : getReceitas(),
   ])
   if (!prod) throw new Error('Produção não encontrada')
   const rec = receitas.find(r => r.id === Number(recId))
