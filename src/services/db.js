@@ -1374,21 +1374,75 @@ export async function updateProducaoItemQtd(itemId, quantidade, valorAlvo) {
 
 // Ajusta o total de doses de uma receita dentro de uma produção (editado no modo cozinha).
 // Recalcula débitos de insumos dinamicamente; se a receita já estiver checkada, aplica o delta no estoque.
-export async function setProducaoRecipeDoses(prodId, recId, newTotalDoses) {
+// Salvamentos de doses em andamento — a tela da produção espera por eles antes de
+// recarregar (voltar pelo botão do celular desmonta o modo cozinha sem aguardar).
+let _dosesPendentes = Promise.resolve()
+export function aguardarDosesPendentes() { return _dosesPendentes }
+
+export function setProducaoRecipeDoses(prodId, recId, newTotalDoses) {
+  const p = _setProducaoRecipeDoses(prodId, recId, newTotalDoses)
+  _dosesPendentes = Promise.all([_dosesPendentes, p.catch(() => {})]).then(() => {})
+  return p
+}
+
+async function salvarSnapshots(updates) {
+  for (const u of updates) {
+    const { error } = await supabase.from('producao_itens').update({ snapshot: u.snapshot }).eq('id', u.id)
+    if (error) throw error
+  }
+}
+
+// Preparação (sub-receita): escala a fração produzida dela em cada item e
+// recalcula débitos/preparos a partir das receitas principais.
+async function setSubDoses(prod, receitas, recIdStr, newTotalDoses) {
+  const rid = Number(recIdStr)
+  const items = (prod.producao_itens || []).filter(i => i.snapshot?.fracoes && i.snapshot?.subDoses?.[recIdStr] > 0)
+  const atual = items.reduce((s, i) => s + i.snapshot.subDoses[recIdStr], 0)
+  if (!(atual > 0)) throw new Error('Essa preparação vem de uma produção antiga e não pode ser ajustada aqui. Ajuste a receita principal.')
+  if (Math.abs(atual - newTotalDoses) < 1e-6) return
+  const scale = newTotalDoses / atual
+  const checkSet = new Set((prod.checks || []).map(String))
+  const recOf = id => receitas.find(r => r.id === Number(id))
+
+  const deltaInsumos = {}, updates = []
+  for (const item of items) {
+    const snap = item.snapshot
+    const fracoes = { ...snap.fracoes, [rid]: (snap.fracoes[rid] ?? 1) * scale }
+    const topo = new Set((snap.topo || Object.keys(snap.dosesContrib)).map(Number))
+    const debitosPorReceita = {}, subDoses = {}, debitos = {}
+    for (const [r, d] of Object.entries(snap.dosesContrib || {})) {
+      const rec = recOf(r)
+      if (!rec) { debitosPorReceita[r] = (snap.debitosPorReceita || {})[r] || {}; continue }
+      const deb = expandNet(receitas, rec, d, fracoes, topo)
+      debitosPorReceita[r] = deb
+      subDosesNet(receitas, rec, d, fracoes, topo, 0, subDoses)
+      if (checkSet.has(String(r))) {
+        const old = (snap.debitosPorReceita || {})[r] || {}
+        for (const k of new Set([...Object.keys(old), ...Object.keys(deb)])) deltaInsumos[k] = (deltaInsumos[k] || 0) + ((deb[k] || 0) - (old[k] || 0))
+      }
+    }
+    for (const debs of Object.values(debitosPorReceita)) for (const [k, q] of Object.entries(debs)) debitos[k] = (debitos[k] || 0) + q
+    updates.push({ id: item.id, snapshot: { ...snap, fracoes, debitosPorReceita, debitos, subDoses } })
+  }
+  if (Object.keys(deltaInsumos).length) await aplicarDebitosInsumos(deltaInsumos, -1)
+  await salvarSnapshots(updates)
+}
+
+async function _setProducaoRecipeDoses(prodId, recId, newTotalDoses) {
   if (!prodId || !recId || !(newTotalDoses > 0)) return
   const recIdStr = String(recId)
   const [{ data: prod }, receitas] = await Promise.all([
     supabase.from('producoes').select('checks, producao_itens(*)').eq('id', prodId).single(),
     getReceitas(),
   ])
-  if (!prod) return
+  if (!prod) throw new Error('Produção não encontrada')
   const rec = receitas.find(r => r.id === Number(recId))
-  if (!rec) return
+  if (!rec) throw new Error('Receita não encontrada')
 
   const checkSet = new Set((prod.checks || []).map(String))
   const items = (prod.producao_itens || []).filter(i => i.snapshot?.dosesContrib?.[recIdStr] != null)
   const currentTotal = items.reduce((s, i) => s + (i.snapshot.dosesContrib[recIdStr] || 0), 0)
-  if (currentTotal <= 0) return                          // só receitas top-level da produção
+  if (currentTotal <= 0) return setSubDoses(prod, receitas, recIdStr, newTotalDoses) // preparação
   if (Math.abs(currentTotal - newTotalDoses) < 1e-6) return
   const scale = newTotalDoses / currentTotal
 
@@ -1443,7 +1497,7 @@ export async function setProducaoRecipeDoses(prodId, recId, newTotalDoses) {
   }
 
   if (Object.keys(deltaInsumos).length) await aplicarDebitosInsumos(deltaInsumos, -1)
-  for (const u of updates) await supabase.from('producao_itens').update({ snapshot: u.snapshot }).eq('id', u.id)
+  await salvarSnapshots(updates)
 }
 
 // Detecta se item foi salvo no formato novo (estoque dirigido por checks)

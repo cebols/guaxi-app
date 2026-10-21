@@ -4,7 +4,7 @@ import { useData } from '../hooks/useData'
 import {
   getProducao, getReceitas, getInsumos, getProdutos,
   updateProducaoChecks, deleteProducao, deleteProducaoItem,
-  addProducaoItens, updateProducaoItemQtd, computeDebitos, lotePadraoProduto,
+  addProducaoItens, updateProducaoItemQtd, computeDebitos, lotePadraoProduto, aguardarDosesPendentes,
 } from '../services/db'
 
 function norm(s) {
@@ -91,6 +91,7 @@ export default function ProducaoTodo() {
 
   async function reload() {
     setLoading(true)
+    await aguardarDosesPendentes() // edição feita no modo cozinha ainda salvando
     const p = await getProducao(id)
     setProd(p)
     setLoading(false)

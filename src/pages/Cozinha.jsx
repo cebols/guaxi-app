@@ -129,14 +129,18 @@ export default function Cozinha() {
   // que poderia debitar estoque em dobro se a receita já estiver checada.
   const persistLock = useRef(Promise.resolve())
   const lastPersisted = useRef(dosesParam > 0 ? Math.round(dosesParam * 100) / 100 : null)
+  // Resolve com a mensagem de erro (ou null se salvou / nada a salvar)
   const persistDoses = (value) => {
-    if (!prodId || !id || !(value > 0)) return Promise.resolve()
+    if (!prodId || !id || !(value > 0)) return Promise.resolve(null)
     persistLock.current = persistLock.current.then(async () => {
-      if (lastPersisted.current != null && Math.abs(lastPersisted.current - value) < 1e-6) return
+      if (lastPersisted.current != null && Math.abs(lastPersisted.current - value) < 1e-6) return null
       try {
         await setProducaoRecipeDoses(prodId, Number(id), value)
         lastPersisted.current = value
-      } catch {}
+        return null
+      } catch (e) {
+        return e?.message || 'erro desconhecido'
+      }
     })
     return persistLock.current
   }
@@ -147,9 +151,25 @@ export default function Cozinha() {
     persistDoses(fator)
   }
 
+  // Voltar pelo botão do celular desmonta a tela sem passar pelo goBack:
+  // salva no unmount (a tela da produção espera esse salvamento antes de recarregar)
+  const fatorRef = useRef(fator)
+  fatorRef.current = fator
+  useEffect(() => () => { persistDoses(fatorRef.current) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [saindo, setSaindo] = useState(false)
   const goBack = async () => {
-    await persistDoses(fator)
-    navigate(-1)
+    if (saindo) return                    // evita toque duplo voltar duas telas
+    setSaindo(true)
+    const erro = await persistDoses(fator)
+    if (erro) {
+      alert('Não consegui salvar a nova quantidade: ' + erro)
+      setSaindo(false)
+      return
+    }
+    // Sem histórico (link aberto direto): vai pra produção em vez de sair do app
+    if (prodId && !(window.history.state?.idx > 0)) navigate(`/producao/${prodId}`, { replace: true })
+    else navigate(-1)
   }
 
   const [expandedSubs, setExpandedSubs] = useState(new Set())
@@ -177,8 +197,9 @@ export default function Cozinha() {
       <div className="topbar">
         <div className="topbar-inner">
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <button onClick={goBack} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            <button onClick={goBack} disabled={saindo} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              {saindo && <span style={{ fontSize: 12, color: 'var(--teal)' }}>salvando…</span>}
             </button>
             <div>
               <div className="topbar-title">{loading ? '...' : (receita?.nome || 'Receita')}</div>
