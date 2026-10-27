@@ -867,6 +867,7 @@ export async function getReceitas() {
       tipoResfriamento: r.tipo_resfriamento ?? null,
       temFerver: r.tem_ferver || false,
       imagemUrl: r.imagem_url || null,
+      proporcaoBase: r.proporcao_base ?? null,
       ingredientes: (ingsByReceita[r.id] || []).map(i => ({
         id: i.id,
         insumoId: i.insumo_id || null,
@@ -1827,6 +1828,12 @@ export async function deleteProducao(id) {
 
 export async function deleteReceita(id) {
   const { error } = await supabase.from('receitas').delete().eq('id', id)
+  if (error) throw error
+}
+
+// Ingrediente escolhido como 100% na visão de proporções (chave i:/r:/n:)
+export async function setReceitaProporcaoBase(id, chave) {
+  const { error } = await supabase.from('receitas').update({ proporcao_base: chave }).eq('id', id)
   if (error) throw error
 }
 

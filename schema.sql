@@ -644,6 +644,9 @@ ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_fator numeric DEFAULT NULL;
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS ativo boolean NOT NULL DEFAULT true;
 ALTER TABLE produtos ALTER COLUMN ativo SET DEFAULT false;
 
+-- Proporções: ingrediente que vale 100% (chave i:<insumoId> / r:<subReceitaId> / n:<nome>). Null = o de maior peso.
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS proporcao_base text;
+
 -- Fornada: quantas unidades saem numa produção (travessa, forma...). Vazio = deriva da receita.
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS fornada integer;
 

@@ -1,7 +1,7 @@
 import { useState, Fragment, useEffect, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
-import { getReceitas, deleteReceitas, saveReceita, getInsumos, setProducaoRecipeDoses, registrarDosesPendentes } from '../services/db'
+import { getReceitas, deleteReceitas, saveReceita, getInsumos, setProducaoRecipeDoses, registrarDosesPendentes, setReceitaProporcaoBase } from '../services/db'
 
 const ACAO_MAP = {
   misturar:     { icon: '🥣', label: 'Misturar' },
@@ -73,6 +73,39 @@ export default function Cozinha() {
     }
     return s
   }, 0)
+
+  // ── Proporções: base = ingrediente escolhido (lembrado na receita) ou o de maior peso
+  const [modoPct, setModoPct] = useState(() => { try { return localStorage.getItem('cozinha_pct') === '1' } catch { return false } })
+  const togglePct = () => setModoPct(v => { try { localStorage.setItem('cozinha_pct', v ? '0' : '1') } catch {} return !v })
+  const [baseLocal, setBaseLocal] = useState(undefined) // escolha feita nesta tela (antes de recarregar)
+  const chaveIng = (ing) => ing.insumoId ? `i:${ing.insumoId}` : ing.subReceitaId ? `r:${ing.subReceitaId}` : `n:${(ing.nome || '').trim().toLowerCase()}`
+  const pesoG = (ing) => {
+    const q = ing.quantidade || 0
+    if (ing.unidade === 'g' || ing.unidade === 'ml') return q
+    if (ing.unidade === 'kg' || ing.unidade === 'L') return q * 1000
+    if (ing.unidade === 'un') {
+      const insumo = (insumos || []).find(ins => ins.id === ing.insumoId || ins.nome === ing.nome)
+      if (insumo?.pesoUn > 0) return q * insumo.pesoUn
+    }
+    return null
+  }
+  const baseChaveSalva = baseLocal !== undefined ? baseLocal : receita?.proporcaoBase
+  const baseIng = ingredientes.find(i => chaveIng(i) === baseChaveSalva && pesoG(i) > 0)
+    || ingredientes.reduce((best, i) => (pesoG(i) || 0) > (best ? pesoG(best) || 0 : 0) ? i : best, null)
+  const basePeso = baseIng ? pesoG(baseIng) : 0
+  const pctDe = (ing) => {
+    const w = pesoG(ing)
+    if (w == null || !(basePeso > 0)) return null
+    const p = (w / basePeso) * 100
+    return p >= 10 ? Math.round(p) : Math.round(p * 10) / 10
+  }
+  const escolherBase = (ing) => {
+    if (!(pesoG(ing) > 0) || !receita) return
+    const chave = chaveIng(ing)
+    setBaseLocal(chave)
+    if (navigator.vibrate) navigator.vibrate(20)
+    setReceitaProporcaoBase(receita.id, chave).catch(e => alert('Não consegui lembrar a base: ' + e.message))
+  }
 
   const fatorPerda = receita?.fatorPerda
   const qtdPorUnidade = receita?.qtdPorUnidade || null
@@ -324,18 +357,36 @@ export default function Cozinha() {
 
             {/* INGREDIENTES checklist */}
             <>
-                <div style={{ fontSize: 11, letterSpacing: 2, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 8 }}>
-                  Ingredientes · {checkedCount} de {ingredientes.length} prontos
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <div style={{ flex: 1, fontSize: 11, letterSpacing: 2, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    {modoPct ? 'Proporções' : `Ingredientes · ${checkedCount} de ${ingredientes.length} prontos`}
+                  </div>
+                  <div style={{ display: 'flex', borderRadius: 8, border: '1px solid var(--border)', overflow: 'hidden', flexShrink: 0 }}>
+                    {[[false, 'g'], [true, '%']].map(([v, l]) => (
+                      <button key={l} onClick={() => { if (modoPct !== v) togglePct() }} style={{
+                        padding: '5px 14px', border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                        background: modoPct === v ? 'var(--teal)' : 'transparent',
+                        color: modoPct === v ? '#fff' : 'var(--text-secondary)',
+                      }}>{l}</button>
+                    ))}
+                  </div>
                 </div>
+                {modoPct && (
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>
+                    Toque num ingrediente pra ele virar 100%. Fica lembrado nesta receita.
+                  </div>
+                )}
                 <div className="card card-flush">
                   {ingredientes.map((ing, i) => {
+                    const pct = modoPct ? pctDe(ing) : null
+                    const ehBase = modoPct && baseIng === ing
                     const isChecked = !!checked[i]
                     const isSubExpanded = expandedSubs.has(i)
                     const subRec = ing.subReceitaId ? (receitas || []).find(r => r.id === ing.subReceitaId) : null
                     return (
                       <Fragment key={i}>
                         <div
-                          onClick={() => toggleChecked(i)}
+                          onClick={() => modoPct ? escolherBase(ing) : toggleChecked(i)}
                           style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -343,7 +394,8 @@ export default function Cozinha() {
                             padding: '16px 14px',
                             borderBottom: i < ingredientes.length - 1 ? '1px solid var(--border)' : 'none',
                             cursor: 'pointer',
-                            opacity: isChecked ? 0.4 : 1,
+                            opacity: !modoPct && isChecked ? 0.4 : 1,
+                            background: ehBase ? 'rgba(20,184,166,0.08)' : undefined,
                             transition: 'opacity 0.15s',
                             userSelect: 'none',
                             WebkitTapHighlightColor: 'transparent',
@@ -396,18 +448,21 @@ export default function Cozinha() {
                             }}>
                               {ing.nome}
                             </span>
+                            {ehBase && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--teal)', letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>base</div>}
+                            {modoPct && <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{fmtQty(ing.quantidade * fator, ing.unidade)}</div>}
                           </div>
 
-                          {/* Quantity — large */}
+                          {/* Quantity — large (ou % no modo proporções) */}
                           <span style={{
                             fontSize: 44,
                             fontWeight: 700,
                             lineHeight: 1,
-                            color: isChecked ? 'var(--text-secondary)' : 'var(--teal)',
+                            color: !modoPct && isChecked ? 'var(--text-secondary)' : (modoPct && pct == null ? 'var(--text-tertiary)' : 'var(--teal)'),
                             letterSpacing: -1,
                             flexShrink: 0,
+                            fontVariantNumeric: 'tabular-nums',
                           }}>
-                            {fmtQty(ing.quantidade * fator, ing.unidade)}
+                            {modoPct ? (pct == null ? '—' : `${String(pct).replace('.', ',')}%`) : fmtQty(ing.quantidade * fator, ing.unidade)}
                           </span>
                         </div>
                         {isSubExpanded && subRec && (
