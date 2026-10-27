@@ -187,6 +187,20 @@ export default function Cozinha() {
     persistDoses(fator)
   }
 
+  // ── Ajustar a receita pelo que se tem de um ingrediente
+  const [ajuste, setAjuste] = useState(null) // null | { idx: number|null, valor: string }
+  const ajusteIng = ajuste?.idx != null ? ingredientes[ajuste.idx] : null
+  const ajusteFator = ajusteIng && ajusteIng.quantidade > 0 && parseFloat(ajuste.valor) > 0
+    ? Math.floor((parseFloat(ajuste.valor) / ajusteIng.quantidade) * 1000) / 1000 // pra baixo: nunca passa do que tem
+    : null
+  const aplicarAjuste = () => {
+    if (!(ajusteFator > 0)) return
+    setFator(ajusteFator)
+    setEditingField(null)
+    persistDoses(ajusteFator)
+    setAjuste(null)
+  }
+
   // Voltar pelo botão do celular desmonta a tela sem passar pelo goBack:
   // salva no unmount (a tela da produção espera esse salvamento antes de recarregar)
   const fatorRef = useRef(fator)
@@ -353,7 +367,61 @@ export default function Cozinha() {
                   </span>
                 </div>
               )}
+              <button onClick={() => setAjuste({ idx: null, valor: '' })} style={{
+                width: '100%', marginTop: 12, padding: '10px', borderRadius: 8, cursor: 'pointer',
+                border: '1px dashed var(--teal)', background: 'transparent', color: 'var(--teal)', fontSize: 13, fontWeight: 600,
+              }}>
+                ⚖️ Ajustar pelo que tenho de um ingrediente
+              </button>
             </div>
+
+            {ajuste && (
+              <>
+                <div className="sheet-overlay" onClick={() => setAjuste(null)} />
+                <div className="sheet">
+                  <div className="sheet-title">
+                    <span>{ajusteIng ? `Quanto você tem de ${ajusteIng.nome}?` : 'Qual ingrediente vai limitar?'}</span>
+                    <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={() => setAjuste(null)}>×</button>
+                  </div>
+                  {!ajusteIng ? (
+                    <div style={{ maxHeight: '55vh', overflowY: 'auto' }}>
+                      {ingredientes.map((ing, i) => !(ing.quantidade > 0) ? null : (
+                        <div key={i} onClick={() => setAjuste({ idx: i, valor: String(Math.round(ing.quantidade * fator * 10) / 10) })}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 4px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+                          <span style={{ flex: 1, fontSize: 15 }}>{ing.nome}</span>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>{fmtQty(ing.quantidade * fator, ing.unidade)}</span>
+                          <span style={{ color: 'var(--text-tertiary)', fontSize: 18 }}>›</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
+                        A receita pede {fmtQty(ajusteIng.quantidade * fator, ajusteIng.unidade)}. Digite o que você tem e o resto se ajusta na mesma proporção.
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                        <input autoFocus type="text" inputMode="decimal" value={ajuste.valor}
+                          onChange={e => setAjuste(a => ({ ...a, valor: e.target.value.replace(',', '.') }))}
+                          onFocus={e => e.target.select()}
+                          onKeyDown={e => { if (e.key === 'Enter') aplicarAjuste() }}
+                          style={{ flex: 1, fontSize: 28, fontWeight: 700, textAlign: 'center', padding: '8px 0', borderRadius: 10, border: '1.5px solid var(--teal)', background: 'var(--bg-input, var(--surface2))', color: 'var(--teal)', outline: 'none' }} />
+                        <span style={{ fontSize: 18, color: 'var(--text-secondary)' }}>{ajusteIng.unidade}</span>
+                      </div>
+                      {ajusteFator > 0 && (
+                        <div style={{ fontSize: 13, background: 'var(--bg-secondary)', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
+                          <div>Doses: <b>{fmtFator(fator)}</b> → <b style={{ color: 'var(--teal)' }}>{fmtFator(ajusteFator)}</b> <span style={{ color: 'var(--text-tertiary)' }}>({ajusteFator >= fator ? '+' : '−'}{Math.abs(Math.round((ajusteFator / fator - 1) * 100))}%)</span></div>
+                          {pesoBase > 0 && <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>Total: {Math.round(pesoBase * fator)} g → {Math.round(pesoBase * ajusteFator)} g</div>}
+                        </div>
+                      )}
+                      <button className="btn-primary" disabled={!(ajusteFator > 0)} onClick={aplicarAjuste}>Ajustar receita</button>
+                      <button onClick={() => setAjuste({ idx: null, valor: '' })} style={{ width: '100%', marginTop: 8, padding: 10, background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>
+                        ‹ Escolher outro ingrediente
+                      </button>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
 
             {/* INGREDIENTES checklist */}
             <>
