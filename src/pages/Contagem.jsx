@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getInsumos, getEmbalagens, getProdutos, getReceitas, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueReceitas, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, updateEstoqueMinReceitas, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes, saveContagemSnapshot, getContagemSnapshots, restoreContagemSnapshot, insumosDoCardapio } from '../services/db'
+import { fluxoAtivo } from '../lib/prontidao'
 
 function selUnit(sel) {
   if (!sel) return 0
@@ -1070,8 +1071,11 @@ export default function Contagem() {
   // Só produtos que estão no cardápio entram na contagem
   const produtosAtivos = useMemo(() => (produtos || [])
     .filter(p => p.tipo !== 'combo' && p.ativo !== false), [produtos])
+  // Produtos acompanhados em Prontidão são contados por etapa lá
+  const produtosNoBoard = useMemo(() => produtosAtivos.filter(p => fluxoAtivo(p)), [produtosAtivos])
 
   const produtosParaContagem = useMemo(() => produtosAtivos
+    .filter(p => !fluxoAtivo(p))
     .map(p => ({ ...p, unidade: 'un', categoria: p.tipo === 'avulso' ? 'Avulso' : 'Produzido' })),
     [produtosAtivos])
 
@@ -1517,9 +1521,14 @@ export default function Contagem() {
                     ? 'Receitas prontas guardadas (pastas, pralinês, massas...). Só as que algum produto do cardápio usa.'
                     : 'Só produtos que estão no cardápio.'}
                 </div>
+                {!isRec && produtosNoBoard.length > 0 && (
+                  <button onClick={() => navigate('/prontidao')} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', marginBottom: 10, borderRadius: 8, border: '1px solid var(--teal)', background: 'transparent', color: 'var(--teal)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    {produtosNoBoard.length} produto(s) são contados por etapa em Prontidão →
+                  </button>
+                )}
                 {produtosFiltrados.length > 0
                   ? <StockTab itens={produtosFiltrados} contagem={prodContagem} onChange={prodSetter} minValues={prodMin} labelPedir="produzir" />
-                  : <div className="empty" style={{ marginTop: 8 }}><span>{isRec ? 'Nenhum preparo usado no cardápio' : 'Nenhum produto no cardápio — ative em Produtos → Organizar cardápio'}</span></div>}
+                  : <div className="empty" style={{ marginTop: 8 }}><span>{isRec ? 'Nenhum preparo usado no cardápio' : produtosNoBoard.length ? 'Todos os produtos do cardápio são contados em Prontidão' : 'Nenhum produto no cardápio — ative em Produtos → Organizar cardápio'}</span></div>}
                 {isRec && preparosForaFiltrados.length > 0 && (
                   <>
                     <button onClick={() => setForaAberto(v => !v)} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', margin: '8px 0', borderRadius: 8, border: '1px dashed var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', justifyContent: 'space-between' }}>

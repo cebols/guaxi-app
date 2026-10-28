@@ -23,6 +23,10 @@ const SECTIONS = [
     title: 'Produção',
     items: [
       {
+        label: 'Prontidão', path: '/prontidao',
+        icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect x="2" y="3" width="14" height="12" rx="2" stroke="currentColor" strokeWidth="1.4"/><path d="M2 7.5h14M2 11h14M7 3v12" stroke="currentColor" strokeWidth="1.4"/></svg>,
+      },
+      {
         label: 'Mise en Place', path: '/mise-en-place',
         icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 9h10M9 4v10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/><rect x="2" y="2" width="14" height="14" rx="3" stroke="currentColor" strokeWidth="1.4"/></svg>,
       },

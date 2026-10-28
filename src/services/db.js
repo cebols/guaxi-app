@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { FLUXOS } from '../lib/prontidao'
 
 // Upsert helper with graceful fallback for optional new columns
 // If a column doesn't exist (migration not run), strips only that column and retries.
@@ -438,6 +439,7 @@ export async function getProdutos() {
       estoqueMin:   r.estoque_min  ?? 0,
       ativo:        r.ativo ?? true,
       fornada:      r.fornada ?? null,
+      prontidao:    r.prontidao ?? null,
       margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
       imagemUrl:   r.imagem_url || null,
       receitas:    (r.composicao?.receitas    || []),
@@ -467,6 +469,7 @@ export async function getProdutos() {
     estoqueMin:   r.estoque_min  ?? 0,
     ativo:        r.ativo ?? true,
     fornada:      r.fornada ?? null,
+    prontidao:    r.prontidao ?? null,
     margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
     imagemUrl:   r.imagem_url || null,
     componentes: (r.composicao?.componentes || []),
@@ -665,9 +668,138 @@ export async function updateEstoqueMinEmbalagens(items) {
 }
 
 export async function adjustEstoqueProduto(id, delta) {
+  // Produto acompanhado em Prontidão: entrada vai pra 1ª etapa, venda sai do engatilho
+  if (await movimentarComFluxo(id, delta, delta < 0 ? 'venda' : 'entrada')) return
   const { data } = await supabase.from('produtos').select('estoque_atual').eq('id', id).single()
   const atual = data?.estoque_atual ?? 0
   await supabase.from('produtos').update({ estoque_atual: Math.max(0, atual + delta) }).eq('id', id)
+}
+
+// ── Prontidão: lotes por etapa ───────────────────────────────────────────────
+// Cada lote = (produto, etapa, qtd, entrou_em). estoque_atual do produto é
+// mantido como a soma dos lotes, pra contagem/sugestões/mínimos seguirem valendo.
+
+export async function getProntidaoLotes() {
+  const { data, error } = await supabase.from('prontidao_lotes')
+    .select('id, produto_id, etapa, qtd, entrou_em').order('entrou_em')
+  if (error) throw error
+  return (data || []).map(l => ({ ...l, qtd: Number(l.qtd) || 0 }))
+}
+
+async function inserirLote(produtoId, etapa, qtd, entrouEm = new Date().toISOString()) {
+  const { data, error } = await supabase.from('prontidao_lotes')
+    .insert({ produto_id: produtoId, etapa, qtd, entrou_em: entrouEm }).select('id').single()
+  if (error) throw error
+  return data.id
+}
+
+// Tira `n` unidades das etapas, na ordem dada (mais antigo primeiro, por padrão)
+async function consumirLotes(produtoId, etapas, n, { maisNovoPrimeiro = false } = {}) {
+  let resta = n
+  const consumidos = []
+  for (const etapa of etapas) {
+    if (resta <= 0) break
+    const { data, error } = await supabase.from('prontidao_lotes').select('id, qtd, entrou_em')
+      .eq('produto_id', produtoId).eq('etapa', etapa).order('entrou_em', { ascending: !maisNovoPrimeiro })
+    if (error) throw error
+    for (const l of (data || [])) {
+      if (resta <= 0) break
+      const q = Number(l.qtd) || 0
+      const usa = Math.min(q, resta)
+      const { error: e } = usa >= q
+        ? await supabase.from('prontidao_lotes').delete().eq('id', l.id)
+        : await supabase.from('prontidao_lotes').update({ qtd: q - usa }).eq('id', l.id)
+      if (e) throw e
+      consumidos.push({ etapa, entrou_em: l.entrou_em, qtd: usa })
+      resta -= usa
+    }
+  }
+  return { consumidos, faltou: resta }
+}
+
+async function syncEstoqueProdutoFluxo(produtoId) {
+  const { data, error } = await supabase.from('prontidao_lotes').select('qtd').eq('produto_id', produtoId)
+  if (error) throw error
+  const total = (data || []).reduce((s, l) => s + (Number(l.qtd) || 0), 0)
+  const { error: e } = await supabase.from('produtos').update({ estoque_atual: total }).eq('id', produtoId)
+  if (e) throw e
+  return total
+}
+
+// Entradas/saídas vindas de produção, vendas e pedidos. Retorna false se o produto
+// não é acompanhado (ou a tabela ainda não existe) — aí segue o estoque simples.
+async function movimentarComFluxo(id, delta, origem) {
+  if (!delta) return false
+  const { data: p, error } = await supabase.from('produtos').select('prontidao').eq('id', id).single()
+  const f = !error && p?.prontidao?.fluxo
+  if (!f || !FLUXOS[f]) return false
+  const keys = FLUXOS[f].etapas.map(e => e.key)
+  try {
+    if (delta > 0) await inserirLote(id, keys[0], delta)
+    else await consumirLotes(id, origem === 'venda' ? [...keys].reverse() : keys, -delta,
+      { maisNovoPrimeiro: origem !== 'venda' })
+    await syncEstoqueProdutoFluxo(id)
+    return true
+  } catch { return false }
+}
+
+export async function moverProntidao(produtoId, de, para, n) {
+  const { consumidos } = await consumirLotes(produtoId, [de], n)
+  const movido = consumidos.reduce((s, c) => s + c.qtd, 0)
+  if (!(movido > 0)) throw new Error('Não tem nada nessa etapa pra mover')
+  const criadoId = await inserirLote(produtoId, para, movido)
+  return { produtoId, de, para, n: movido, consumidos, criadoId }
+}
+
+export async function desfazerMovimento(mov) {
+  await consumirLotes(mov.produtoId, [mov.para], mov.n, { maisNovoPrimeiro: true })
+  for (const c of mov.consumidos) await inserirLote(mov.produtoId, c.etapa, c.qtd, c.entrou_em)
+}
+
+// Contagem dentro do board: define o total físico de uma etapa
+export async function corrigirEtapaProntidao(produtoId, etapa, novoTotal, tempoH = 0) {
+  const { data, error } = await supabase.from('prontidao_lotes').select('qtd').eq('produto_id', produtoId).eq('etapa', etapa)
+  if (error) throw error
+  const atual = (data || []).reduce((s, l) => s + (Number(l.qtd) || 0), 0)
+  const diff = novoTotal - atual
+  // O que você contou fisicamente já está lá: entra como pronto
+  if (diff > 0) await inserirLote(produtoId, etapa, diff, new Date(Date.now() - (tempoH || 0) * 3600e3).toISOString())
+  else if (diff < 0) await consumirLotes(produtoId, [etapa], -diff)
+  return syncEstoqueProdutoFluxo(produtoId)
+}
+
+export async function baixaProntidao(produtoId, etapa, n) {
+  await consumirLotes(produtoId, [etapa], n)
+  return syncEstoqueProdutoFluxo(produtoId)
+}
+
+export async function descartarVencidosProntidao(produtoId, etapa, validadeH) {
+  const limite = new Date(Date.now() - validadeH * 3600e3).toISOString()
+  const { error } = await supabase.from('prontidao_lotes').delete()
+    .eq('produto_id', produtoId).eq('etapa', etapa).lt('entrou_em', limite)
+  if (error) throw error
+  return syncEstoqueProdutoFluxo(produtoId)
+}
+
+// Define o fluxo do produto. Lotes de etapas que não existem mais vão pra 1ª etapa;
+// na primeira configuração, o estoque atual entra inteiro na 1ª etapa.
+export async function setProdutoProntidao(prod, cfg) {
+  const { error } = await supabase.from('produtos').update({ prontidao: cfg }).eq('id', prod.id)
+  if (error) throw error
+  const f = cfg?.fluxo && FLUXOS[cfg.fluxo]
+  if (!f) return
+  const keys = f.etapas.map(e => e.key)
+  const { data: ls, error: e2 } = await supabase.from('prontidao_lotes').select('id, etapa').eq('produto_id', prod.id)
+  if (e2) throw e2
+  const orfaos = (ls || []).filter(l => !keys.includes(l.etapa)).map(l => l.id)
+  if (orfaos.length) {
+    const { error: e3 } = await supabase.from('prontidao_lotes').update({ etapa: keys[0] }).in('id', orfaos)
+    if (e3) throw e3
+  }
+  if (!(ls || []).length && prod.estoqueAtual > 0) {
+    await inserirLote(prod.id, keys[0], prod.estoqueAtual)
+    await syncEstoqueProdutoFluxo(prod.id)
+  }
 }
 
 export async function deleteProduto(id) {
@@ -1270,6 +1402,8 @@ async function aplicarDebitosInsumos(debitos, sinal = -1) {
 }
 
 async function ajustarEstoqueProduto(id, delta) {
+  // Produção concluída entra na 1ª etapa; estorno (produção apagada) sai dela
+  if (await movimentarComFluxo(id, delta, delta < 0 ? 'estorno' : 'entrada')) return
   const { data } = await supabase.from('produtos').select('estoque_atual').eq('id', id).single()
   const cur = data?.estoque_atual
   const base = cur == null ? 0 : cur

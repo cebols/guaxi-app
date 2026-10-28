@@ -650,6 +650,23 @@ ALTER TABLE receitas ADD COLUMN IF NOT EXISTS proporcao_base text;
 -- Fornada: quantas unidades saem numa produção (travessa, forma...). Vazio = deriva da receita.
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS fornada integer;
 
+-- ── Prontidão: em que etapa está cada produto (freezer, degelo, vitrine...) ──
+-- produtos.prontidao = { fluxo, etapas: { <etapa>: { meta, tempoH, validadeH } }, noPedido }
+-- prontidao_lotes = unidades por etapa; produtos.estoque_atual = soma dos lotes.
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS prontidao jsonb;
+CREATE TABLE IF NOT EXISTS prontidao_lotes (
+  id          bigserial primary key,
+  produto_id  bigint not null references produtos(id) on delete cascade,
+  etapa       text not null,
+  qtd         numeric not null default 0,
+  entrou_em   timestamptz not null default now(),
+  user_id     uuid default auth.uid() references auth.users(id) on delete cascade
+);
+CREATE INDEX IF NOT EXISTS prontidao_lotes_produto ON prontidao_lotes(produto_id, etapa);
+ALTER TABLE prontidao_lotes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own_data" ON prontidao_lotes;
+CREATE POLICY "own_data" ON prontidao_lotes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
 -- ── Limpeza: receitas de tutorial/seed sem user_id ────────────────────────────
 -- Se uma receita existe com user_id NULL (inserida como demo global), a policy
 -- "user_id = auth.uid()" impede que o usuário a apague via UI.

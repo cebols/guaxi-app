@@ -22,6 +22,7 @@ const Vendas       = lazy(() => import('./pages/Vendas'))
 const MiseEnPlace       = lazy(() => import('./pages/MiseEnPlace'))
 const ProducaoTodo      = lazy(() => import('./pages/ProducaoTodo'))
 const ProducaoHistorico = lazy(() => import('./pages/ProducaoHistorico'))
+const Prontidao         = lazy(() => import('./pages/Prontidao'))
 const CardapioPublico = lazy(() => import('./pages/CardapioPublico'))
 const PedidoExterno   = lazy(() => import('./pages/PedidoExterno'))
 const Menu            = lazy(() => import('./pages/Menu'))
@@ -43,6 +44,7 @@ const MENU_GROUPS = [
   {
     label: 'Produção do dia',
     items: [
+      { path: '/prontidao',     label: 'Prontidão',         sub: 'O que está pronto pra sair', icon: ProntidaoIcon },
       { path: '/mise-en-place', label: 'Planejar produção', sub: 'Organize o que fazer hoje', icon: MiseIcon },
       { path: '/contagem',      label: 'Estoque',           sub: 'Contagem de ingredientes',  icon: ContagemIcon },
     ],
@@ -288,6 +290,7 @@ export default function App() {
             <Route path="/mise-en-place"           element={<MiseEnPlace />} />
             <Route path="/mise-en-place/historico" element={<ProducaoHistorico />} />
             <Route path="/producao/:id"            element={<ProducaoTodo />} />
+            <Route path="/prontidao"               element={<Prontidao />} />
             <Route path="/configuracoes"       element={<Configuracoes />} />
             <Route path="/perfil"              element={<Perfil />} />
             <Route path="/menu"                element={<Menu />} />
@@ -410,6 +413,12 @@ function ConfigIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <line x1="12" y1="1" x2="12" y2="23"/>
     <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+  </svg>
+}
+function ProntidaoIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="18" height="16" rx="2"/>
+    <path d="M3 10h18M3 15h18M9 4v16"/>
   </svg>
 }
 function MiseIcon() {
