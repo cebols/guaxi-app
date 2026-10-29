@@ -12,6 +12,13 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 const SANDBOX      = process.env.LALAMOVE_DISPATCH_SANDBOX !== 'false'
 
+// Entrega concluída → os pedidos do envio viram Entregue (a baixa do estoque
+// acontece no app, na próxima vez que ele abre pedidos/prontidão).
+async function marcarPedidosEntregues(sb, envioId) {
+  await sb.from('encomendas').update({ status: 'Entregue' }).eq('envio_id', envioId).neq('status', 'Cancelado')
+  await sb.from('encomendas').update({ pgto: 'Atrasado' }).eq('envio_id', envioId).eq('pgto', 'Aguardando')
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
   if (!SUPABASE_URL || !SERVICE_KEY) { res.status(500).json({ error: 'Supabase service role não configurado' }); return }
@@ -45,6 +52,7 @@ export default async function handler(req, res) {
     }
 
     if (Object.keys(update).length) await sb.from('envios').update(update).eq('id', envio.id)
+    if (update.status === 'COMPLETED') await marcarPedidosEntregues(sb, envio.id)
 
     res.status(200).json({ ok: true, orderId, applied: update })
   } catch (e) {

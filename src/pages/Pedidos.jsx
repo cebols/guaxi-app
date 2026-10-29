@@ -3,7 +3,7 @@ import { useLocation, useNavigate as useRRNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
-import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, updateEncomendaItens, deletePedido, adjustEstoqueProduto } from '../services/db'
+import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, updateEncomendaItens, deletePedido, reconciliarBaixasPedidos } from '../services/db'
 
 const STATUS_OPTS = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
 const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
@@ -238,7 +238,7 @@ function ProdModal({ produtos, itens, onAdd, onClose }) {
   )
 
   const addProd = (prod) => {
-    onAdd({ produto: prod.nome, quantidade: 1, precoUnit: String(prod.precoDireta ?? prod.precoPraticado ?? prod.precoSugerido ?? 0) })
+    onAdd({ produto: prod.nome, produtoId: prod.id, quantidade: 1, precoUnit: String(prod.precoDireta ?? prod.precoPraticado ?? prod.precoSugerido ?? 0) })
   }
 
   const addCustom = () => {
@@ -1057,112 +1057,6 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
 }
 
 // ── Production view ───────────────────────────────────────────
-function fmtQty(q, unidade) {
-  const n = Number(q)
-  return `${n % 1 === 0 ? String(n) : n.toFixed(1)} ${unidade || 'un'}`
-}
-
-function ProducaoView({ pedidos, produtos, receitas, onEstoqueUpdated }) {
-  const ativos = (pedidos || []).filter(p => !['Entregue','Cancelado'].includes(p.status))
-  const receitaMap = Object.fromEntries((receitas || []).map(r => [r.id, r]))
-  const prodMap    = Object.fromEntries((produtos  || []).map(p => [p.nome, p]))
-
-  function addProd(nomeProd, qty, itemAcc, receitaAcc, depth = 0) {
-    if (depth > 5) return
-    const prod = prodMap[nomeProd]
-    if (prod?.tipo === 'combo' && prod.componentes?.length > 0) {
-      for (const comp of prod.componentes) {
-        addProd(comp.nome || comp.produtoNome || '', (Number(comp.quantidade)||1) * qty, itemAcc, receitaAcc, depth+1)
-      }
-    } else {
-      itemAcc[nomeProd] = (itemAcc[nomeProd] || 0) + qty
-      if (!prod?.receitas?.length) return
-      for (const pr of prod.receitas) {
-        const key = pr.nome
-        if (!receitaAcc[key]) receitaAcc[key] = { quantidade: 0, unidade: pr.unidadeGera || pr.unidade || 'un' }
-        receitaAcc[key].quantidade += (Number(pr.quantidade)||1) * qty
-      }
-    }
-  }
-
-  const itemQtd = {}; const receitaQtd = {}
-  for (const ped of ativos) for (const it of (ped.itens || [])) addProd(it.produto, Number(it.quantidade)||1, itemQtd, receitaQtd)
-
-  const itensOrdenados    = Object.entries(itemQtd).sort((a,b) => b[1]-a[1])
-  const receitasOrdenadas = Object.entries(receitaQtd).sort((a,b) => a[0].localeCompare(b[0],'pt-BR'))
-
-  const [produzido, setProduzido] = useState({})
-  const [savingProd, setSavingProd] = useState(false)
-  const { toast, show } = useToast()
-
-  const handleConfirmarProducao = async () => {
-    const entries = Object.entries(produzido).filter(([,q]) => parseFloat(q) > 0)
-    if (entries.length === 0) return
-    setSavingProd(true)
-    try {
-      await Promise.all(entries.map(([nome, q]) => { const prod = prodMap[nome]; if (prod?.id) return adjustEstoqueProduto(prod.id, parseFloat(q)) }))
-      setProduzido({}); show('Estoque atualizado!'); onEstoqueUpdated()
-    } catch(e) { show('Erro: '+e.message) } finally { setSavingProd(false) }
-  }
-
-  if (ativos.length === 0) return <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>Nenhum pedido ativo</div>
-
-  return (
-    <>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '4px 10px', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>{ativos.length} pedido{ativos.length!==1?'s':''} ativo{ativos.length!==1?'s':''}</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '4px 10px', background: 'var(--card-bg)', borderRadius: 8, border: '1px solid var(--border)' }}>{itensOrdenados.length} item{itensOrdenados.length!==1?'ns':''} distintos</div>
-      </div>
-      <div className="section-label" style={{ marginTop: 16 }}>Itens a produzir</div>
-      <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 6 }}>
-        {itensOrdenados.map(([nome, needed], i, arr) => {
-          const prod = prodMap[nome]
-          const emEstoque = prod?.estoqueAtual ?? null
-          const falta = emEstoque !== null ? Math.max(0, needed - emEstoque) : null
-          return (
-            <div key={nome} style={{ padding: '10px 0', borderBottom: i < arr.length-1 ? '1px solid var(--border)' : 'none' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <span style={{ fontSize: 13, fontWeight: 500 }}>{nome}</span>
-                <div style={{ textAlign: 'right' }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{needed} un</span>
-                  {emEstoque !== null && <div style={{ fontSize: 11, color: falta===0 ? 'var(--teal)' : 'var(--text-secondary)', marginTop: 1 }}>{falta===0 ? `✓ em estoque (${emEstoque})` : `estoque: ${emEstoque} · produzir: ${falta}`}</div>}
-                </div>
-              </div>
-              {prod?.id && falta !== 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Produziu hoje:</span>
-                  <input type="text" inputMode="decimal" className="item-qty" style={{ width: 64 }} placeholder="0"
-                    value={produzido[nome] || ''} onChange={e => setProduzido(p => ({...p, [nome]: e.target.value}))} />
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>un</span>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
-      {Object.values(produzido).some(q => parseFloat(q) > 0) && (
-        <button className="btn-primary" onClick={handleConfirmarProducao} disabled={savingProd} style={{ marginBottom: 8 }}>
-          {savingProd ? 'Salvando...' : 'Confirmar produção → estoque'}
-        </button>
-      )}
-      <div className="section-label" style={{ marginTop: 16 }}>Receitas necessárias</div>
-      {receitasOrdenadas.length === 0 ? (
-        <div style={{ fontSize: 12, color: 'var(--text-tertiary)', padding: '8px 0' }}>Sem receitas vinculadas</div>
-      ) : (
-        <div className="card card-flush" style={{ padding: '0 14px' }}>
-          {receitasOrdenadas.map(([nome, info], i, arr) => (
-            <div key={nome} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: i < arr.length-1 ? '1px solid var(--border)' : 'none' }}>
-              <span style={{ fontSize: 13 }}>{nome}</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{fmtQty(info.quantidade, info.unidade)}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {toast && <div className="toast">{toast}</div>}
-    </>
-  )
-}
-
 // ── Main page ─────────────────────────────────────────────────
 export default function Pedidos() {
   const { user } = useAuth()
@@ -1175,6 +1069,9 @@ export default function Pedidos() {
   const { data: clientes, reload: reloadClientes } = useData(getClientes)
 
   const [mode, setMode]               = useState('list')
+
+  // Pedido entregue baixa o estoque (inclusive os concluídos pelo Lalamove)
+  useEffect(() => { reconciliarBaixasPedidos().then(n => { if (n) reloadProdutos() }).catch(() => {}) }, [])
 
   const handledState = useRef(false)
   useEffect(() => {
@@ -1196,7 +1093,6 @@ export default function Pedidos() {
   }, [pedidos])
   const [filtroUrgencia, setFiltroUrgencia] = useState(() => localStorage.getItem('pedidos_filtro') || 'todos')
   const [filtroStatus, setFiltroStatus]     = useState(['Pendente', 'Pronto'])
-  const [aba, setAba]                 = useState('pedidos')
   const [selecao, setSelecao]         = useState({})
   const [expandedPedidoId, setExpandedPedidoId] = useState(null)
   const selecaoMode = Object.keys(selecao).some(k => selecao[k])
@@ -1310,22 +1206,7 @@ export default function Pedidos() {
       </div>
 
       <div className="page-inner" style={{ paddingTop: 12 }}>
-        {/* Abas */}
-        <div style={{ display: 'flex', gap: 0, marginBottom: 14, borderBottom: '1px solid var(--border)' }}>
-          {[['pedidos','Pedidos'],['producao','Produção']].map(([key, label]) => (
-            <button key={key} onClick={() => setAba(key)} style={{
-              padding: '7px 18px', fontSize: 13, fontWeight: 600,
-              border: 'none', background: 'transparent', cursor: 'pointer',
-              color: aba === key ? 'var(--teal)' : 'var(--text-secondary)',
-              borderBottom: aba === key ? '2px solid var(--teal)' : '2px solid transparent',
-              marginBottom: -1,
-            }}>{label}</button>
-          ))}
-        </div>
-
-        {aba === 'producao' ? (
-          <ProducaoView pedidos={pedidos} produtos={produtos} receitas={receitas} onEstoqueUpdated={reloadProdutos} />
-        ) : (
+        {(
           <>
             {/* Mini dashboard */}
             {(() => {

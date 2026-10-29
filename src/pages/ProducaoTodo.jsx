@@ -8,6 +8,7 @@ import {
   marcarMontado, desmarcarMontado, atualizarPorcaoProduto, setPorcaoProducao,
 } from '../services/db'
 import { montarLinhaDoTempo } from '../lib/linhaTempo'
+import { etapasDoProduto, LOCAL } from '../lib/prontidao'
 
 function norm(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -660,6 +661,13 @@ function Folha({ title, onClose, children }) {
 function MontarSheet({ alvo, onClose, onDone }) {
   const { item, p, comps, montado } = alvo
   const [qtd, setQtd] = useState(String(montado?.qtd ?? item.quantidade ?? 1))
+  // Etapas do Prontidão desse produto — lembra a última escolhida por produto
+  const etapas = etapasDoProduto(p)
+  const chaveMem = `montagem_etapa_${p.id}`
+  const [etapa, setEtapa] = useState(() => {
+    const salva = montado?.etapa || (() => { try { return localStorage.getItem(chaveMem) } catch { return null } })()
+    return etapas.some(e => e.key === salva) ? salva : (etapas[0]?.key || null)
+  })
   const [salvando, setSalvando] = useState(false)
   const faltam = comps.filter(c => !c.pronta)
   const n = parseFloat(qtd) || 0
@@ -685,9 +693,26 @@ function MontarSheet({ alvo, onClose, onDone }) {
         <button style={btn} onClick={() => setQtd(v => String((parseFloat(v) || 0) + 1))}>+</button>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', marginBottom: 14 }}>
-        planejado: {item.quantidade} · entra no estoque do produto (e no freezer do Prontidão)
+        planejado: {item.quantidade}
       </div>
-      <button className="btn-primary" disabled={salvando || !(n > 0)} onClick={() => rodar(() => marcarMontado(item.id, n))}>
+      {etapas.length > 1 && (
+        <>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Vai para</div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+            {etapas.map(e => {
+              const on = etapa === e.key
+              const cor = (LOCAL[e.local] || LOCAL.freezer).cor
+              return (
+                <button key={e.key} onClick={() => setEtapa(e.key)} style={{
+                  flex: 1, minWidth: 90, padding: '10px 8px', borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 700,
+                  border: `1.5px solid ${on ? cor : '#333'}`, background: on ? `${cor}1f` : 'transparent', color: on ? cor : 'var(--text-secondary)',
+                }}>{e.local === 'freezer' ? '❄ ' : ''}{e.nome}</button>
+              )
+            })}
+          </div>
+        </>
+      )}
+      <button className="btn-primary" disabled={salvando || !(n > 0)} onClick={() => rodar(() => { try { if (etapa) localStorage.setItem(chaveMem, etapa) } catch {} return marcarMontado(item.id, n, etapas.length ? etapa : null) })}>
         {salvando ? 'Salvando...' : montado ? `Corrigir para ${n}` : `Montado · ${n}`}
       </button>
       {montado && (

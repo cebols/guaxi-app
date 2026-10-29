@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
-  getProdutos, getProntidaoLotes, moverProntidao, desfazerMovimento,
+  getProdutos, getEncomendas, reconciliarBaixasPedidos, reservasPorProduto,
+  getProntidaoLotes, moverProntidao, desfazerMovimento,
   corrigirEtapaProntidao, baixaProntidao, descartarVencidosProntidao, setProdutoProntidao,
 } from '../services/db'
 import {
@@ -46,6 +47,7 @@ function textoSugestao(s, prod) {
 export default function Prontidao() {
   const navigate = useNavigate()
   const { data: produtos, loading: loadProd, reload: reloadProd } = useData(getProdutos)
+  const { data: encomendas, reload: reloadEnc } = useData(getEncomendas)
   const [lotes, setLotes]           = useState(null)
   const [erroTabela, setErroTabela] = useState(null)
   const [agora, setAgora]           = useState(Date.now())
@@ -63,10 +65,12 @@ export default function Prontidao() {
     try { setLotes(await getProntidaoLotes()); setErroTabela(null) }
     catch (e) { setErroTabela(e?.message || 'erro'); setLotes([]) }
   }
-  useEffect(() => { carregarLotes() }, [])
+  // Pedidos entregues (inclusive pelo Lalamove) baixam antes de mostrar o board
+  useEffect(() => { reconciliarBaixasPedidos().catch(() => {}).finally(() => { carregarLotes(); reloadProd() }) }, [])
   useEffect(() => { const t = setInterval(() => setAgora(Date.now()), 60000); return () => clearInterval(t) }, [])
   useEffect(() => { if (!aviso) return; const t = setTimeout(() => setAviso(null), 6000); return () => clearTimeout(t) }, [aviso])
-  const recarregar = () => Promise.all([carregarLotes(), reloadProd()])
+  const recarregar = () => Promise.all([carregarLotes(), reloadProd(), reloadEnc()])
+  const reservas = useMemo(() => reservasPorProduto(encomendas, produtos), [encomendas, produtos])
 
   const cardapio = useMemo(() => (produtos || []).filter(p => p.ativo !== false && p.tipo !== 'combo'), [produtos])
   const semFluxo = cardapio.filter(p => !p.prontidao?.fluxo)
@@ -74,7 +78,7 @@ export default function Prontidao() {
 
   const analises = useMemo(() => cardapio
     .filter(p => fluxoAtivo(p))
-    .map(p => ({ prod: p, a: analisarProduto(p, lotes || [], agora) })), [cardapio, lotes, agora])
+    .map(p => ({ prod: p, a: analisarProduto(p, lotes || [], agora, reservas[p.id] || 0) })), [cardapio, lotes, agora, reservas])
 
   const contagem = { pronto: 0, atencao: 0, pausar: 0 }
   analises.forEach(x => { contagem[x.a.status]++ })
@@ -92,7 +96,7 @@ export default function Prontidao() {
   function abrirTarefa(t) {
     if (t.tipo === 'mover') setMover({ prod: t.prod, de: t.de, para: t.para, n: t.n })
     else if (t.tipo === 'vencidos') setEtapaAberta({ prod: t.prod, etapaKey: t.etapa })
-    else navigate('/mise-en-place')
+    else navigate('/mise-en-place', { state: { adicionar: [{ produtoId: t.prod.id, n: t.n }] } })
   }
 
   async function aceitarSugestoesTodos() {
@@ -151,6 +155,12 @@ export default function Prontidao() {
                 </button>
                 {verTarefas && (
                   <div style={{ padding: '0 14px 8px' }}>
+                    {tarefas.filter(t => t.tipo === 'produzir').length > 1 && (
+                      <button onClick={() => navigate('/mise-en-place', { state: { adicionar: tarefas.filter(t => t.tipo === 'produzir').map(t => ({ produtoId: t.prod.id, n: t.n })) } })}
+                        style={{ width: '100%', margin: '2px 0 8px', padding: 10, borderRadius: 8, border: '1px solid var(--teal)', background: 'transparent', color: 'var(--teal)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                        Planejar produção de tudo que falta ({tarefas.filter(t => t.tipo === 'produzir').length})
+                      </button>
+                    )}
                     {tarefas.map((t, i) => (
                       <button key={i} onClick={() => abrirTarefa(t)} style={{
                         width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '11px 0', background: 'none',
@@ -281,6 +291,7 @@ function CardProduto({ prod, a, onMover, onEtapa, onConfig, onTarefa }) {
           <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.25 }}>{prod.nome}</div>
           {prod.secao && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>{prod.secao}</div>}
         </div>
+        {a.reservado > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: '#60a5fa', whiteSpace: 'nowrap' }}>{fmtN(a.reservado)} reservado(s)</span>}
         <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: st.bg, color: st.cor, whiteSpace: 'nowrap' }}>{a.rotulo}</span>
         <button onClick={onConfig} title="Configurar fluxo" style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 17, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>⚙</button>
       </div>

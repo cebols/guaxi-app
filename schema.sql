@@ -531,16 +531,12 @@ BEGIN
   END IF;
   v_id := 'PED-' || lpad(v_next_num::text, 3, '0');
 
+  -- Não mexe no estoque: o pedido só RESERVA (calculado) e baixa ao virar Entregue (app).
   FOR v_item IN SELECT * FROM jsonb_array_elements(p_itens)
   LOOP
     v_total := v_total
       + (v_item->>'preco_unit')::numeric
       * (v_item->>'quantidade')::numeric;
-
-    UPDATE produtos
-       SET estoque_atual = GREATEST(0, COALESCE(estoque_atual, 0) - (v_item->>'quantidade')::numeric)
-     WHERE id = (v_item->>'produto_id')::bigint
-       AND user_id = p_user_id;
   END LOOP;
 
   INSERT INTO encomendas
@@ -582,31 +578,14 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.get_delivery_config TO anon;
 
--- Deleta pedido e devolve estoque se canal = FormExterno
+-- Deleta pedido. Não mexe no estoque (pedido aberto só reserva; o entregue já baixou).
 CREATE OR REPLACE FUNCTION public.delete_pedido(p_id text, p_user_id uuid)
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-DECLARE
-  v_canal text;
-  v_item  record;
 BEGIN
-  SELECT canal INTO v_canal FROM encomendas WHERE id = p_id AND user_id = p_user_id;
-  IF NOT FOUND THEN RETURN; END IF;
-
-  IF v_canal = 'FormExterno' THEN
-    FOR v_item IN
-      SELECT produto_id, quantidade FROM encomenda_itens
-      WHERE encomenda_id = p_id AND produto_id IS NOT NULL
-    LOOP
-      UPDATE produtos
-         SET estoque_atual = COALESCE(estoque_atual, 0) + v_item.quantidade
-       WHERE id = v_item.produto_id AND user_id = p_user_id;
-    END LOOP;
-  END IF;
-
   DELETE FROM encomendas WHERE id = p_id AND user_id = p_user_id;
 END;
 $$;
@@ -721,6 +700,40 @@ END $$;
 REVOKE ALL ON FUNCTION enviar_lembretes_push() FROM public, anon, authenticated;
 
 SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar_lembretes_push()');
+
+-- ── Pedidos × estoque ─────────────────────────────────────────────────────────
+-- Pedido aberto reserva; vira Entregue → o app baixa do engatilho e marca a flag.
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS estoque_baixado boolean NOT NULL DEFAULT false;
+-- (na migração: UPDATE encomendas SET estoque_baixado = true WHERE status = 'Entregue';)
+
+-- Disponível pra venda nova = pronto no engatilho − reservado (pedidos abertos até amanhã).
+-- Engatilho por fluxo espelha src/lib/prontidao.js (FLUXOS) — manter em sincronia.
+CREATE OR REPLACE FUNCTION public.produtos_disponiveis(p_user_id uuid)
+RETURNS TABLE(produto_id bigint, disponivel numeric)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  WITH eng AS (
+    SELECT p.id, p.estoque_atual,
+      CASE p.prontidao->>'fluxo'
+        WHEN 'degelo' THEN 'degelo' WHEN 'assado' THEN 'degelo'
+        WHEN 'choux'  THEN 'vitrine' WHEN 'direto' THEN 'freezer' END AS etapa
+    FROM produtos p
+    WHERE p.user_id = p_user_id AND coalesce(p.ativo, true)
+  ), pronto AS (
+    SELECT e.id,
+      CASE WHEN e.etapa IS NULL THEN coalesce(e.estoque_atual, 0)
+           ELSE coalesce((SELECT sum(l.qtd) FROM prontidao_lotes l WHERE l.produto_id = e.id AND l.etapa = e.etapa), 0)
+      END AS qtd
+    FROM eng e
+  ), reservado AS (
+    SELECT i.produto_id AS id, sum(i.quantidade) AS qtd
+    FROM encomenda_itens i JOIN encomendas en ON en.id = i.encomenda_id
+    WHERE en.user_id = p_user_id AND en.status NOT IN ('Entregue', 'Cancelado') AND i.produto_id IS NOT NULL
+      AND (en.data_entrega IS NULL OR en.data_entrega <= (now() AT TIME ZONE 'America/Sao_Paulo')::date + 1)
+    GROUP BY i.produto_id
+  )
+  SELECT pr.id, greatest(0, pr.qtd - coalesce(r.qtd, 0)) FROM pronto pr LEFT JOIN reservado r ON r.id = pr.id
+$$;
+GRANT EXECUTE ON FUNCTION public.produtos_disponiveis TO anon, authenticated;
 
 -- ── Limpeza: receitas de tutorial/seed sem user_id ────────────────────────────
 -- Se uma receita existe com user_id NULL (inserida como demo global), a policy

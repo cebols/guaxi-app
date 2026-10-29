@@ -105,8 +105,9 @@ export const verboMover = (prod, de, para) =>
 
 const H = 3600 * 1000
 
-// Estado completo de um produto num instante
-export function analisarProduto(prod, lotes, agora = Date.now()) {
+// Estado completo de um produto num instante.
+// reservado = unidades prometidas a pedidos abertos (saem do engatilho ao entregar)
+export function analisarProduto(prod, lotes, agora = Date.now(), reservado = 0) {
   const etapas = etapasDoProduto(prod)
   if (!etapas.length) return null
   const keys = new Set(etapas.map(e => e.key))
@@ -137,7 +138,9 @@ export function analisarProduto(prod, lotes, agora = Date.now()) {
   for (let i = det.length - 1; i >= 1; i--) {
     const e = det[i], ant = det[i - 1]
     const temValido = e.prontos + e.pendentes
-    const precisa = Math.max(0, (e.meta || 0) - temValido) + falta
+    // o engatilho precisa cobrir a meta + o que já está prometido
+    const alvo = (e.meta || 0) + (i === det.length - 1 ? reservado : 0)
+    const precisa = Math.max(0, alvo - temValido) + falta
     const fonte = ant.prontos + ant.pendentes
     if (precisa > 0 && fonte > 0) {
       const n = Math.min(precisa, fonte)
@@ -147,8 +150,10 @@ export function analisarProduto(prod, lotes, agora = Date.now()) {
       falta = precisa
     }
   }
+  // fluxo de etapa única (sai do freezer): reservas também puxam produção
+  if (det.length === 1) falta = Math.max(0, reservado - (det[0].prontos + det[0].pendentes))
   const total = det.reduce((s, e) => s + e.qtd - e.vencidos, 0)
-  const abaixoMin = prod.estoqueMin > 0 && total < prod.estoqueMin
+  const abaixoMin = prod.estoqueMin > 0 && total - reservado < prod.estoqueMin
   // Ordem do trabalho: descartar vencidos → mover (do freezer pra frente) → produzir
   const sugestoes = [
     ...det.filter(e => e.vencidos > 0).map(e => ({ tipo: 'vencidos', etapa: e.key, n: e.vencidos })),
@@ -159,17 +164,18 @@ export function analisarProduto(prod, lotes, agora = Date.now()) {
   }
 
   const eng = det[det.length - 1]
-  const vendaveis = eng.prontos
+  const vendaveis = Math.max(0, eng.prontos - reservado)   // livres pra vender agora
   let status, rotulo
   if (vendaveis <= 0) {
     status = 'pausar'
-    rotulo = eng.pendentes > 0 && eng.proxPronto ? `Pronto às ${hhmm(eng.proxPronto)}` : 'Pausar'
+    rotulo = eng.prontos > 0 && reservado > 0 ? 'Tudo reservado'
+      : eng.pendentes > 0 && eng.proxPronto ? `Pronto às ${hhmm(eng.proxPronto)}` : 'Pausar'
   } else if (sugestoes.length || det.some(e => e.venceLogo > 0)) {
     status = 'atencao'; rotulo = 'Atenção'
   } else {
     status = 'pronto'; rotulo = 'Pronto'
   }
-  return { etapas: det, sugestoes, status, rotulo, vendaveis, total }
+  return { etapas: det, sugestoes, status, rotulo, vendaveis, total, reservado }
 }
 
 export function hhmm(ts) {

@@ -1,9 +1,9 @@
-import { useState, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useMemo, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import {
   getReceitas, getInsumos, getProdutos,
-  saveProducao, getProducoes, computeAjustesPendentes, planejarLote, lotePadraoProduto,
+  saveProducao, getProducoes, computeAjustesPendentes, planejarLote, lotePadraoProduto, getEncomendas, reservasPorProduto,
 } from '../services/db'
 
 const THERMAL_TYPES = [
@@ -151,25 +151,47 @@ export default function MiseEnPlace() {
 
   const temFalta = debitosTotais.some(d => d.estoque != null && d.estoque < d.necessario)
 
-  // Sugestões de produção: produtos com estoque futuro < mínimo, e ainda não no lote atual
+  // Sugestões: pedidos dos próximos 3 dias + estoque mínimo − o que já tem (ou vai ter),
+  // arredondado pra fornadas inteiras
+  const { data: encomendas } = useData(getEncomendas)
+  const demandaPedidos = useMemo(() => reservasPorProduto(encomendas, produtos, 3), [encomendas, produtos])
+  const arredondarFornada = (p, n) => {
+    const f = lotePadraoProduto(p, receitas)
+    return f > 1 ? Math.ceil(n / f) * f : Math.ceil(n)
+  }
   const sugestoes = useMemo(() => {
     const aju = computeAjustesPendentes(producoes || [])
     const noLote = new Set(lote.filter(x => x.tipo === 'produto').map(x => x.refId))
     return (produtos || [])
-      .filter(p => p.tipo !== 'combo' && p.tipo !== 'avulso' && p.ativo !== false && p.estoqueMin > 0 && !noLote.has(p.id))
+      .filter(p => p.tipo !== 'combo' && p.tipo !== 'avulso' && !noLote.has(p.id))
       .map(p => {
+        const pedidos = demandaPedidos[p.id] || 0
+        if (p.ativo === false && !pedidos) return null   // pontual só entra se tiver pedido
         const futuro = Math.max(0, (p.estoqueAtual ?? 0) + (aju.produtos?.[p.id] || 0))
-        const falta = p.estoqueMin - futuro
-        return { ...p, futuro, falta }
+        const precisa = pedidos + (p.estoqueMin || 0) - futuro
+        if (precisa <= 0) return null
+        return { ...p, futuro, pedidos, precisa, qtd: arredondarFornada(p, precisa) }
       })
-      .filter(p => p.falta > 0)
-      .sort((a, b) => b.falta - a.falta)
-      .slice(0, 4)
-  }, [producoes, produtos, lote])
+      .filter(Boolean)
+      .sort((a, b) => (b.pedidos > 0) - (a.pedidos > 0) || b.precisa - a.precisa)
+      .slice(0, 6)
+  }, [producoes, produtos, lote, demandaPedidos, receitas])
 
   function addProdutoSugerido(prod, qtd) {
-    setLote(l => [...l, { tipo: 'produto', refId: prod.id, nome: prod.nome, qtd }])
+    setLote(l => l.some(x => x.tipo === 'produto' && x.refId === prod.id) ? l : [...l, { tipo: 'produto', refId: prod.id, nome: prod.nome, qtd }])
   }
+
+  // Vindo do Prontidão ("Produzir"): já entra no lote com a fornada
+  const location = useLocation()
+  useEffect(() => {
+    const add = location.state?.adicionar
+    if (!add?.length || !produtos || !receitas) return
+    for (const a of add) {
+      const p = produtos.find(x => Number(x.id) === Number(a.produtoId))
+      if (p) addProdutoSugerido(p, arredondarFornada(p, a.n || 1))
+    }
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location.state, produtos, receitas]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Última produção não concluída
   const ultimaIncompleta = useMemo(() => {
@@ -254,19 +276,27 @@ export default function MiseEnPlace() {
         )}
         {sugestoes.length > 0 && lote.length === 0 && (
           <div className="card" style={{ padding: '10px 14px', marginBottom: 12, background: 'rgba(245,158,11,0.06)', borderColor: '#92400e' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#f59e0b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>💡 Sugestões</div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>Abaixo do mínimo (considerando produções planejadas)</div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ flex: 1, fontSize: 12, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 0.5 }}>💡 Sugestões</div>
+              {sugestoes.length > 1 && (
+                <button onClick={() => sugestoes.forEach(s => addProdutoSugerido(s, s.qtd))} style={{ background: 'none', border: '1px solid #f59e0b', color: '#f59e0b', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                  + todas
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>Pedidos dos próximos 3 dias + estoque mínimo, em fornadas inteiras</div>
             {sugestoes.map(s => (
-              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid #333' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{s.nome}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                    {s.futuro} un · mín. {s.estoqueMin} · faltam {Math.ceil(s.falta)}
+                    {s.pedidos > 0 && <span style={{ color: '#60a5fa', fontWeight: 600 }}>{s.pedidos} em pedidos · </span>}
+                    tem {s.futuro}{s.estoqueMin > 0 ? ` · mín. ${s.estoqueMin}` : ''} · faltam {Math.ceil(s.precisa)}
                   </div>
                 </div>
-                <button onClick={() => addProdutoSugerido(s, Math.ceil(s.falta))}
+                <button onClick={() => addProdutoSugerido(s, s.qtd)}
                   style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
-                  + {Math.ceil(s.falta)}
+                  + {s.qtd}
                 </button>
               </div>
             ))}

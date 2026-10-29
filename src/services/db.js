@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase'
-import { FLUXOS } from '../lib/prontidao'
+import { FLUXOS, etapasDoProduto } from '../lib/prontidao'
 
 // Upsert helper with graceful fallback for optional new columns
 // If a column doesn't exist (migration not run), strips only that column and retries.
@@ -668,8 +668,13 @@ export async function updateEstoqueMinEmbalagens(items) {
 }
 
 export async function adjustEstoqueProduto(id, delta) {
-  // Produto acompanhado em Prontidão: entrada vai pra 1ª etapa, venda sai do engatilho
-  if (await movimentarComFluxo(id, delta, delta < 0 ? 'venda' : 'entrada')) return
+  return movimentarEstoqueProduto(id, delta, delta < 0 ? 'venda' : 'entrada')
+}
+
+// origem: 'entrada' (1ª etapa) | 'venda' (sai do engatilho) | 'estorno' (sai da 1ª)
+//         | 'devolucao' (volta pro engatilho, já pronto) | { etapa } (entra numa etapa escolhida)
+export async function movimentarEstoqueProduto(id, delta, origem) {
+  if (await movimentarComFluxo(id, delta, origem)) return
   const { data } = await supabase.from('produtos').select('estoque_atual').eq('id', id).single()
   const atual = data?.estoque_atual ?? 0
   await supabase.from('produtos').update({ estoque_atual: Math.max(0, atual + delta) }).eq('id', id)
@@ -734,9 +739,19 @@ async function movimentarComFluxo(id, delta, origem) {
   const f = !error && p?.prontidao?.fluxo
   if (!f || !FLUXOS[f]) return false
   const keys = FLUXOS[f].etapas.map(e => e.key)
+  const etapas = etapasDoProduto({ id, prontidao: p.prontidao })
   try {
-    if (delta > 0) await inserirLote(id, keys[0], delta)
-    else await consumirLotes(id, origem === 'venda' ? [...keys].reverse() : keys, -delta,
+    if (delta > 0) {
+      // devolução volta pronta pro engatilho; etapa escolhida (montagem) entra já pronta
+      const alvo = origem?.etapa && keys.includes(origem.etapa) ? origem.etapa
+        : origem === 'devolucao' ? keys[keys.length - 1] : keys[0]
+      const tempoH = etapas.find(e => e.key === alvo)?.tempoH || 0
+      const jaPronto = alvo !== keys[0] && tempoH > 0
+      await inserirLote(id, alvo, delta, new Date(Date.now() - (jaPronto ? tempoH * 3600e3 : 0)).toISOString())
+    }
+    else await consumirLotes(id,
+      origem?.etapa && keys.includes(origem.etapa) ? [origem.etapa, ...keys.filter(k => k !== origem.etapa)]
+        : origem === 'venda' ? [...keys].reverse() : keys, -delta,
       { maisNovoPrimeiro: origem !== 'venda' })
     await syncEstoqueProdutoFluxo(id)
     return true
@@ -849,9 +864,11 @@ export async function getEncomendas() {
     obs: r.obs || '',
     tipoEntrega: r.tipo_entrega || 'Retirada',
     frete: r.frete || 0,
+    estoqueBaixado: r.estoque_baixado ?? false,
     itens: (r.encomenda_itens || []).map(i => ({
       id: i.id,
       produto: i.produto,
+      produtoId: i.produto_id ?? null,
       quantidade: i.quantidade,
       precoUnit: i.preco_unit,
     })),
@@ -912,6 +929,7 @@ export async function savePedido(pedido, itens) {
         produto: it.produto,
         quantidade: parseFloat(it.quantidade) || 1,
         preco_unit: parseFloat(it.precoUnit) || 0,
+        ...(it.produtoId ? { produto_id: it.produtoId } : {}),
       }))
     )
     if (ie) throw ie
@@ -929,6 +947,64 @@ export async function updateEncomendaItens(id, itens) {
     }).eq('id', it.id)
     if (error) throw error
   }
+}
+
+// ── Pedidos × estoque ─────────────────────────────────────────────────────────
+// Pedido direto (manual, link, WhatsApp) RESERVA enquanto está aberto e BAIXA o
+// estoque quando vira Entregue. Se sair de Entregue (ou for cancelado depois),
+// devolve pro engatilho. Roda sempre que o app abre telas de pedido/estoque —
+// assim pega também os pedidos entregues pelo Lalamove (webhook no servidor).
+
+const normNome = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+
+function produtoDoItem(it, produtos) {
+  if (it.produto_id || it.produtoId) return Number(it.produto_id || it.produtoId)
+  const n = normNome(it.produto)
+  return (produtos || []).find(p => normNome(p.nome) === n)?.id ?? null
+}
+
+let _reconciliando = null
+export function reconciliarBaixasPedidos() {
+  if (!_reconciliando) _reconciliando = _reconciliar().finally(() => { _reconciliando = null })
+  return _reconciliando
+}
+async function _reconciliar() {
+  const { data, error } = await supabase.from('encomendas')
+    .select('id, status, estoque_baixado, encomenda_itens(produto, produto_id, quantidade)')
+    .or('and(status.eq.Entregue,estoque_baixado.eq.false),and(status.neq.Entregue,estoque_baixado.eq.true)')
+  if (error || !data?.length) return 0   // coluna ainda não criada, ou nada a fazer
+  const { data: prods } = await supabase.from('produtos').select('id, nome')
+  let n = 0
+  for (const enc of data) {
+    const entregue = enc.status === 'Entregue'
+    // trava: só quem conseguir virar a flag aplica o movimento (evita baixa em dobro)
+    const { data: claim } = await supabase.from('encomendas').update({ estoque_baixado: entregue })
+      .eq('id', enc.id).eq('estoque_baixado', !entregue).select('id')
+    if (!claim?.length) continue
+    for (const it of (enc.encomenda_itens || [])) {
+      const pid = produtoDoItem(it, prods)
+      const q = Number(it.quantidade) || 0
+      if (pid && q) await movimentarEstoqueProduto(pid, entregue ? -q : q, entregue ? 'venda' : 'devolucao').catch(() => {})
+    }
+    n++
+  }
+  return n
+}
+
+// Unidades prometidas a pedidos abertos que saem nos próximos `dias` (ou sem data).
+// dias=1 → hoje e amanhã (reserva no Prontidão); o planejamento olha mais longe.
+export function reservasPorProduto(encomendas, produtos, dias = 1) {
+  const limite = new Date(); limite.setHours(0, 0, 0, 0); limite.setDate(limite.getDate() + dias)
+  const out = {}
+  for (const e of (encomendas || [])) {
+    if (e.status === 'Entregue' || e.status === 'Cancelado') continue
+    if (e.dataEntrega && new Date(e.dataEntrega + 'T00:00:00') > limite) continue
+    for (const it of (e.itens || [])) {
+      const pid = produtoDoItem(it, produtos)
+      if (pid) out[pid] = (out[pid] || 0) + (Number(it.quantidade) || 0)
+    }
+  }
+  return out
 }
 
 export async function deletePedido(id) {
@@ -955,6 +1031,8 @@ export async function updateStatusEncomenda(id, status, pgto, tipoEntrega, frete
       throw error
     }
   }
+  // Entregue → baixa do estoque; saiu de Entregue → devolve
+  await reconciliarBaixasPedidos().catch(() => {})
 }
 
 // ── Receitas ──────────────────────────────────────────────────
@@ -1868,7 +1946,7 @@ async function reverterAplicado(item, checks) {
   // Reverte crédito se aplicado (montado / item completo / avulso já aplicado na criação)
   if (item.snapshot.creditoNaMontagem) {
     const m = item.snapshot.montado
-    if (m?.qtd > 0 && item.snapshot.credito?.id) await ajustarEstoqueProduto(item.snapshot.credito.id, -m.qtd)
+    if (m?.qtd > 0 && item.snapshot.credito?.id) await movimentarEstoqueProduto(item.snapshot.credito.id, -m.qtd, m.etapa ? { etapa: m.etapa } : 'estorno')
   } else if (item.snapshot.creditoAplicadoNaCriacao || itemCompleto(item, checkSet)) {
     await aplicarCreditoItem(item, -1)
   }
@@ -1891,15 +1969,23 @@ export async function deleteProducaoItem(itemId) {
 }
 
 // ── Montagem: o produto entra no estoque (e na 1ª etapa do Prontidão) quando é montado
-export async function marcarMontado(itemId, qtd) {
+// etapa: em que etapa do Prontidão o produto montado entra (padrão: a primeira)
+export async function marcarMontado(itemId, qtd, etapa = null) {
   const { data: item, error } = await supabase.from('producao_itens').select('id, snapshot, produto_id').eq('id', itemId).single()
   if (error) throw error
   const snap = item.snapshot || {}
   const prodId = snap.credito?.id || item.produto_id
   const antes = snap.montado?.qtd || 0
-  if (qtd - antes) await ajustarEstoqueProduto(prodId, qtd - antes)
+  const etapaAntes = snap.montado?.etapa || null
+  if (antes && etapaAntes !== etapa) {
+    // mudou a etapa: tira tudo de onde estava e põe na nova
+    await movimentarEstoqueProduto(prodId, -antes, etapaAntes ? { etapa: etapaAntes } : 'estorno')
+    await movimentarEstoqueProduto(prodId, qtd, etapa ? { etapa } : 'entrada')
+  } else if (qtd - antes) {
+    await movimentarEstoqueProduto(prodId, qtd - antes, etapa ? { etapa } : (qtd > antes ? 'entrada' : 'estorno'))
+  }
   const { error: e2 } = await supabase.from('producao_itens')
-    .update({ snapshot: { ...snap, montado: { qtd, em: new Date().toISOString() } } }).eq('id', itemId)
+    .update({ snapshot: { ...snap, montado: { qtd, etapa, em: new Date().toISOString() } } }).eq('id', itemId)
   if (e2) throw e2
 }
 
@@ -1908,7 +1994,7 @@ export async function desmarcarMontado(itemId) {
   if (error) throw error
   const snap = item.snapshot || {}
   const antes = snap.montado?.qtd || 0
-  if (antes) await ajustarEstoqueProduto(snap.credito?.id || item.produto_id, -antes)
+  if (antes) await movimentarEstoqueProduto(snap.credito?.id || item.produto_id, -antes, snap.montado?.etapa ? { etapa: snap.montado.etapa } : 'estorno')
   const { error: e2 } = await supabase.from('producao_itens').update({ snapshot: { ...snap, montado: null } }).eq('id', itemId)
   if (e2) throw e2
 }
@@ -2145,12 +2231,19 @@ export async function getPublicProdutos(userId) {
     if (!error) break
   }
   if (error) throw error
-  return (data || []).filter(r => r.ativo !== false).map(r => ({
+  // Disponível = pronto no engatilho (Prontidão) − reservado por pedidos abertos.
+  // Se a função ainda não existir no banco, cai no estoque total.
+  let disp = null
+  const { data: dd, error: de } = await supabase.rpc('produtos_disponiveis', { p_user_id: userId })
+  if (!de && Array.isArray(dd)) disp = Object.fromEntries(dd.map(x => [Number(x.produto_id), Number(x.disponivel) || 0]))
+  return (data || [])
+    .filter(r => r.ativo !== false && (disp ? (disp[Number(r.id)] || 0) > 0 : true))
+    .map(r => ({
     id: r.id,
     nome: r.nome,
     descricao: r.descricao || '',
     precoDireta: r.preco_direta,
-    estoqueAtual: r.estoque_atual,
+    estoqueAtual: disp ? disp[Number(r.id)] : r.estoque_atual,
     imagemUrl: r.imagem_url || null,
     tipo: r.tipo || 'produto',
     secao: r.secao || '',

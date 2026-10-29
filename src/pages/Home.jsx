@@ -1,7 +1,7 @@
-import { useState, useMemo, useCallback, useRef } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
-import { getEncomendas, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas, updateProducaoChecks, insumosDoCardapio } from '../services/db'
+import { getEncomendas, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas, updateProducaoChecks, insumosDoCardapio, reconciliarBaixasPedidos } from '../services/db'
 import { getConfig, CONFIG_DEFAULTS } from '../hooks/useConfig'
 import { NovoPedidoSheet } from './Pedidos'
 import { useToast } from '../hooks/useToast'
@@ -162,6 +162,8 @@ export default function Home() {
   }
 
   const reloadAll = () => { reloadEnc(); reloadIns(); reloadEmb(); reloadProd() }
+  // Pedido entregue (inclusive pelo Lalamove) baixa o estoque
+  useEffect(() => { reconciliarBaixasPedidos().then(n => { if (n) reloadProd() }).catch(() => {}) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleCheck = useCallback(async (producaoId, receitaId) => {
     const key = String(receitaId)
