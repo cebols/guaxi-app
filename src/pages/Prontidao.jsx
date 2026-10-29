@@ -8,6 +8,7 @@ import {
 import {
   FLUXOS, LOCAL, fluxoAtivo, analisarProduto, sugerirConfig, etapasDoProduto, metaPadrao, hhmm, fmtDuracao,
 } from '../lib/prontidao'
+import { suportaPush, ativarLembrete, lerLembrete, desativarLembrete, testarLembrete } from '../lib/push'
 
 const STATUS = {
   pausar:  { cor: '#f87171', bg: 'rgba(248,113,113,.14)', ordem: 0 },
@@ -55,6 +56,7 @@ export default function Prontidao() {
   const [config, setConfig]         = useState(null) // prod
   const [aviso, setAviso]           = useState(null) // { msg, undo? }
   const [aplicando, setAplicando]   = useState(false)
+  const [verLembrete, setVerLembrete] = useState(false)
   const [verNaoAcomp, setVerNaoAcomp] = useState(false)
 
   async function carregarLotes() {
@@ -118,8 +120,10 @@ export default function Prontidao() {
               <div className="topbar-sub">{new Date(agora).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' })} · {hhmm(agora)}</div>
             </div>
           </div>
+          <button onClick={() => setVerLembrete(true)} title="Lembrete de fim do dia" style={{ background: 'none', border: '1px solid #333', borderRadius: 8, padding: '6px 10px', fontSize: 16, cursor: 'pointer', color: 'var(--text-primary)' }}>🔔</button>
         </div>
       </div>
+      {verLembrete && <LembreteSheet onClose={() => setVerLembrete(false)} />}
 
       <div className="page-content" style={{ maxWidth: 760, margin: '0 auto' }}>
         {loading ? <div className="loading">Carregando...</div> : erroTabela ? (
@@ -618,5 +622,61 @@ function SetupSql({ erro, onRetry }) {
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 10 }}>{erro}</div>
     </div>
+  )
+}
+
+// ── Lembrete de fim do dia (push) ─────────────────────────────────────────────
+function LembreteSheet({ onClose }) {
+  const [estado, setEstado] = useState(undefined) // undefined=carregando, null=desligado, obj=ligado
+  const [hora, setHora] = useState('21:00')
+  const [ocupado, setOcupado] = useState(false)
+  const [msg, setMsg] = useState(null)
+
+  useEffect(() => {
+    if (!suportaPush()) { setEstado(null); return }
+    lerLembrete().then(d => { setEstado(d); if (d?.hora_lembrete) setHora(d.hora_lembrete) })
+      .catch(e => { setEstado(null); setMsg({ erro: true, t: e.message }) })
+  }, [])
+
+  async function rodar(fn, ok) {
+    setOcupado(true); setMsg(null)
+    try { await fn(); setMsg({ t: ok }) }
+    catch (e) { setMsg({ erro: true, t: e.message }) }
+    finally { setOcupado(false) }
+  }
+
+  const ligado = !!estado
+  return (
+    <Sheet title="Lembrete de fim do dia" onClose={onClose}>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
+        Uma notificação por dia, na hora que você escolher, pra fechar o Prontidão: o que saiu, o que foi pro degelo, o que fica pra amanhã. Vale só para <b>este aparelho</b> — ative no celular e no tablet.
+      </div>
+      {!suportaPush() ? (
+        <div className="empty"><span>Este navegador não aceita notificações. No iPhone/iPad, adicione o app à tela de início primeiro.</span></div>
+      ) : estado === undefined ? (
+        <div className="loading">Verificando...</div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <span style={{ fontSize: 14, flex: 1 }}>Horário</span>
+            <input type="time" value={hora} onChange={e => setHora(e.target.value)}
+              style={{ fontSize: 20, fontWeight: 700, padding: '6px 10px', borderRadius: 10, border: '1px solid #333', background: 'var(--bg-input)', color: 'var(--text-primary)' }} />
+          </div>
+          <div style={{ fontSize: 13, marginBottom: 12, color: ligado ? '#4ade80' : 'var(--text-tertiary)', fontWeight: 600 }}>
+            {ligado ? `✓ Ativo neste aparelho às ${estado.hora_lembrete}` : 'Desligado neste aparelho'}
+          </div>
+          <button className="btn-primary" disabled={ocupado || !hora} onClick={() => rodar(async () => { await ativarLembrete(hora); setEstado(await lerLembrete()) }, ligado ? 'Horário salvo' : 'Lembrete ativado')}>
+            {ocupado ? 'Salvando...' : ligado ? 'Salvar horário' : 'Ativar neste aparelho'}
+          </button>
+          {ligado && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button disabled={ocupado} onClick={() => rodar(testarLembrete, 'Enviado — deve chegar em segundos')} style={{ flex: 1, padding: 11, borderRadius: 10, border: '1px solid #333', background: 'transparent', color: 'var(--text-primary)', fontWeight: 600, cursor: 'pointer' }}>Mandar teste</button>
+              <button disabled={ocupado} onClick={() => rodar(async () => { await desativarLembrete(); setEstado(null) }, 'Lembrete desligado')} style={{ flex: 1, padding: 11, borderRadius: 10, border: '1px solid #7f1d1d', background: 'transparent', color: '#f87171', fontWeight: 600, cursor: 'pointer' }}>Desligar</button>
+            </div>
+          )}
+          {msg && <div style={{ fontSize: 13, marginTop: 12, color: msg.erro ? '#f87171' : '#4ade80' }}>{msg.t}</div>}
+        </>
+      )}
+    </Sheet>
   )
 }

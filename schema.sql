@@ -667,6 +667,61 @@ ALTER TABLE prontidao_lotes ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "own_data" ON prontidao_lotes;
 CREATE POLICY "own_data" ON prontidao_lotes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
+-- ── Lembrete de fim do dia (Web Push) ────────────────────────────────────────
+-- <CRON_SECRET> = mesmo valor da env CRON_SECRET no Vercel (não commitar o real).
+-- Uma linha por aparelho inscrito. O pg_cron roda a cada 10 min, escolhe quem já
+-- passou da hora e ainda não recebeu hoje, e manda pro /api/lembrete-push.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id             bigserial primary key,
+  user_id        uuid default auth.uid() references auth.users(id) on delete cascade,
+  endpoint       text unique not null,
+  p256dh         text not null,
+  auth           text not null,
+  hora_lembrete  text default '21:00',
+  fuso           text default 'America/Sao_Paulo',
+  aparelho       text,
+  ativo          boolean default true,
+  ultimo_envio   date,
+  created_at     timestamptz default now()
+);
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own_data" ON push_subscriptions;
+CREATE POLICY "own_data" ON push_subscriptions FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net;
+
+CREATE OR REPLACE FUNCTION enviar_lembretes_push() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE devidos jsonb;
+BEGIN
+  WITH d AS (
+    SELECT s.id, s.endpoint, s.p256dh, s.auth, (now() AT TIME ZONE s.fuso)::date AS hoje
+    FROM push_subscriptions s
+    WHERE s.ativo
+      AND s.hora_lembrete IS NOT NULL
+      AND to_char(now() AT TIME ZONE s.fuso, 'HH24:MI') >= s.hora_lembrete
+      AND (s.ultimo_envio IS NULL OR s.ultimo_envio < (now() AT TIME ZONE s.fuso)::date)
+  ), marcados AS (
+    UPDATE push_subscriptions p SET ultimo_envio = d.hoje FROM d WHERE p.id = d.id
+    RETURNING d.endpoint, d.p256dh, d.auth
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object('endpoint', endpoint,
+           'keys', jsonb_build_object('p256dh', p256dh, 'auth', auth))), '[]'::jsonb)
+    INTO devidos FROM marcados;
+
+  IF jsonb_array_length(devidos) > 0 THEN
+    PERFORM net.http_post(
+      url     := 'https://guaxi-app.vercel.app/api/lembrete-push',
+      headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer <CRON_SECRET>'),
+      body    := jsonb_build_object('subs', devidos, 'url', '/prontidao')
+    );
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION enviar_lembretes_push() FROM public, anon, authenticated;
+
+SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar_lembretes_push()');
+
 -- ── Limpeza: receitas de tutorial/seed sem user_id ────────────────────────────
 -- Se uma receita existe com user_id NULL (inserida como demo global), a policy
 -- "user_id = auth.uid()" impede que o usuário a apague via UI.
