@@ -1432,6 +1432,8 @@ function montarItensProducao(producaoId, lote, receitas, plano) {
     }
 
     const hasReceitas = Object.keys(p.dosesContrib).length > 0
+    // Produto com receitas entra no estoque quando é MONTADO (não ao marcar a última receita)
+    const naMontagem = item.tipo === 'produto' && (p.topo || []).length > 0
     const snapshot = {
       debitos: p.debitos,
       credito,
@@ -1441,7 +1443,8 @@ function montarItensProducao(producaoId, lote, receitas, plano) {
       usoEstoque: p.usoEstoque,   // preparos tirados do estoque (já debitados na criação)
       fracoes: p.fracoes,
       topo: p.topo,
-      creditoAplicadoNaCriacao: !hasReceitas,
+      creditoNaMontagem: naMontagem,
+      creditoAplicadoNaCriacao: item.tipo === 'produto' ? !naMontagem : !hasReceitas,
     }
 
     if (item.tipo === 'produto') {
@@ -1475,10 +1478,10 @@ async function persistirItens(producaoId, lote, receitas, produtos, usarEstoque)
   // Preparos usados do estoque saem na hora (reservados pra esta produção)
   await aplicarUsoEstoque(plano.usoEstoque, -1)
 
-  // Itens sem nada a produzir (avulso, ou tudo coberto pelo estoque): crédito imediato
+  // Produto sem receita (avulso): entra no estoque na hora. Os demais, na montagem.
   for (let idx = 0; idx < lote.length; idx++) {
     const item = lote[idx]
-    if (item.tipo === 'produto' && Object.keys(plano.porItem[idx].dosesContrib).length === 0) {
+    if (item.tipo === 'produto' && !(plano.porItem[idx].topo || []).length) {
       await ajustarEstoqueProduto(item.refId, item.qtd || 0)
     }
   }
@@ -1683,7 +1686,9 @@ export function computeAjustesPendentes(producoes) {
       }
       const dosesContrib = snap.dosesContrib || {}
       const recIds = Object.keys(dosesContrib)
-      const isComplete = recIds.length > 0 && recIds.every(rid => checkSet.has(String(rid)))
+      const isComplete = snap.creditoNaMontagem
+        ? !!snap.montado
+        : recIds.length > 0 && recIds.every(rid => checkSet.has(String(rid)))
       if (!isComplete && !snap.creditoAplicadoNaCriacao && snap.credito) {
         const { tipo, id, qtd } = snap.credito
         if (tipo === 'produto') produtos[id] = (produtos[id] || 0) + (qtd || 0)
@@ -1860,8 +1865,11 @@ async function reverterAplicado(item, checks) {
       await aplicarDebitosDeReceita(item, recIdStr, +1)
     }
   }
-  // Reverte crédito se aplicado (item completo, ou avulso já aplicado na criação)
-  if (item.snapshot.creditoAplicadoNaCriacao || itemCompleto(item, checkSet)) {
+  // Reverte crédito se aplicado (montado / item completo / avulso já aplicado na criação)
+  if (item.snapshot.creditoNaMontagem) {
+    const m = item.snapshot.montado
+    if (m?.qtd > 0 && item.snapshot.credito?.id) await ajustarEstoqueProduto(item.snapshot.credito.id, -m.qtd)
+  } else if (item.snapshot.creditoAplicadoNaCriacao || itemCompleto(item, checkSet)) {
     await aplicarCreditoItem(item, -1)
   }
   // Devolve ao estoque os preparos que esta produção tinha tirado
@@ -1880,6 +1888,57 @@ export async function deleteProducaoItem(itemId) {
     }
   }
   await supabase.from('producao_itens').delete().eq('id', itemId)
+}
+
+// ── Montagem: o produto entra no estoque (e na 1ª etapa do Prontidão) quando é montado
+export async function marcarMontado(itemId, qtd) {
+  const { data: item, error } = await supabase.from('producao_itens').select('id, snapshot, produto_id').eq('id', itemId).single()
+  if (error) throw error
+  const snap = item.snapshot || {}
+  const prodId = snap.credito?.id || item.produto_id
+  const antes = snap.montado?.qtd || 0
+  if (qtd - antes) await ajustarEstoqueProduto(prodId, qtd - antes)
+  const { error: e2 } = await supabase.from('producao_itens')
+    .update({ snapshot: { ...snap, montado: { qtd, em: new Date().toISOString() } } }).eq('id', itemId)
+  if (e2) throw e2
+}
+
+export async function desmarcarMontado(itemId) {
+  const { data: item, error } = await supabase.from('producao_itens').select('id, snapshot, produto_id').eq('id', itemId).single()
+  if (error) throw error
+  const snap = item.snapshot || {}
+  const antes = snap.montado?.qtd || 0
+  if (antes) await ajustarEstoqueProduto(snap.credito?.id || item.produto_id, -antes)
+  const { error: e2 } = await supabase.from('producao_itens').update({ snapshot: { ...snap, montado: null } }).eq('id', itemId)
+  if (e2) throw e2
+}
+
+// Porção por unidade de uma receita no produto — "salvar no produto" (vale daqui pra frente)
+export async function atualizarPorcaoProduto(prod, receitaId, novaQtd) {
+  const rr = (prod.receitas || []).find(r => Number(r.receitaId) === Number(receitaId))
+  if (!rr) throw new Error('Receita não está na ficha do produto')
+  const { error } = await supabase.from('produto_receitas').update({ quantidade: novaQtd })
+    .eq('produto_id', prod.id).eq('receita_id', receitaId)
+  if (error) throw error
+  const { data } = await supabase.from('produtos').select('composicao, custo_total').eq('id', prod.id).single()
+  const comp = data?.composicao
+  const upd = { custo_total: Math.max(0, (data?.custo_total || 0) + (novaQtd - (rr.quantidade || 0)) * (rr.custoUnid || 0)) }
+  if (comp?.receitas) {
+    upd.composicao = { ...comp, receitas: comp.receitas.map(c => Number(c.receitaId) === Number(receitaId) ? { ...c, quantidade: novaQtd } : c) }
+  }
+  const { error: e2 } = await supabase.from('produtos').update(upd).eq('id', prod.id)
+  if (e2) throw e2
+}
+
+// Porção só nesta produção: guarda no item (pra montagem) e ajusta a quantidade da receita
+export async function setPorcaoProducao(prodId, itemId, receitaId, porUn, novoTotalDoses) {
+  const { data: item, error } = await supabase.from('producao_itens').select('snapshot').eq('id', itemId).single()
+  if (error) throw error
+  const snap = item.snapshot || {}
+  const { error: e2 } = await supabase.from('producao_itens')
+    .update({ snapshot: { ...snap, porcoes: { ...(snap.porcoes || {}), [receitaId]: porUn } } }).eq('id', itemId)
+  if (e2) throw e2
+  if (novoTotalDoses > 0) await setProducaoRecipeDoses(prodId, receitaId, novoTotalDoses)
 }
 
 export async function getProducao(id) {
@@ -1932,7 +1991,7 @@ export async function updateProducaoChecks(id, newChecks) {
     const wasComplete = itemCompleto(item, oldSet)
     const isComplete = itemCompleto(item, newSet)
     const creditoJaAplicadoNaCriacao = item.snapshot?.creditoAplicadoNaCriacao
-    if (!creditoJaAplicadoNaCriacao) {
+    if (!creditoJaAplicadoNaCriacao && !item.snapshot?.creditoNaMontagem) {
       if (!wasComplete && isComplete) await aplicarCreditoItem(item, +1)
       else if (wasComplete && !isComplete) await aplicarCreditoItem(item, -1)
     }
