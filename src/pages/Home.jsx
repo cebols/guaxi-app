@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
+import { rendimentoDe } from '../lib/receitas'
 import { getEncomendas, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas, updateProducaoChecks, insumosDoCardapio, reconciliarBaixasPedidos } from '../services/db'
 import { getConfig, CONFIG_DEFAULTS } from '../hooks/useConfig'
 import { NovoPedidoSheet } from './Pedidos'
@@ -234,20 +235,11 @@ export default function Home() {
       const done = [...receitaIds].filter(id => checkedSet.has(id)).length
         + subIds.filter(id => checkedSet.has(id)).length
       if (total > 0 && done < total) {
-        // Build a lookup: receitaId (string) -> { nome, qtd, unidade }
+        // receitaId (string) -> { nome, qtd, unidade } — mesma conta da tela de produção
         const recipeInfoMap = {}
-        for (const item of prod.itens) {
-          if (item.tipo === 'receita' && item.receitaId) {
-            const key = String(item.receitaId)
-            recipeInfoMap[key] = { nome: item.nome, qtd: item.rendimentoTotal || 0, unidade: item.unidadeGera || 'un' }
-          }
-          for (const [rid, doses] of Object.entries(item.snapshot?.dosesContrib || {})) {
-            if (!recipeInfoMap[rid]) {
-              const rec = receitaMap[Number(rid)]
-              recipeInfoMap[rid] = { nome: rec?.nome || '', qtd: 0, unidade: rec?.unidadeGera || 'un' }
-            }
-            recipeInfoMap[rid].qtd += doses * (receitaMap[Number(rid)]?.rendimento || 0)
-          }
+        for (const [rid, doses] of Object.entries(dosesPerReceita)) {
+          const rec = receitaMap[Number(rid)]
+          recipeInfoMap[rid] = { nome: rec?.nome || '', qtd: rendimentoDe(rec, doses, insumos || []), unidade: rec?.unidadeGera || 'un' }
         }
         // Mantém ordem original, checked fica na posição e fica riscado
         const allItems = [...receitaIds]
@@ -271,7 +263,7 @@ export default function Home() {
       }
     }
     return null
-  }, [producoes, receitaMap, localChecks])
+  }, [producoes, receitaMap, localChecks, insumos])
 
   const proximas = (encomendas || [])
     .filter(e => {

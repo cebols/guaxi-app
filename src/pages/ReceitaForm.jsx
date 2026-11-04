@@ -556,6 +556,27 @@ export default function ReceitaForm() {
                     {Math.round(rendLiquidoG)}g {fatorPerdaNum > 0 ? 'líquido' : ''} ÷ {form.qtdUnidades || '?'} un = {form.qtdPorUnidade ? `${form.qtdPorUnidade} g/un` : '?'}
                   </div>
                 )}
+                {(() => {
+                  // "Qtd" e "g/un" desencontrados do peso (ex: mudou ingrediente depois):
+                  // a cozinha conta pelo peso e o planejamento pela Qtd — os números divergem
+                  const gpu = parseFloat(form.qtdPorUnidade) || 0
+                  const pelopeso = gpu > 0 && rendLiquidoG > 0 ? rendLiquidoG / gpu : 0
+                  if (!(pelopeso > 0) || !(qtdUnidadesNum > 0) || Math.abs(pelopeso - qtdUnidadesNum) / qtdUnidadesNum <= 0.05) return null
+                  const un = Math.round(pelopeso * 10) / 10
+                  const novoGpu = Math.round((rendLiquidoG / qtdUnidadesNum) * 10) / 10
+                  const btn = { flex: 1, padding: '7px 8px', borderRadius: 8, border: '1px solid #f59e0b', background: 'transparent', color: '#f59e0b', fontSize: 12, fontWeight: 700, cursor: 'pointer' }
+                  return (
+                    <div style={{ marginTop: 10, padding: '10px 12px', borderRadius: 8, background: 'rgba(245,158,11,.08)', border: '1px solid #92400e' }}>
+                      <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 700, marginBottom: 6 }}>
+                        ⚠ Pelo peso, rende {String(un).replace('.', ',')} un ({Math.round(rendLiquidoG)} g ÷ {form.qtdPorUnidade} g/un), não {form.qtdUnidades}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button type="button" style={btn} onClick={() => setForm(f => ({ ...f, qtdUnidades: String(un) }))}>Usar {String(un).replace('.', ',')} un</button>
+                        <button type="button" style={btn} onClick={() => setForm(f => ({ ...f, qtdPorUnidade: String(novoGpu) }))}>Manter {form.qtdUnidades} un ({String(novoGpu).replace('.', ',')} g/un)</button>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             )}
         </div>

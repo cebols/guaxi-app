@@ -2016,6 +2016,42 @@ export async function atualizarPorcaoProduto(prod, receitaId, novaQtd) {
   if (e2) throw e2
 }
 
+// Muda a quantidade de um PRODUTO dentro da produção: escala tudo que ele puxa
+// (doses das receitas, preparos, débitos de insumo, crédito). Receita já marcada
+// como feita tem o débito de insumos acertado na hora.
+export async function setProducaoProdutoQtd(prodId, itemId, novaQtd) {
+  const { data: prod, error } = await supabase.from('producoes').select('checks, producao_itens(id, snapshot, quantidade)').eq('id', prodId).single()
+  if (error) throw error
+  const item = (prod.producao_itens || []).find(i => Number(i.id) === Number(itemId))
+  if (!item) throw new Error('Item não encontrado nesta produção')
+  const antes = Number(item.quantidade) || 0
+  const snap = item.snapshot || {}
+  const upd = { quantidade: novaQtd }
+  if (novaQtd > 0 && antes > 0 && novaQtd !== antes && snap.dosesContrib) {
+    const r = novaQtd / antes
+    const esc = obj => Object.fromEntries(Object.entries(obj || {}).map(([k, v]) => [k, v * r]))
+    const checkSet = new Set((prod.checks || []).map(String))
+    const delta = {}
+    for (const [rid, d] of Object.entries(snap.debitosPorReceita || {})) {
+      if (checkSet.has(String(rid))) for (const [k, q] of Object.entries(d)) delta[k] = (delta[k] || 0) + q * (r - 1)
+    }
+    if (Object.keys(delta).length) await aplicarDebitosInsumos(delta, -1)
+    // produção antiga já completa: o crédito no estoque acompanha
+    const credito = snap.credito
+    if (credito?.tipo === 'produto' && !snap.creditoNaMontagem && !snap.creditoAplicadoNaCriacao && itemCompleto(item, checkSet)) {
+      await ajustarEstoqueProduto(credito.id, (credito.qtd || 0) * (r - 1))
+    }
+    upd.snapshot = {
+      ...snap,
+      dosesContrib: esc(snap.dosesContrib), subDoses: esc(snap.subDoses), debitos: esc(snap.debitos),
+      debitosPorReceita: Object.fromEntries(Object.entries(snap.debitosPorReceita || {}).map(([rid, d]) => [rid, esc(d)])),
+      credito: credito ? { ...credito, qtd: (credito.qtd || 0) * r } : credito,
+    }
+  }
+  const { error: e2 } = await supabase.from('producao_itens').update(upd).eq('id', itemId)
+  if (e2) throw e2
+}
+
 // Porção só nesta produção: guarda no item (pra montagem) e ajusta a quantidade da receita
 export async function setPorcaoProducao(prodId, itemId, receitaId, porUn, novoTotalDoses) {
   const { data: item, error } = await supabase.from('producao_itens').select('snapshot').eq('id', itemId).single()

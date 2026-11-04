@@ -6,9 +6,11 @@ import {
   updateProducaoChecks, deleteProducao, deleteProducaoItem,
   addProducaoItens, updateProducaoItemQtd, computeDebitos, lotePadraoProduto, aguardarDosesPendentes,
   marcarMontado, desmarcarMontado, atualizarPorcaoProduto, setPorcaoProducao,
+  setProducaoProdutoQtd, setProducaoRecipeDoses,
 } from '../services/db'
 import { montarLinhaDoTempo } from '../lib/linhaTempo'
 import { etapasDoProduto, LOCAL } from '../lib/prontidao'
+import { rendimentoDe } from '../lib/receitas'
 
 function norm(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -243,15 +245,35 @@ export default function ProducaoTodo() {
     await reload()
   }
 
+  // Quantidade atual de um item, na unidade em que ele é editado
+  function qtdDoItem(item) {
+    if (item.tipo === 'produto') return { valor: item.quantidade, unidade: 'un' }
+    const rec = (receitas || []).find(r => r.id === Number(item.receitaId))
+    const doses = item.snapshot?.dosesContrib?.[item.receitaId] ?? item.quantidade ?? 0
+    if (!rec) return { valor: doses, unidade: 'receita(s)', doses }
+    return { valor: Math.round(rendimentoDe(rec, doses, insumos || []) * 10) / 10, unidade: rec.unidadeGera || 'un', doses, rec }
+  }
+
   async function handleSaveQtd(item) {
     const raw = qtdEdits[item.id]
     if (raw === undefined) return
-    const val = parseFloat(raw)
-    if (isNaN(val) || val < 0) return
+    const val = parseFloat(String(raw).replace(',', '.'))
+    if (isNaN(val) || val <= 0) return
     setSavingQtd(s => ({ ...s, [item.id]: true }))
     try {
-      const isModo = item.modo === 'peso_liquido' || item.modo === 'unidades'
-      await updateProducaoItemQtd(item.id, isModo ? item.quantidade : val, isModo ? val : undefined)
+      if (item.tipo === 'produto') {
+        await setProducaoProdutoQtd(prod.id, item.id, val)
+      } else {
+        // receita: converte o valor digitado em doses e ajusta a produção inteira
+        const atual = qtdDoItem(item)
+        const porDose = atual.rec ? rendimentoDe(atual.rec, 1, insumos || []) : 1
+        const novasDoses = porDose > 0 ? val / porDose : val
+        const total = dosesPerReceita[String(item.receitaId)] || 0
+        const novoTotal = total - (atual.doses || 0) + novasDoses
+        if (novoTotal > 0) await setProducaoRecipeDoses(prod.id, item.receitaId, novoTotal, receitas || [])
+        const isModo = item.modo === 'peso_liquido' || item.modo === 'unidades'
+        await updateProducaoItemQtd(item.id, novasDoses, isModo ? val : undefined)
+      }
       await reload()
       setQtdEdits(s => { const n = { ...s }; delete n[item.id]; return n })
     } catch (e) {
@@ -340,7 +362,7 @@ export default function ProducaoTodo() {
     const isChecked = checks.has(x.chave)
     const isExpanded = !!expandReceita[x.chave]
     const fp = rec.fatorPerda || 0
-    const total = (rec.rendimento || 0) * x.doses
+    const total = rendimentoDe(rec, x.doses, insumos || [])
     const espera = x.precisa.filter(rid => !feita(rid)).map(rid => (receitas || []).find(r => r.id === rid)?.nome).filter(Boolean)
     return (
       <div key={x.chave} style={{ borderTop: '1px solid #262626', opacity: isChecked ? 0.5 : 1 }}>
@@ -354,7 +376,7 @@ export default function ProducaoTodo() {
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 14, fontWeight: 700, textDecoration: isChecked ? 'line-through' : 'none' }}>{rec.nome}</span>
               <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal)' }}>{fmtQtd(total)} {rec.unidadeGera}</span>
-              {fp > 0 && <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>({fmtQtd(total * (1 - fp / 100))} líq)</span>}
+              {fp > 0 && rec.unidadeGera !== 'un' && <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>({fmtQtd(total * (1 - fp / 100))} líq)</span>}
             </div>
             {x.vaiEm.length > 0 && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>→ vai em {x.vaiEm.join(', ')}</div>}
             {!isChecked && espera.length > 0 && <div style={{ fontSize: 12, color: '#f59e0b', marginTop: 1 }}>espera: {espera.join(', ')}</div>}
@@ -521,13 +543,10 @@ export default function ProducaoTodo() {
             <button onClick={() => setShowAddSheet(true)} style={{ flex: 1, padding: 9, borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Adicionar</button>
           </div>
           {prod.itens.map((item, i) => {
-            const isModo = item.modo === 'peso_liquido' || item.modo === 'unidades'
-            const displayQtd = isModo ? item.valorAlvo : item.quantidade
+            const atual = qtdDoItem(item)
+            const displayQtd = atual.valor
             const editVal = qtdEdits[item.id] !== undefined ? qtdEdits[item.id] : String(displayQtd ?? '')
-            const unidLabel = item.tipo === 'produto' ? 'un'
-              : item.modo === 'peso_liquido' ? `${item.unidadeGera || 'g'} líq`
-              : item.modo === 'unidades' ? (item.unidadeGera || 'un')
-              : 'receita(s)'
+            const unidLabel = atual.unidade
             return (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 0', borderTop: i ? '1px solid #262626' : 'none', fontSize: 14 }}>
                 <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: item.tipo === 'produto' ? '#1e3a5f' : '#334155', color: item.tipo === 'produto' ? '#60a5fa' : '#94a3b8', fontWeight: 600, flexShrink: 0 }}>

@@ -1,6 +1,7 @@
 import { useState, Fragment, useEffect, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
+import { rendimentoDesatualizado } from '../lib/receitas'
 import { getReceitas, deleteReceitas, saveReceita, getInsumos, setProducaoRecipeDoses, registrarDosesPendentes, setReceitaProporcaoBase } from '../services/db'
 
 const ACAO_MAP = {
@@ -367,6 +368,15 @@ export default function Cozinha() {
                   </span>
                 </div>
               )}
+              {(() => {
+                const d = rendimentoDesatualizado(receita, insumos || [])
+                if (!d) return null
+                return (
+                  <div onClick={() => navigate(`/fichas/${id}/editar`)} style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: 'rgba(245,158,11,.08)', border: '1px solid #92400e', fontSize: 12, color: '#f59e0b', cursor: 'pointer' }}>
+                    ⚠ A ficha diz que 1 receita rende {String(d.declarado).replace('.', ',')} un, mas pelo peso dá {String(Math.round(d.pelopeso * 10) / 10).replace('.', ',')} un. O planejamento usa o número da ficha — toque pra corrigir.
+                  </div>
+                )
+              })()}
               <button onClick={() => setAjuste({ idx: null, valor: '' })} style={{
                 width: '100%', marginTop: 12, padding: '10px', borderRadius: 8, cursor: 'pointer',
                 border: '1px dashed var(--teal)', background: 'transparent', color: 'var(--teal)', fontSize: 13, fontWeight: 600,
