@@ -9,9 +9,10 @@ import { ItemThumb } from '../components/ItemThumb'
 import { getConfig, calcPrecos, getCustoSacolaDelivery } from '../hooks/useConfig'
 import {
   getProdutos, saveProduto, deleteProduto,
-  getReceitas, getEmbalagens, getInsumos, bulkUpdateSecoes, updateProdutosAtivo,
-  saveUserConfig, loadUserConfig,
+  getReceitas, getEmbalagens, getInsumos, updateProdutosAtivo,
+  saveUserConfig, loadUserConfig, salvarOrganizacaoCardapio, getDisponibilidade, getInteresses,
 } from '../services/db'
+import ProdutosCardapio, { agruparPorSecao } from '../components/ProdutosCardapio'
 
 function recPesoBruto(rec, insumos) {
   if (!rec?.ingredientes) return 0
@@ -43,11 +44,9 @@ function recCustoForUnit(rec, unit, insumos) {
   return rec.custoUnid || 0
 }
 import { uploadImage } from '../services/storage'
-import { MontarCardapio } from '../components/MontarCardapio'
 
 const PLAT_COLOR  = { Direta: 'var(--teal)', '99Food': '#f59e0b', iFood: '#ef4444' }
 const TIPO_LABELS = { produto: 'Produzido', avulso: 'Avulso', combo: 'Combo' }
-const TIPO_BADGE  = { produto: null, avulso: { bg: '#334155', color: '#94a3b8', label: 'Avulso' }, combo: { bg: '#1e3a5f', color: '#60a5fa', label: 'Combo' } }
 
 function Sheet({ title, children, onClose }) {
   return (
@@ -70,11 +69,6 @@ function fmtR(val) {
   return `R$ ${rounded.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-function TipoBadge({ tipo }) {
-  const b = TIPO_BADGE[tipo]
-  if (!b) return null
-  return <span style={{ marginLeft: 6, fontSize: 10, background: b.bg, color: b.color, borderRadius: 4, padding: '1px 5px', verticalAlign: 'middle' }}>{b.label}</span>
-}
 
 // Lê duração e tira a capa (1º quadro) de um vídeo local, sem enviar nada
 function lerVideo(src) {
@@ -123,57 +117,9 @@ function Switch({ on }) {
   )
 }
 
-function OrganizarCardapioSheet({ produtos, onSave, onClose }) {
-  const [estado, setEstado] = useState(() => Object.fromEntries(produtos.map(p => [p.id, p.ativo !== false])))
-  const [busca, setBusca]   = useState('')
-  const [saving, setSaving] = useState(false)
-  const norm = s => (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-  const lista = [...produtos]
-    .filter(p => !busca || norm(p.nome).includes(norm(busca)))
-    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'))
-  const alterados = produtos.filter(p => estado[p.id] !== (p.ativo !== false))
-  const totalAtivos = Object.values(estado).filter(Boolean).length
-
-  const salvar = async () => {
-    setSaving(true)
-    try {
-      await onSave(alterados.map(p => ({ id: p.id, ativo: estado[p.id] })))
-      onClose()
-    } catch (e) { alert('Erro: ' + e.message) }
-    finally { setSaving(false) }
-  }
-
-  return (
-    <Sheet title="Organizar cardápio" onClose={onClose}>
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
-        {totalAtivos} de {produtos.length} no cardápio. Fora do cardápio some da contagem, do planejamento e do link de pedido.
-      </div>
-      <input className="field-input" placeholder="Buscar..." value={busca} onChange={e => setBusca(e.target.value)} style={{ marginBottom: 8 }} />
-      <div style={{ maxHeight: '55vh', overflowY: 'auto', marginBottom: 12 }}>
-        {lista.map(p => {
-          const on = estado[p.id]
-          return (
-            <div key={p.id} onClick={() => setEstado(s => ({ ...s, [p.id]: !s[p.id] }))}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 2px', borderBottom: '0.5px solid var(--border)', cursor: 'pointer' }}>
-              <ItemThumb url={p.imagemUrl} nome={p.nome} size={32} radius={6} />
-              <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: on ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>
-                {p.nome}<TipoBadge tipo={p.tipo} />
-              </div>
-              <Switch on={on} />
-            </div>
-          )
-        })}
-      </div>
-      <button className="btn-primary" onClick={salvar} disabled={saving || alterados.length === 0}>
-        {saving ? 'Salvando...' : alterados.length ? `Salvar ${alterados.length} alteração(ões)` : 'Nada alterado'}
-      </button>
-    </Sheet>
-  )
-}
-
 const FORM_EMPTY = { nome: '', tipo: 'produto', fragilidade: 'robusto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueAtual: '', estoqueMin: '', fornada: '', margemAlvo: null, imagemUrl: '', midias: [], ativo: false }
 
-function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onClose, hasPrev, hasNext, onPrev, onNext, navLabel }) {
+function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onDuplicar, onClose, hasPrev, hasNext, onPrev, onNext, navLabel }) {
   const [form, setForm] = useState(item
     ? {
         nome:        item.nome,
@@ -868,7 +814,12 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
 
           {/* Delete */}
           {item && (
-            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 28, padding: '16px 0' }}>
+              {onDuplicar && (
+                <button onClick={() => onDuplicar(item).then(onClose)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)' }}>
+                  ⎘ Duplicar
+                </button>
+              )}
               <button
                 onClick={() => { if (confirm('Excluir produto?')) onDelete(item.id).then(onClose).catch(e => alert(e.message)) }}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: 'var(--alert-text)', opacity: 0.75 }}
@@ -910,177 +861,11 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
 function PlatPrecos({ prod, cfg, custoSacola }) {
   const precos = calcPrecos(prod.custoTotal, cfg, custoSacola)
   return (
-    <div style={{ fontSize: 11, marginTop: 2 }}>
-      <span style={{ color: PLAT_COLOR.Direta }}>D {fmtR(prod.precoDireta ?? precos.base)}</span>
-      {' · '}
+    <span>
       <span style={{ color: PLAT_COLOR['99Food'] }}>99 {fmtR(prod.preco99 ?? precos.p99)}</span>
       {' · '}
       <span style={{ color: PLAT_COLOR.iFood }}>iF {fmtR(prod.precoIfood ?? precos.pIfood)}</span>
-    </div>
-  )
-}
-
-function estoqueInfo(prod) {
-  if (prod.tipo === 'combo') return null
-  const atual = prod.estoqueAtual
-  const min = prod.estoqueMin || 0
-  if (atual == null && !min) return null
-  const qtd = Math.max(0, Math.ceil(atual ?? 0))
-  let color, label
-  if (qtd <= 0) { color = '#ef4444'; label = 'sem estoque' }
-  else if (min > 0 && qtd < min) { color = '#f59e0b'; label = `abaixo do mín. (${min})` }
-  else { color = 'var(--teal)'; label = min > 0 ? `mín. ${min}` : 'em estoque' }
-  return { qtd, color, label, min }
-}
-
-function subtext(prod) {
-  if (prod.tipo === 'avulso') return [prod.fornecedor, 'Item avulso'].filter(Boolean).join(' · ')
-  if (prod.tipo === 'combo')  return (prod.componentes || []).map(c => `${c.quantidade}× ${c.produtoNome}`).join(' + ') || 'Combo'
-  return [
-    ...(prod.receitas   || []).map(r => `${r.quantidade} ${r.unidadeGera} ${r.nome}`),
-    ...(prod.embalagens || []).map(e => `${e.quantidade}× ${e.nome}`),
-  ].join(' · ') || 'Sem composição'
-}
-
-function OrganizarSecoesSheet({ produtos, onSave, onClose }) {
-  // Build initial state: {produtoId -> secao}
-  const [secaoMap, setSecaoMap] = useState(() => {
-    const m = {}
-    for (const p of produtos) m[p.id] = p.secao || ''
-    return m
-  })
-
-  const secoes = useMemo(() => {
-    const set = new Set(Object.values(secaoMap).filter(Boolean))
-    return [...set].sort()
-  }, [secaoMap])
-
-  const [ordenacao, setOrdenacao] = useState(() => {
-    const set = new Set((produtos || []).map(p => p.secao || '').filter(Boolean))
-    return [...set].sort()
-  })
-
-  const [novaSecao, setNovaSecao] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  // All known sections: ordenacao first (preserves order + new ones), then extras from products
-  const secoesSorted = useMemo(() => {
-    const extras = secoes.filter(s => !ordenacao.includes(s))
-    return [...ordenacao, ...extras]
-  }, [ordenacao, secoes])
-
-  const moveSecao = (idx, dir) => {
-    const arr = [...secoesSorted]
-    const swapIdx = idx + dir
-    if (swapIdx < 0 || swapIdx >= arr.length) return
-    ;[arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]]
-    setOrdenacao(arr)
-  }
-
-  const addSecao = () => {
-    const s = novaSecao.trim()
-    if (!s || secoesSorted.includes(s)) { setNovaSecao(''); return }
-    setOrdenacao(o => [...o, s])
-    setNovaSecao('')
-  }
-
-  const removeSecao = (sec) => {
-    setOrdenacao(o => o.filter(s => s !== sec))
-    setSecaoMap(m => {
-      const n = { ...m }
-      for (const id of Object.keys(n)) if (n[id] === sec) n[id] = ''
-      return n
-    })
-  }
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      const items = Object.entries(secaoMap).map(([id, secao]) => ({ id: Number(id), secao }))
-      await onSave(items, secoesSorted)
-      onClose()
-    } catch (e) {
-      alert('Erro: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const semSecao = produtos.filter(p => !secaoMap[p.id])
-  const [secaoFiltro, setSecaoFiltro] = useState(null)
-
-  const prodsFiltrados = secaoFiltro === null
-    ? produtos
-    : secaoFiltro === ''
-      ? semSecao
-      : produtos.filter(p => secaoMap[p.id] === secaoFiltro)
-
-  return (
-    <>
-      <div className="sheet-overlay" onClick={onClose} />
-      <div className="sheet" style={{ maxHeight: '90dvh', display: 'flex', flexDirection: 'column' }}>
-        <div className="sheet-title">
-          <span>Organizar Seções</span>
-          <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
-        </div>
-
-        {/* Seções ordenadas */}
-        <div style={{ padding: '0 16px 8px', flexShrink: 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Ordem das seções</div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-            {secoesSorted.map((sec, idx) => (
-              <div key={sec} style={{ display: 'flex', alignItems: 'center', gap: 4, background: secaoFiltro === sec ? 'var(--teal)' : 'var(--bg-secondary)', borderRadius: 8, padding: '4px 8px', border: '1px solid var(--border)' }}>
-                <button onClick={() => moveSecao(idx, -1)} disabled={idx === 0} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0 2px', fontSize: 12 }}>‹</button>
-                <button onClick={() => setSecaoFiltro(f => f === sec ? null : sec)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: secaoFiltro === sec ? '#fff' : 'var(--text-primary)', padding: 0 }}>{sec}</button>
-                <button onClick={() => moveSecao(idx, +1)} disabled={idx === secoesSorted.length - 1} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '0 2px', fontSize: 12 }}>›</button>
-                <button onClick={() => removeSecao(sec)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0 2px', fontSize: 13, lineHeight: 1 }}>×</button>
-              </div>
-            ))}
-            {semSecao.length > 0 && (
-              <button onClick={() => setSecaoFiltro(f => f === '' ? null : '')} style={{ background: secaoFiltro === '' ? '#334155' : 'transparent', border: '1px dashed var(--border)', borderRadius: 8, padding: '4px 10px', fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
-                Sem seção ({semSecao.length})
-              </button>
-            )}
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input
-              value={novaSecao}
-              onChange={e => setNovaSecao(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addSecao()}
-              placeholder="Nova seção…"
-              style={{ flex: 1, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13 }}
-            />
-            <button onClick={addSecao} style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+</button>
-          </div>
-        </div>
-
-        {/* Produtos */}
-        <div style={{ overflow: 'auto', flex: 1, padding: '0 16px' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-            Produtos {secaoFiltro !== null ? `· ${secaoFiltro || 'sem seção'}` : ''}
-          </div>
-          {prodsFiltrados.map(p => (
-            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '0.5px solid var(--border)', fontSize: 13 }}>
-              <span style={{ flex: 1, fontWeight: 600 }}>{p.nome}</span>
-              <select
-                value={secaoMap[p.id] || ''}
-                onChange={e => setSecaoMap(m => ({ ...m, [p.id]: e.target.value }))}
-                style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 12, maxWidth: 140 }}
-              >
-                <option value="">Sem seção</option>
-                {secoesSorted.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ padding: 16, flexShrink: 0 }}>
-          <button onClick={handleSave} disabled={saving} style={{ width: '100%', padding: 12, borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-            {saving ? 'Salvando…' : 'Salvar'}
-          </button>
-        </div>
-      </div>
-    </>
+    </span>
   )
 }
 
@@ -1088,7 +873,6 @@ export default function Produtos() {
   const navigate              = useNavigate()
   const [sheet, setSheet]     = useState(null)
   const location              = useLocation()
-  const [filtroTipo, setFiltroTipo] = useState('Todos')
 
   useEffect(() => {
     if (location.state?.openNew) {
@@ -1096,9 +880,8 @@ export default function Produtos() {
     }
   }, [])
   const { toast, show }       = useToast()
-  const { profile, user }     = useAuth()
+  const { user }              = useAuth()
   const cfg                   = getConfig()
-  const precosRef             = useRef(null)
 
   const { data: produtos,   loading: lProd, reload: rProd } = useData(getProdutos)
   const { data: receitas,   loading: lRec  } = useData(getReceitas)
@@ -1118,15 +901,32 @@ export default function Produtos() {
     return Object.values(map).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   }, [insumos, embalagens, produtos])
 
-  const TIPO_MAP = { Todos: null, Produzido: 'produto', Avulso: 'avulso', Combo: 'combo' }
-  const doTipo = (produtos || []).filter(p => !TIPO_MAP[filtroTipo] || p.tipo === TIPO_MAP[filtroTipo])
-  const ativosFiltrados = doTipo.filter(p => p.ativo !== false)
-  const foraFiltrados   = doTipo.filter(p => p.ativo === false)
-  const produtosFiltrados = [...ativosFiltrados, ...foraFiltrados]
+  const { data: interesses } = useData(getInteresses)
+  const querem = useMemo(() => {
+    const m = {}
+    for (const i of (interesses || [])) m[i.produtoId] = (m[i.produtoId] || 0) + 1
+    return m
+  }, [interesses])
+  const [disp, setDisp] = useState(null)
+  useEffect(() => { if (user?.id) getDisponibilidade(user.id).then(setDisp).catch(() => {}) }, [user?.id, produtos])
+  const lojaUrl = `${window.location.origin}/pedido/${user?.id}`
+  const compartilhar = () => {
+    if (navigator.share) { navigator.share({ title: 'Guaxí Pâtisserie', url: lojaUrl }).catch(() => {}); return }
+    navigator.clipboard.writeText(lojaUrl).then(() => show('Link do cardápio copiado!')).catch(() => show(lojaUrl))
+  }
 
 
-  const [duplicando, setDuplicando] = useState(null)
   const [secoesOrdem, setSecoesOrdem] = useState([])
+  // ordem de navegação do formulário (‹ ›) = ordem da lista
+  const produtosFiltrados = useMemo(() => {
+    const ps = produtos || []
+    const nome = (a, b) => a.nome.localeCompare(b.nome, 'pt-BR')
+    return [
+      ...agruparPorSecao(ps.filter(p => p.tipo !== 'combo' && p.ativo !== false), secoesOrdem).flatMap(g => g.itens),
+      ...ps.filter(p => p.tipo !== 'combo' && p.ativo === false).sort(nome),
+      ...ps.filter(p => p.tipo === 'combo').sort(nome),
+    ]
+  }, [produtos, secoesOrdem])
 
   useEffect(() => {
     loadUserConfig().then(cfg => { if (cfg?.secoesOrdem) setSecoesOrdem(cfg.secoesOrdem) }).catch(() => {})
@@ -1143,24 +943,24 @@ export default function Produtos() {
     show('Excluído!')
   }
 
-  const handleSaveAtivos = async (items) => {
-    if (!items.length) return
-    await updateProdutosAtivo(items)
-    rProd()
-    show('Cardápio salvo!')
+  const handleToggleAtivo = async (prod, ativo) => {
+    try {
+      await updateProdutosAtivo([{ id: prod.id, ativo }])
+      await rProd()
+      show(ativo ? `${prod.nome} no cardápio` : `${prod.nome} saiu do cardápio`)
+    } catch (e) { alert('Erro: ' + e.message) }
   }
 
-  const handleSaveSecoes = async (items, ordem) => {
-    await bulkUpdateSecoes(items)
+  const handleSalvarOrganizacao = async (ordem, itens) => {
     const cfg = await loadUserConfig()
     await saveUserConfig({ ...(cfg || {}), secoesOrdem: ordem })
     setSecoesOrdem(ordem)
-    rProd()
-    show('Seções salvas!')
+    try {
+      await salvarOrganizacaoCardapio(itens)
+    } finally { rProd() }
+    show('Cardápio organizado!')
   }
-  const handleDuplicar = async (prod, e) => {
-    e?.stopPropagation()
-    setDuplicando(prod.id)
+  const handleDuplicar = async (prod) => {
     try {
       const recItems = (prod.receitas || []).map(r => ({
         receitaId: r.receitaId, nome: r.nome, quantidade: r.quantidade,
@@ -1185,8 +985,6 @@ export default function Produtos() {
       show('Duplicado!')
     } catch (err) {
       alert('Erro ao duplicar: ' + err.message)
-    } finally {
-      setDuplicando(null)
     }
   }
 
@@ -1201,19 +999,6 @@ export default function Produtos() {
             <div className="topbar-title">Produtos</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button onClick={() => setSheet({ type: 'secoes' })} style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              ≡ Seções
-            </button>
-            <button
-              onClick={() => {
-                const url = `${window.location.origin}/pedido/${user?.id}`
-                if (navigator.share) { navigator.share({ title: 'Guaxí Pâtisserie', url }).catch(() => {}); return }
-                navigator.clipboard.writeText(url).then(() => show('Link do cardápio copiado!')).catch(() => show(url))
-              }}
-              style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-            >
-              🔗 Cardápio online
-            </button>
             <button onClick={() => setSheet({ type: 'produto' })} style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               + Novo
             </button>
@@ -1221,147 +1006,25 @@ export default function Produtos() {
         </div>
       </div>
 
-      <div className="page-inner" style={{ paddingTop: 12 }}>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => setSheet({ type: 'cardapio' })} style={{
-            order: 2, marginLeft: 'auto', fontSize: 12, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
-            border: '1px solid var(--teal)', background: 'transparent', color: 'var(--teal)', fontWeight: 600,
-          }}>Organizar cardápio</button>
-          {Object.keys(TIPO_MAP).map(t => (
-            <button key={t} onClick={() => setFiltroTipo(t)} style={{
-              fontSize: 12, padding: '4px 12px', borderRadius: 20,
-              border: '1px solid var(--border-color)',
-              background: filtroTipo === t ? 'var(--teal)' : 'transparent',
-              color: filtroTipo === t ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
-            }}>{t}</button>
-          ))}
-        </div>
-        {loading ? <div className="loading">Carregando...</div> : (
-          <div ref={precosRef}>
-            {/* Desktop */}
-            <div className="desktop-only">
-              <div className="card card-flush">
-                {(produtos || []).length === 0
-                  ? <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum produto cadastrado</div>
-                  : <div className="dt-wrap"><table className="dt">
-                      <thead><tr>
-                        <th>Nome</th>
-                        <th>Composição</th>
-                        <th>Estoque</th>
-                        <th>Custo</th>
-                        <th style={{ color: PLAT_COLOR.Direta }}>Direta</th>
-                        <th style={{ color: PLAT_COLOR['99Food'] }}>99Food</th>
-                        <th style={{ color: PLAT_COLOR.iFood }}>iFood</th>
-                        <th></th>
-                      </tr></thead>
-                      <tbody>
-                        {(() => {
-                          const row = (prod, fora) => {
-                          const p = calcPrecos(prod.custoTotal, cfg, custoSacola)
-                          return (
-                            <tr key={prod.id} onClick={() => setSheet({ type: 'produto', item: prod })} style={fora ? { opacity: 0.5 } : undefined}>
-                              <td style={{ fontWeight: 600 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                  <ItemThumb url={prod.imagemUrl} nome={prod.nome} size={32} radius={6} />
-                                  {prod.nome}<TipoBadge tipo={prod.tipo} />
-                                </div>
-                              </td>
-                              <td className="muted" style={{ fontSize: 12 }}>{subtext(prod)}</td>
-                              <td>{(() => {
-                                const info = estoqueInfo(prod)
-                                if (!info) return <span className="muted">—</span>
-                                return <span style={{ color: info.color, fontWeight: 600 }}>{info.qtd} un<span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 400, marginLeft: 4 }}>{info.min > 0 ? `/ ${info.min}` : ''}</span></span>
-                              })()}</td>
-                              <td className="muted">{prod.custoTotal > 0 ? fmtR(prod.custoTotal) : '—'}</td>
-                              <td style={{ color: PLAT_COLOR.Direta }}>{fmtR(prod.precoDireta ?? p.base)}</td>
-                              <td style={{ color: PLAT_COLOR['99Food'] }}>{fmtR(prod.preco99 ?? p.p99)}</td>
-                              <td style={{ color: PLAT_COLOR.iFood }}>{fmtR(prod.precoIfood ?? p.pIfood)}</td>
-                              <td onClick={e => e.stopPropagation()} style={{ textAlign: 'right' }}>
-                                <button onClick={e => handleDuplicar(prod, e)} disabled={duplicando === prod.id} title="Duplicar"
-                                  style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, padding: 4 }}>
-                                  {duplicando === prod.id ? '⏳' : '⎘'}
-                                </button>
-                              </td>
-                            </tr>
-                          )
-                          }
-                          return <>
-                            {ativosFiltrados.map(p => row(p, false))}
-                            {foraFiltrados.length > 0 && <tr><td colSpan={8} style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5, paddingTop: 14 }}>Fora do cardápio ({foraFiltrados.length})</td></tr>}
-                            {foraFiltrados.map(p => row(p, true))}
-                          </>
-                        })()}
-                      </tbody>
-                    </table></div>
-                }
-              </div>
-            </div>
-
-            {/* Mobile */}
-            <div className="mobile-only">
-              {(produtos || []).length === 0 ? (
-                <>
-                  <div className="empty">
-                    <span>Nenhum produto cadastrado</span>
-                    <button className="btn-outline-teal" style={{ marginTop: 8, maxWidth: 220 }} onClick={() => setSheet({ type: 'produto' })}>
-                      + Novo produto
-                    </button>
-                  </div>
-                </>
-              ) : (
-                (() => {
-                  const row = (prod, fora) => {
-                    return (
-                      <div key={prod.id} className="list-item" onClick={() => setSheet({ type: 'produto', item: prod })} style={fora ? { opacity: 0.5 } : undefined}>
-                        <ItemThumb url={prod.imagemUrl} nome={prod.nome} size={48} radius={8} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div className="list-item-name" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
-                            <span>{prod.nome}</span>
-                            <TipoBadge tipo={prod.tipo} />
-                          </div>
-                          <div className="list-item-sub">{subtext(prod)}</div>
-                          <PlatPrecos prod={prod} cfg={cfg} custoSacola={custoSacola} />
-                          {(() => {
-                            const info = estoqueInfo(prod)
-                            if (!info) return null
-                            return (
-                              <div style={{ fontSize: 11, marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: info.color }} />
-                                <span style={{ color: info.color, fontWeight: 600 }}>{info.qtd} un</span>
-                                <span style={{ color: 'var(--text-tertiary)' }}>· {info.label}</span>
-                              </div>
-                            )
-                          })()}
-                        </div>
-                        {prod.custoTotal > 0 && (
-                          <div style={{ fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0, textAlign: 'right' }}>
-                            custo<br />{fmtR(prod.custoTotal)}
-                          </div>
-                        )}
-                        <button onClick={e => handleDuplicar(prod, e)} disabled={duplicando === prod.id} title="Duplicar"
-                          style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 16, padding: '4px 6px', marginLeft: 4 }}>
-                          {duplicando === prod.id ? '⏳' : '⎘'}
-                        </button>
-                      </div>
-                    )
-                  }
-                  return <>
-                    {ativosFiltrados.length > 0 && (
-                      <div className="card card-flush" style={{ padding: '0 14px' }}>
-                        {ativosFiltrados.map(p => row(p, false))}
-                      </div>
-                    )}
-                    {foraFiltrados.length > 0 && <>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.5, margin: '16px 0 6px' }}>Fora do cardápio ({foraFiltrados.length})</div>
-                      <div className="card card-flush" style={{ padding: '0 14px' }}>
-                        {foraFiltrados.map(p => row(p, true))}
-                      </div>
-                    </>}
-                  </>
-                })()
-              )}
-            </div>
+      <div className="page-inner" style={{ paddingTop: 12, paddingBottom: 90, maxWidth: 860 }}>
+        {loading ? <div className="loading">Carregando...</div> : (produtos || []).length === 0 ? (
+          <div className="empty">
+            <span>Nenhum produto cadastrado</span>
+            <button className="btn-outline-teal" style={{ marginTop: 8, maxWidth: 220 }} onClick={() => setSheet({ type: 'produto' })}>+ Novo produto</button>
           </div>
+        ) : (
+          <ProdutosCardapio
+            produtos={produtos || []}
+            secoesOrdem={secoesOrdem}
+            disp={disp}
+            querem={querem}
+            lojaUrl={lojaUrl}
+            renderPrecos={prod => <PlatPrecos prod={prod} cfg={cfg} custoSacola={custoSacola} />}
+            onAbrir={prod => setSheet({ type: 'produto', item: prod })}
+            onToggleAtivo={handleToggleAtivo}
+            onSalvarOrganizacao={handleSalvarOrganizacao}
+            onCompartilhar={compartilhar}
+          />
         )}
       </div>
 
@@ -1380,6 +1043,7 @@ export default function Produtos() {
             fornecedoresList={fornecedoresList}
             onSave={handleSave}
             onDelete={handleDelete}
+            onDuplicar={handleDuplicar}
             onClose={() => setSheet(null)}
             hasPrev={idx > 0}
             hasNext={idx >= 0 && idx < lista.length - 1}
@@ -1389,22 +1053,6 @@ export default function Produtos() {
           />
         )
       })()}
-
-      {sheet?.type === 'cardapio' && (
-        <OrganizarCardapioSheet
-          produtos={produtos || []}
-          onSave={handleSaveAtivos}
-          onClose={() => setSheet(null)}
-        />
-      )}
-
-      {sheet?.type === 'secoes' && (
-        <OrganizarSecoesSheet
-          produtos={produtos || []}
-          onSave={handleSaveSecoes}
-          onClose={() => setSheet(null)}
-        />
-      )}
 
       {toast && <div className="toast">{toast}</div>}
 

@@ -441,6 +441,7 @@ export async function getProdutos() {
       fornada:      r.fornada ?? null,
       prontidao:    r.prontidao ?? null,
       midias:       Array.isArray(r.midias) ? r.midias : null,
+      ordem:        r.ordem ?? null,
       margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
       imagemUrl:   r.imagem_url || null,
       receitas:    (r.composicao?.receitas    || []),
@@ -472,6 +473,7 @@ export async function getProdutos() {
     fornada:      r.fornada ?? null,
     prontidao:    r.prontidao ?? null,
     midias:       Array.isArray(r.midias) ? r.midias : null,
+    ordem:        r.ordem ?? null,
     margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
     imagemUrl:   r.imagem_url || null,
     componentes: (r.composicao?.componentes || []),
@@ -645,6 +647,28 @@ export async function updateEstoqueMinReceitas(items) {
       supabase.from('receitas').update({ estoque_min: parseFloat(estoqueMin) || 0 }).eq('id', id)
     )
   )
+}
+
+// Organização do cardápio: seção + posição dentro dela (só os que mudaram)
+export async function salvarOrganizacaoCardapio(items) {
+  if (!items.length) return
+  const res = await Promise.all(items.map(({ id, secao, ordem }) =>
+    supabase.from('produtos').update({ secao: secao || '', ordem }).eq('id', id)))
+  const err = res.find(r => r.error)?.error
+  if (!err) return
+  // coluna "ordem" ainda não existe no banco: salva só a seção
+  if (/ordem/.test(err.message || '')) {
+    await bulkUpdateSecoes(items)
+    throw new Error('Seções salvas, mas a ordem dos produtos precisa do SQL novo (coluna "ordem").')
+  }
+  throw err
+}
+
+// Pronto pra vender agora (mesma conta do cardápio online): { [produtoId]: { d, c } }
+export async function getDisponibilidade(userId) {
+  const { data, error } = await supabase.rpc('produtos_disponiveis', { p_user_id: userId })
+  if (error || !Array.isArray(data)) return null
+  return Object.fromEntries(data.map(x => [Number(x.produto_id), { d: Number(x.disponivel) || 0, c: Number(x.a_caminho) || 0 }]))
 }
 
 export async function bulkUpdateSecoes(items) {
@@ -2290,7 +2314,7 @@ export async function getPublicProdutos(userId) {
   const base = 'id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo, secao'
   // Tenta com colunas novas; se ainda não existirem no banco, cai pro básico
   let data, error
-  for (const cols of [`${base}, fragilidade, ativo, midias`, `${base}, fragilidade, ativo`, `${base}, fragilidade`, base]) {
+  for (const cols of [`${base}, fragilidade, ativo, midias, ordem`, `${base}, fragilidade, ativo, midias`, `${base}, fragilidade, ativo`, `${base}, fragilidade`, base]) {
     ;({ data, error } = await supabase.from('produtos').select(cols).eq('user_id', userId).order('nome'))
     if (!error) break
   }
@@ -2317,6 +2341,7 @@ export async function getPublicProdutos(userId) {
         midias: Array.isArray(r.midias) && r.midias.length ? r.midias : (r.imagem_url ? [{ tipo: 'imagem', url: r.imagem_url }] : []),
         tipo: r.tipo || 'produto',
         secao: r.secao || '',
+        ordem: r.ordem ?? null,
         fragilidade: r.fragilidade || 'robusto',
       }
     })

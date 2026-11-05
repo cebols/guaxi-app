@@ -75,7 +75,7 @@ function VideoLoop({ src, poster, style }) {
 }
 
 // Carrossel de fotos/vídeos com bolinhas (arrasta pro lado)
-function Midias({ midias, nome, aspect = '4 / 5', radius = 0, onIndex }) {
+function Midias({ midias, nome, aspect = '4 / 5', altura, radius = 0, onIndex }) {
   const [idx, setIdx] = useState(0)
   const ref = useRef(null)
   const lista = midias?.length ? midias : [null]
@@ -87,7 +87,7 @@ function Midias({ midias, nome, aspect = '4 / 5', radius = 0, onIndex }) {
   }
   const cover = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' }
   return (
-    <div style={{ position: 'relative', aspectRatio: aspect, background: C.rosa, borderRadius: radius, overflow: 'hidden' }}>
+    <div style={{ position: 'relative', ...(altura ? { height: altura } : { aspectRatio: aspect }), background: C.rosa, borderRadius: radius, overflow: 'hidden' }}>
       <div ref={ref} onScroll={onScroll} style={{ display: 'flex', width: '100%', height: '100%', overflowX: lista.length > 1 ? 'auto' : 'hidden', scrollSnapType: 'x mandatory', scrollbarWidth: 'none' }}>
         {lista.map((m, i) => (
           <div key={i} style={{ flex: '0 0 100%', height: '100%', scrollSnapAlign: 'start' }}>
@@ -162,6 +162,12 @@ function ProdutoSheet({ produto, qtdNoCarrinho, onClose, onConfirmar, userId }) 
   const [estado, setEstado] = useState(null) // null | 'enviando' | 'ok' | erro
   const max = produto.estoqueAtual > 0 ? produto.estoqueAtual : 99
   const esg = produto.esgotado
+  useEffect(() => {
+    const h = document.documentElement, b = document.body
+    const antes = [h.style.overflow, b.style.overflow]
+    h.style.overflow = 'hidden'; b.style.overflow = 'hidden'
+    return () => { h.style.overflow = antes[0]; b.style.overflow = antes[1] }
+  }, [])
 
   async function avisar() {
     if (tel.replace(/\D/g, '').length < 10) { setEstado('Informe um WhatsApp com DDD'); return }
@@ -176,10 +182,11 @@ function ProdutoSheet({ produto, qtdNoCarrinho, onClose, onConfirmar, userId }) 
   const inp = { width: '100%', padding: '11px 12px', borderRadius: 10, border: `1.5px solid ${C.linha}`, background: '#fff', color: C.tinta, fontSize: 15, fontFamily: FONTE, outline: 'none', boxSizing: 'border-box' }
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(14,30,50,.45)', zIndex: 40 }} />
-      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, maxWidth: 640, margin: '0 auto', maxHeight: '92dvh', overflowY: 'auto', background: C.creme, borderRadius: '22px 22px 0 0', zIndex: 41, fontFamily: FONTE, color: C.tinta }}>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(14,30,50,.45)', zIndex: 40, touchAction: 'none' }} />
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, maxWidth: 560, margin: '0 auto', maxHeight: '92dvh', display: 'flex', flexDirection: 'column', background: C.creme, borderRadius: '22px 22px 0 0', overflow: 'hidden', zIndex: 41, fontFamily: FONTE, color: C.tinta }}>
+       <div style={{ overflowY: 'auto', overscrollBehavior: 'contain', flex: '0 1 auto', minHeight: 0 }}>
         <div style={{ position: 'relative' }}>
-          <Midias midias={produto.midias} nome={produto.nome} aspect="1 / 1" onIndex={setIdx} />
+          <Midias midias={produto.midias} nome={produto.nome} altura="min(100vw, 560px, 52dvh)" onIndex={setIdx} />
           <button onClick={onClose} aria-label="Fechar" style={{ position: 'absolute', top: 10, right: 10, width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,.92)', color: C.azulEsc, fontSize: 20, cursor: 'pointer' }}>×</button>
         </div>
         <div style={{ padding: '14px 18px 22px' }}>
@@ -198,18 +205,7 @@ function ProdutoSheet({ produto, qtdNoCarrinho, onClose, onConfirmar, userId }) 
           {produto.descricao && <div style={{ fontSize: 14, color: C.tinta2, marginTop: 8, lineHeight: 1.5, whiteSpace: 'pre-line' }}>{produto.descricao}</div>}
           <div style={{ fontSize: 18, fontWeight: 800, marginTop: 10 }}>{fmtR(produto.precoDireta)}</div>
 
-          {!esg ? (
-            <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', border: `1.5px solid ${C.linha}`, borderRadius: 12, background: '#fff' }}>
-                <button onClick={() => setQtd(q => Math.max(1, q - 1))} style={{ width: 42, height: 46, border: 'none', background: 'none', color: C.azul, fontSize: 20, fontWeight: 800, cursor: 'pointer' }}>−</button>
-                <b style={{ minWidth: 24, textAlign: 'center' }}>{qtd}</b>
-                <button onClick={() => setQtd(q => Math.min(max, q + 1))} style={{ width: 42, height: 46, border: 'none', background: 'none', color: C.azul, fontSize: 20, fontWeight: 800, cursor: 'pointer' }}>+</button>
-              </div>
-              <button onClick={() => onConfirmar(qtd)} style={{ flex: 1, height: 48, borderRadius: 12, border: 'none', background: C.azul, color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', fontFamily: FONTE }}>
-                {qtdNoCarrinho ? 'Atualizar' : 'Adicionar'} · {fmtR(produto.precoDireta * qtd)}
-              </button>
-            </div>
-          ) : estado === 'ok' ? (
+          {!esg ? null : estado === 'ok' ? (
             <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 12, background: C.azulClaro, color: C.azulEsc, fontWeight: 700, fontSize: 14 }}>
               Pronto! A gente te chama no WhatsApp quando voltar 💙
             </div>
@@ -226,6 +222,19 @@ function ProdutoSheet({ produto, qtdNoCarrinho, onClose, onConfirmar, userId }) 
             </div>
           )}
         </div>
+       </div>
+        {!esg && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '12px 18px calc(12px + env(safe-area-inset-bottom))', borderTop: `1px solid ${C.linha}`, background: C.creme, flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', border: `1.5px solid ${C.linha}`, borderRadius: 12, background: '#fff' }}>
+              <button onClick={() => setQtd(q => Math.max(1, q - 1))} style={{ width: 42, height: 46, border: 'none', background: 'none', color: C.azul, fontSize: 20, fontWeight: 800, cursor: 'pointer' }}>−</button>
+              <b style={{ minWidth: 24, textAlign: 'center' }}>{qtd}</b>
+              <button onClick={() => setQtd(q => Math.min(max, q + 1))} style={{ width: 42, height: 46, border: 'none', background: 'none', color: C.azul, fontSize: 20, fontWeight: 800, cursor: 'pointer' }}>+</button>
+            </div>
+            <button onClick={() => onConfirmar(qtd)} style={{ flex: 1, height: 48, borderRadius: 12, border: 'none', background: C.azul, color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', fontFamily: FONTE }}>
+              {qtdNoCarrinho ? 'Atualizar' : 'Adicionar'} · {fmtR(produto.precoDireta * qtd)}
+            </button>
+          </div>
+        )}
       </div>
     </>
   )
@@ -873,7 +882,7 @@ export default function PedidoExterno() {
             <div key={secao || '__sem_secao'} id={secao ? `secao-${secao}` : undefined} style={{ scrollMarginTop: 56 }}>
               {secao && <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 22, color: C.azulEsc, padding: '14px 4px 8px' }}>{secao}</div>}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginBottom: 8 }}>
-                {[...items].sort((x, y) => (x.esgotado ? 1 : 0) - (y.esgotado ? 1 : 0)).map(prod => (
+                {[...items].sort((x, y) => ((x.esgotado ? 1 : 0) - (y.esgotado ? 1 : 0)) || ((x.ordem ?? 1e9) - (y.ordem ?? 1e9))).map(prod => (
                   <ProdutoCard key={prod.id} produto={prod} qtd={carrinho[prod.id] || 0}
                     onAdd={() => addItem(prod)} onRemove={() => removeItem(prod)} onAbrir={() => setAberto(prod)} />
                 ))}

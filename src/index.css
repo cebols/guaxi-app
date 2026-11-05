@@ -608,6 +608,7 @@ a { touch-action: manipulation; }
   cursor: pointer;
 }
 .list-item:last-child { border-bottom: none; }
+.lista-prod > * + * { border-top: 1px solid #2a2a2a; }
 .list-item-name { font-size: 14px; font-weight: 600; }
 .list-item-sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
 .list-item-right { text-align: right; flex-shrink: 0; margin-left: 12px; }

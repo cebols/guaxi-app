@@ -742,6 +742,8 @@ GRANT EXECUTE ON FUNCTION public.produtos_disponiveis TO anon, authenticated;
 -- ── Cardápio online: várias fotos/vídeos por produto ──────────────────────────
 -- midias = [{ tipo: 'imagem'|'video', url, poster? }]; imagem_url segue como a capa.
 ALTER TABLE produtos ADD COLUMN IF NOT EXISTS midias jsonb;
+-- Posição do produto dentro da seção no cardápio (Produtos → Organizar)
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS ordem int;
 
 -- ── "Avise-me quando voltar" ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS interesses (
