@@ -1,11 +1,36 @@
--- ============================================================
--- GUAXI APP — Schema completo
--- Execute INTEIRO no SQL Editor do Supabase para setup inicial.
--- Idempotente: seguro rodar em banco já existente (IF NOT EXISTS).
--- ============================================================
+-- =============================================================================
+-- GUAXI APP — Banco completo (Supabase)
+-- =============================================================================
+-- COMO USAR
+--   Cole este arquivo INTEIRO no SQL Editor do Supabase e clique em Run.
+--   Pode rodar quantas vezes quiser: só cria o que falta e atualiza funções.
+--   Nunca apaga dados. Sempre que o app mudar, este arquivo é atualizado —
+--   é só colar e rodar de novo (substitui todos os SQLs avulsos).
+--
+-- ÍNDICE
+--   1. Extensões
+--   2. Tabelas
+--   3. Colunas adicionadas com o tempo (atualiza bancos antigos)
+--   4. Segurança (RLS: cada usuário só vê os próprios dados)
+--   5. Funções do app e do cardápio online
+--   6. Lembrete de fim do dia (push + agendamento)
+--   7. Ajustes de dados (migrações seguras, só agem uma vez)
+--   8. Recarregar a API
+-- =============================================================================
 
--- ── TABELAS ──────────────────────────────────────────────────
 
+-- =============================================================================
+-- 1. EXTENSÕES
+-- =============================================================================
+CREATE EXTENSION IF NOT EXISTS pg_cron;   -- agendamento (lembrete push)
+CREATE EXTENSION IF NOT EXISTS pg_net;    -- chamadas HTTP de dentro do banco
+
+
+-- =============================================================================
+-- 2. TABELAS
+-- =============================================================================
+
+-- ── Insumos, embalagens e fornecedores ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS insumos (
   id            bigserial primary key,
   nome          text not null,
@@ -26,6 +51,31 @@ CREATE TABLE IF NOT EXISTS insumos (
   created_at    timestamptz default now()
 );
 
+CREATE TABLE IF NOT EXISTS insumo_fornecedores (
+  id          bigserial primary key,
+  insumo_id   bigint not null,
+  marca       text    default '',
+  fornecedor  text    default '',
+  peso_emb    numeric default 0,
+  custo_emb   numeric default 0,
+  custo_unit  numeric default 0,
+  link_compra text    default '',
+  telefone    text    default '',
+  user_id     uuid    default auth.uid() references auth.users(id) on delete cascade,
+  created_at  timestamptz default now()
+);
+
+-- Histórico semanal do custo dos insumos
+CREATE TABLE IF NOT EXISTS insumo_cost_history (
+  insumo_id  bigint  not null references insumos(id) on delete cascade,
+  week       date    not null,
+  custo_unit numeric not null default 0,
+  user_id    uuid    default auth.uid() references auth.users(id) on delete cascade,
+  created_at timestamptz default now(),
+  primary key (user_id, insumo_id, week)
+);
+CREATE INDEX IF NOT EXISTS idx_ich_user_week ON insumo_cost_history (user_id, week DESC);
+
 CREATE TABLE IF NOT EXISTS embalagens (
   id            bigserial primary key,
   nome          text not null,
@@ -43,6 +93,21 @@ CREATE TABLE IF NOT EXISTS embalagens (
   created_at    timestamptz default now()
 );
 
+CREATE TABLE IF NOT EXISTS embalagem_fornecedores (
+  id           bigserial primary key,
+  embalagem_id bigint not null references embalagens(id) on delete cascade,
+  fornecedor   text not null default '',
+  qtd_compra   numeric not null default 0,
+  custo_compra numeric not null default 0,
+  custo_unit   numeric not null default 0,
+  link_compra  text default '',
+  telefone     text default '',
+  user_id      uuid default auth.uid() references auth.users(id) on delete cascade,
+  created_at   timestamptz default now()
+);
+CREATE INDEX IF NOT EXISTS idx_emb_forn_emb_id ON embalagem_fornecedores (embalagem_id);
+
+-- ── Receitas ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS receitas (
   id            bigserial primary key,
   nome          text not null,
@@ -72,6 +137,7 @@ CREATE TABLE IF NOT EXISTS receita_ingredientes (
   user_id     uuid    default auth.uid() references auth.users(id) on delete cascade
 );
 
+-- ── Produtos ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS produtos (
   id              bigserial primary key,
   nome            text not null,
@@ -83,7 +149,7 @@ CREATE TABLE IF NOT EXISTS produtos (
   preco_99        numeric,
   preco_ifood     numeric,
   tipo            text    default 'produto',
-  fragilidade     text    default 'robusto',  -- 'robusto' (moto/LALAGO) | 'fragil' (carro/refrigerado)
+  fragilidade     text    default 'robusto',  -- 'robusto' (moto) | 'fragil' (carro)
   custo_direto    numeric,
   fornecedor      text    default '',
   whatsapp        text    default '',
@@ -110,20 +176,31 @@ CREATE TABLE IF NOT EXISTS produto_embalagens (
   user_id      uuid    default auth.uid() references auth.users(id) on delete cascade
 );
 
-CREATE TABLE IF NOT EXISTS insumo_fornecedores (
+-- Prontidão: unidades por etapa (freezer, degelo, reassadas...).
+-- produtos.prontidao = { fluxo, embalar, etapas: { <etapa>: { meta, tempoH, validadeH } }, noPedido }
+-- produtos.estoque_atual = soma dos lotes.
+CREATE TABLE IF NOT EXISTS prontidao_lotes (
   id          bigserial primary key,
-  insumo_id   bigint not null,
-  marca       text    default '',
-  fornecedor  text    default '',
-  peso_emb    numeric default 0,
-  custo_emb   numeric default 0,
-  custo_unit  numeric default 0,
-  link_compra text    default '',
-  telefone    text    default '',
-  user_id     uuid    default auth.uid() references auth.users(id) on delete cascade,
-  created_at  timestamptz default now()
+  produto_id  bigint not null references produtos(id) on delete cascade,
+  etapa       text not null,
+  qtd         numeric not null default 0,
+  entrou_em   timestamptz not null default now(),
+  user_id     uuid default auth.uid() references auth.users(id) on delete cascade
+);
+CREATE INDEX IF NOT EXISTS prontidao_lotes_produto ON prontidao_lotes(produto_id, etapa);
+
+-- "Avise-me quando voltar" (cardápio online)
+CREATE TABLE IF NOT EXISTS interesses (
+  id          bigserial primary key,
+  user_id     uuid references auth.users(id) on delete cascade,
+  produto_id  bigint references produtos(id) on delete cascade,
+  nome        text,
+  telefone    text not null,
+  created_at  timestamptz default now(),
+  avisado_em  timestamptz
 );
 
+-- ── Pedidos, envios e vendas ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS encomendas (
   id           text primary key,
   data_entrega date,
@@ -150,6 +227,23 @@ CREATE TABLE IF NOT EXISTS encomenda_itens (
   quantidade   numeric default 1,
   preco_unit   numeric default 0,
   user_id      uuid    default auth.uid() references auth.users(id) on delete cascade
+);
+
+-- Despacho Lalamove: 1 envio = 1+ pedidos agrupados
+CREATE TABLE IF NOT EXISTS envios (
+  id            bigserial primary key,
+  user_id       uuid    default auth.uid() references auth.users(id) on delete cascade,
+  data_entrega  date,
+  veiculo       text    default 'CAR',
+  status        text    default 'FILA',   -- FILA | ASSIGNING_DRIVER | ON_GOING | PICKED_UP | COMPLETED | CANCELED
+  quotation_id  text,
+  order_id      text,
+  share_link    text,
+  price_total   numeric default 0,
+  driver_nome   text,
+  driver_phone  text,
+  driver_plate  text,
+  created_at    timestamptz default now()
 );
 
 CREATE TABLE IF NOT EXISTS clientes (
@@ -188,205 +282,12 @@ CREATE TABLE IF NOT EXISTS vendas (
   created_at   timestamptz default now()
 );
 
--- ── COLUNAS OPCIONAIS (safe em banco existente) ───────────────
--- Garante que bancos criados antes do schema.sql também ficam atualizados.
-
-ALTER TABLE insumos             ADD COLUMN IF NOT EXISTS peso_emb    numeric default 0;
-ALTER TABLE insumos             ADD COLUMN IF NOT EXISTS peso_un     numeric;
-ALTER TABLE insumos             ADD COLUMN IF NOT EXISTS link_compra text default '';
-ALTER TABLE insumos             ADD COLUMN IF NOT EXISTS marca       text default '';
-ALTER TABLE insumos             ADD COLUMN IF NOT EXISTS user_id     uuid default auth.uid() references auth.users(id) on delete cascade;
-
-ALTER TABLE embalagens           ADD COLUMN IF NOT EXISTS qtd_compra   numeric default 0;
-ALTER TABLE embalagens           ADD COLUMN IF NOT EXISTS custo_compra numeric default 0;
-ALTER TABLE embalagens           ADD COLUMN IF NOT EXISTS link_compra  text default '';
-ALTER TABLE embalagens           ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
-
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS peso_liquido       numeric;
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS unidade_gera       text default 'un';
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS fator_perda        numeric default null;
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS instrucoes         text default null;
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS tempo_forno        integer default null;
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS temp_forno         integer default null;
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS tempo_resfriamento integer default null;
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS tipo_resfriamento  text default null;
-ALTER TABLE receitas             ADD COLUMN IF NOT EXISTS user_id            uuid default auth.uid() references auth.users(id) on delete cascade;
-
-ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS insumo_id      bigint references insumos(id) on delete set null;
-ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS sub_receita_id bigint;  -- sem FK, evita ciclo PostgREST
-ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS user_id        uuid default auth.uid() references auth.users(id) on delete cascade;
-
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS composicao      jsonb;
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS preco_direta    numeric;
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS preco_99        numeric;
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS preco_ifood     numeric;
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS tipo            text default 'produto';
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS fragilidade     text default 'robusto';
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS custo_direto    numeric;
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS fornecedor      text default '';
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS whatsapp        text default '';
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS link_compra     text default '';
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS estoque_atual   numeric;
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS estoque_min     numeric default 0;
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS secao           text default '';
--- Margem-alvo por produto (NULL = usa margem global de Configurações)
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS margem_alvo     numeric default null;
-ALTER TABLE produtos             ADD COLUMN IF NOT EXISTS user_id         uuid default auth.uid() references auth.users(id) on delete cascade;
-
-ALTER TABLE produto_receitas     ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
-ALTER TABLE produto_embalagens   ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
-ALTER TABLE insumo_fornecedores  ADD COLUMN IF NOT EXISTS link_compra text default '';
-ALTER TABLE insumo_fornecedores  ADD COLUMN IF NOT EXISTS telefone    text default '';
-ALTER TABLE insumo_fornecedores  ADD COLUMN IF NOT EXISTS user_id     uuid default auth.uid() references auth.users(id) on delete cascade;
-
-ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS tipo_entrega text default 'Retirada';
-ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS frete        numeric default 0;
-ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
-ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS data_pago    date;
-ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS entrega_lat  numeric;
-ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS entrega_lng  numeric;
-ALTER TABLE encomendas           ADD COLUMN IF NOT EXISTS entrega_frag text default 'robusto';
-
-ALTER TABLE encomenda_itens      ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
-ALTER TABLE encomenda_itens      ADD COLUMN IF NOT EXISTS produto_id  bigint references produtos(id) on delete set null;
-ALTER TABLE clientes             ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
-ALTER TABLE compras              ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
-ALTER TABLE vendas               ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
-
--- ── ROW LEVEL SECURITY ────────────────────────────────────────
-
-ALTER TABLE insumos             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE insumo_fornecedores ENABLE ROW LEVEL SECURITY;
-ALTER TABLE embalagens           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE produtos             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE receitas             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE receita_ingredientes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE produto_receitas     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE produto_embalagens   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE encomendas           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE encomenda_itens      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE clientes             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE compras              ENABLE ROW LEVEL SECURITY;
-ALTER TABLE vendas               ENABLE ROW LEVEL SECURITY;
-
--- ── POLÍTICAS — limpa tudo e garante só own_data ─────────────
-
-DO $$
-DECLARE r record;
-BEGIN
-  FOR r IN
-    SELECT tablename, policyname FROM pg_policies
-    WHERE schemaname = 'public' AND tablename IN (
-      'insumos','insumo_fornecedores','embalagens','produtos','receitas',
-      'receita_ingredientes','produto_receitas','produto_embalagens',
-      'encomendas','encomenda_itens','clientes','compras','vendas'
-    )
-  LOOP
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', r.policyname, r.tablename);
-  END LOOP;
-END $$;
-
-CREATE POLICY "own_data" ON insumos             FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON insumo_fornecedores FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON embalagens           FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON produtos             FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON receitas             FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON receita_ingredientes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON produto_receitas     FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON produto_embalagens   FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON encomendas           FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON encomenda_itens      FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON clientes             FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON compras              FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_data" ON vendas               FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-
--- ── User Config ───────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS user_config (
-  user_id    uuid primary key references auth.users(id) on delete cascade,
-  config     jsonb not null default '{}',
-  updated_at timestamptz default now()
-);
-ALTER TABLE user_config ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "own_data" ON user_config;
-CREATE POLICY "own_data" ON user_config FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-
--- ── Envios (despacho Lalamove: 1 envio = 1+ pedidos agrupados) ─────────────────
-CREATE TABLE IF NOT EXISTS envios (
-  id            bigserial primary key,
-  user_id       uuid    default auth.uid() references auth.users(id) on delete cascade,
-  data_entrega  date,
-  veiculo       text    default 'CAR',
-  status        text    default 'FILA',   -- FILA | ASSIGNING_DRIVER | ON_GOING | PICKED_UP | COMPLETED | CANCELED
-  quotation_id  text,
-  order_id      text,
-  share_link    text,
-  price_total   numeric default 0,
-  driver_nome   text,
-  driver_phone  text,
-  driver_plate  text,
-  created_at    timestamptz default now()
-);
-ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS envio_id bigint references envios(id) on delete set null;
-ALTER TABLE envios ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "own_data" ON envios;
-CREATE POLICY "own_data" ON envios FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-
--- ── Agente WhatsApp: histórico de conversas ─────────────────
--- Escrita/leitura só pelo Edge Function via service_role (RLS bypassa).
--- Não amarra em user_id porque msg entra antes de identificar cliente.
-CREATE TABLE IF NOT EXISTS agent_conversas (
-  id         bigserial primary key,
-  telefone   text        not null,
-  role       text        not null check (role in ('user', 'assistant')),
-  conteudo   text        not null,
-  created_at timestamptz default now()
-);
-CREATE INDEX IF NOT EXISTS idx_agent_conversas_tel_created
-  ON agent_conversas (telefone, created_at DESC);
-ALTER TABLE agent_conversas ENABLE ROW LEVEL SECURITY;
--- Sem policy: bloqueia acesso anon/authenticated; só service_role passa.
-
--- ── Insumo cost history (weekly snapshots) ───────────────────
-CREATE TABLE IF NOT EXISTS insumo_cost_history (
-  insumo_id  bigint  not null references insumos(id) on delete cascade,
-  week       date    not null,
-  custo_unit numeric not null default 0,
-  user_id    uuid    default auth.uid() references auth.users(id) on delete cascade,
-  created_at timestamptz default now(),
-  primary key (user_id, insumo_id, week)
-);
-CREATE INDEX IF NOT EXISTS idx_ich_user_week ON insumo_cost_history (user_id, week DESC);
-ALTER TABLE insumo_cost_history ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "own_data" ON insumo_cost_history;
-CREATE POLICY "own_data" ON insumo_cost_history FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-
--- ── Embalagem fornecedores (multi-supplier) ──────────────────
-CREATE TABLE IF NOT EXISTS embalagem_fornecedores (
-  id           bigserial primary key,
-  embalagem_id bigint not null references embalagens(id) on delete cascade,
-  fornecedor   text not null default '',
-  qtd_compra   numeric not null default 0,
-  custo_compra numeric not null default 0,
-  custo_unit   numeric not null default 0,
-  link_compra  text default '',
-  telefone     text default '',
-  user_id      uuid default auth.uid() references auth.users(id) on delete cascade,
-  created_at   timestamptz default now()
-);
-CREATE INDEX IF NOT EXISTS idx_emb_forn_emb_id ON embalagem_fornecedores (embalagem_id);
-ALTER TABLE embalagem_fornecedores ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "own_data" ON embalagem_fornecedores;
-CREATE POLICY "own_data" ON embalagem_fornecedores FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-
--- ── Produções (mise en place history) ───────────────────────
+-- ── Produção (planejamento / mise en place) ──────────────────────────────────
 CREATE TABLE IF NOT EXISTS producoes (
   id         bigserial primary key,
   user_id    uuid default auth.uid() references auth.users(id) on delete cascade,
   created_at timestamptz default now()
 );
-ALTER TABLE producoes ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "own_data" ON producoes;
-CREATE POLICY "own_data" ON producoes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
 CREATE TABLE IF NOT EXISTS producao_itens (
   id               bigserial primary key,
@@ -403,18 +304,24 @@ CREATE TABLE IF NOT EXISTS producao_itens (
   unidade_gera     text default 'un',
   snapshot         jsonb
 );
-ALTER TABLE producao_itens ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "own_data" ON producao_itens;
-CREATE POLICY "own_data" ON producao_itens FOR ALL USING (
-  producao_id IN (SELECT id FROM producoes WHERE user_id = auth.uid())
-) WITH CHECK (
-  producao_id IN (SELECT id FROM producoes WHERE user_id = auth.uid())
+
+-- Ponto de restauração criado a cada contagem confirmada.
+-- itens: [{ id, nome, quantidade, unidade }]
+CREATE TABLE IF NOT EXISTS contagem_snapshots (
+  id         uuid        DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at timestamptz DEFAULT now(),
+  user_id    uuid        REFERENCES auth.users(id) ON DELETE CASCADE,
+  tipo       text        NOT NULL, -- 'insumos' | 'embalagens' | 'produtos'
+  itens      jsonb       NOT NULL DEFAULT '[]'
 );
 
--- ── Receita porcoes (custo por porção) ───────────────────────
-ALTER TABLE receitas ADD COLUMN IF NOT EXISTS porcoes integer;
+-- ── Conta e configurações ────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_config (
+  user_id    uuid primary key references auth.users(id) on delete cascade,
+  config     jsonb not null default '{}',
+  updated_at timestamptz default now()
+);
 
--- Profiles table for onboarding and user settings
 CREATE TABLE IF NOT EXISTS profiles (
   user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   nome_loja TEXT DEFAULT '',
@@ -425,231 +332,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url text;
-
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "profiles_own" ON profiles;
-CREATE POLICY "profiles_own" ON profiles FOR ALL
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
--- ── Imagens (insumos, receitas, produtos) ───────────────────
-ALTER TABLE insumos  ADD COLUMN IF NOT EXISTS imagem_url text;
-ALTER TABLE receitas ADD COLUMN IF NOT EXISTS imagem_url text;
-ALTER TABLE produtos ADD COLUMN IF NOT EXISTS imagem_url text;
-
--- ── Mise en place v2: produtos+receitas, estoque receitas, snapshot ──
-ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS estoque_atual numeric;
--- Estoque mínimo de receitas (contagem de estoque na aba Produtos › Receitas)
-ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS estoque_min  numeric default 0;
--- Flag "ferver" (edição em massa de processos térmicos na tela de Receitas)
-ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS tem_ferver   boolean default false;
--- Subdivisão em unidades (cookies, fatias, pedaços etc.). NULL = receita em peso (g).
-ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS qtd_por_unidade numeric default null;
--- Lista de etapas de forno: [{tempo: minutos, temperatura: °C}]
-ALTER TABLE receitas         ADD COLUMN IF NOT EXISTS tempos_forno    jsonb default null;
-ALTER TABLE producoes        ADD COLUMN IF NOT EXISTS checks       jsonb default '[]'::jsonb;
-ALTER TABLE producao_itens   ALTER COLUMN receita_nome DROP NOT NULL;
-ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS tipo         text default 'receita';
-ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS produto_id   bigint;
-ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS produto_nome text;
-ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS modo         text default 'doses';
-ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS valor_alvo   numeric;
-ALTER TABLE producao_itens   ADD COLUMN IF NOT EXISTS snapshot     jsonb;
--- quantidade era int, virou numeric (doses fracionárias)
-ALTER TABLE producao_itens   ALTER COLUMN quantidade TYPE numeric;
-
--- ── Cardápio público ─────────────────────────────────────────
--- Um link fixo por loja; gerar de novo atualiza o mesmo link.
-CREATE TABLE IF NOT EXISTS cardapios (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id    UUID NOT NULL UNIQUE,
-  nome_loja  TEXT,
-  dados      JSONB NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE cardapios ENABLE ROW LEVEL SECURITY;
-
--- Leitura pública (clientes acessam sem login).
-DROP POLICY IF EXISTS "cardapios public read" ON cardapios;
-CREATE POLICY "cardapios public read" ON cardapios
-  FOR SELECT USING (true);
-
--- Apenas o dono escreve/atualiza.
-DROP POLICY IF EXISTS "cardapios owner write" ON cardapios;
-CREATE POLICY "cardapios owner write" ON cardapios
-  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-
--- ── Formulário de Pedidos Externos ───────────────────────────
-
--- Descrição dos produtos (usada no formulário público)
-ALTER TABLE produtos ADD COLUMN IF NOT EXISTS descricao text;
-
--- Leitura pública de produtos (formulário de pedidos do cliente)
-DROP POLICY IF EXISTS "produtos public read" ON produtos;
-CREATE POLICY "produtos public read" ON produtos
-  FOR SELECT USING (true);
-
--- Função segura para submeter pedido externo (roda como dono)
-DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb);
-DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric);
-CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
-  p_user_id    uuid,
-  p_cliente    text,
-  p_contato    text,
-  p_tipo_entrega text,
-  p_endereco   text,
-  p_obs        text,
-  p_itens      jsonb,
-  p_frete      numeric default 0,
-  p_data_entrega date default null,
-  p_lat        numeric default null,
-  p_lng        numeric default null,
-  p_frag       text default 'robusto'
-) RETURNS text
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-  v_id       text;
-  v_last_id  text;
-  v_next_num int := 1;
-  v_total    numeric := 0;
-  v_item     jsonb;
-BEGIN
-  SELECT id INTO v_last_id
-    FROM encomendas
-   WHERE user_id = p_user_id
-   ORDER BY created_at DESC
-   LIMIT 1;
-
-  IF v_last_id IS NOT NULL THEN
-    v_next_num := COALESCE((regexp_match(v_last_id, 'PED-(\d+)'))[1]::int, 0) + 1;
-  END IF;
-  v_id := 'PED-' || lpad(v_next_num::text, 3, '0');
-
-  -- Não mexe no estoque: o pedido só RESERVA (calculado) e baixa ao virar Entregue (app).
-  FOR v_item IN SELECT * FROM jsonb_array_elements(p_itens)
-  LOOP
-    v_total := v_total
-      + (v_item->>'preco_unit')::numeric
-      * (v_item->>'quantidade')::numeric;
-  END LOOP;
-
-  INSERT INTO encomendas
-    (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto,
-     data_entrega, entrega_lat, entrega_lng, entrega_frag)
-  VALUES
-    (v_id, p_user_id, p_cliente, p_contato, 'FormExterno', p_tipo_entrega, p_endereco, p_obs, v_total + COALESCE(p_frete, 0), COALESCE(p_frete, 0), 'Pendente', 'Aguardando',
-     p_data_entrega, p_lat, p_lng, COALESCE(p_frag, 'robusto'));
-
-  INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id, produto_id)
-  SELECT v_id,
-         elem->>'produto_nome',
-         (elem->>'quantidade')::numeric,
-         (elem->>'preco_unit')::numeric,
-         p_user_id,
-         (elem->>'produto_id')::bigint
-    FROM jsonb_array_elements(p_itens) AS elem;
-
-  RETURN v_id;
-END;
-$$;
-
-GRANT EXECUTE ON FUNCTION public.submit_pedido_externo TO anon;
-
--- Expõe config pública: delivery + secoesOrdem
-CREATE OR REPLACE FUNCTION public.get_delivery_config(p_user_id uuid)
-RETURNS jsonb
-LANGUAGE sql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT jsonb_build_object(
-    'delivery', COALESCE(config->'delivery', '{}'::jsonb),
-    'secoesOrdem', COALESCE(config->'secoesOrdem', '[]'::jsonb)
-  )
-  FROM user_config
-  WHERE user_id = p_user_id
-$$;
-
-GRANT EXECUTE ON FUNCTION public.get_delivery_config TO anon;
-
--- Deleta pedido. Não mexe no estoque (pedido aberto só reserva; o entregue já baixou).
-CREATE OR REPLACE FUNCTION public.delete_pedido(p_id text, p_user_id uuid)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-  DELETE FROM encomendas WHERE id = p_id AND user_id = p_user_id;
-END;
-$$;
-
-GRANT EXECUTE ON FUNCTION public.delete_pedido TO authenticated;
-
--- ── Snapshots de contagem ─────────────────────────────────────────────────────
--- Ponto de restauração criado automaticamente a cada contagem confirmada.
--- Permite reverter estoque_atual para o estado de qualquer contagem anterior.
-CREATE TABLE IF NOT EXISTS contagem_snapshots (
-  id         uuid        DEFAULT gen_random_uuid() PRIMARY KEY,
-  created_at timestamptz DEFAULT now(),
-  user_id    uuid        REFERENCES auth.users(id) ON DELETE CASCADE,
-  tipo       text        NOT NULL, -- 'insumos' | 'embalagens' | 'produtos'
-  itens      jsonb       NOT NULL DEFAULT '[]'
-  -- itens: [{ id, nome, quantidade, unidade }]
-);
-
-ALTER TABLE contagem_snapshots ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "users manage own snapshots" ON contagem_snapshots;
-CREATE POLICY "users manage own snapshots" ON contagem_snapshots
-  FOR ALL USING (auth.uid() = user_id);
-
--- ── Ingredientes derivados (ex: ovo → clara + gema) ──────────────────────────
--- Permite modelar co-produtos onde comprar o pai auto-credita os filhos.
--- parent_fator: fração do peso do pai que gera este filho (clara=0.6, gema=0.4)
-ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_insumo_id bigint REFERENCES insumos(id) ON DELETE SET NULL;
-ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_fator numeric DEFAULT NULL;
-
--- ── Cardápio: produto ativo ou fora do cardápio ───────────────────────────────
--- Existentes ficam ativos (default true no ADD); novos nascem fora do cardápio.
--- Fora do cardápio = some da contagem, planejamento e link público; continua
--- em pedido manual, vendas e histórico.
-ALTER TABLE produtos ADD COLUMN IF NOT EXISTS ativo boolean NOT NULL DEFAULT true;
-ALTER TABLE produtos ALTER COLUMN ativo SET DEFAULT false;
-
--- Proporções: ingrediente que vale 100% (chave i:<insumoId> / r:<subReceitaId> / n:<nome>). Null = o de maior peso.
-ALTER TABLE receitas ADD COLUMN IF NOT EXISTS proporcao_base text;
-
--- Fornada: quantas unidades saem numa produção (travessa, forma...). Vazio = deriva da receita.
-ALTER TABLE produtos ADD COLUMN IF NOT EXISTS fornada integer;
-
--- ── Prontidão: em que etapa está cada produto (freezer, degelo, vitrine...) ──
--- produtos.prontidao = { fluxo, etapas: { <etapa>: { meta, tempoH, validadeH } }, noPedido }
--- prontidao_lotes = unidades por etapa; produtos.estoque_atual = soma dos lotes.
-ALTER TABLE produtos ADD COLUMN IF NOT EXISTS prontidao jsonb;
-CREATE TABLE IF NOT EXISTS prontidao_lotes (
-  id          bigserial primary key,
-  produto_id  bigint not null references produtos(id) on delete cascade,
-  etapa       text not null,
-  qtd         numeric not null default 0,
-  entrou_em   timestamptz not null default now(),
-  user_id     uuid default auth.uid() references auth.users(id) on delete cascade
-);
-CREATE INDEX IF NOT EXISTS prontidao_lotes_produto ON prontidao_lotes(produto_id, etapa);
-ALTER TABLE prontidao_lotes ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "own_data" ON prontidao_lotes;
-CREATE POLICY "own_data" ON prontidao_lotes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-
--- ── Lembrete de fim do dia (Web Push) ────────────────────────────────────────
--- <CRON_SECRET> = mesmo valor da env CRON_SECRET no Vercel (não commitar o real).
--- Uma linha por aparelho inscrito. O pg_cron roda a cada 10 min, escolhe quem já
--- passou da hora e ainda não recebeu hoje, e manda pro /api/lembrete-push.
+-- Lembrete de fim do dia: uma linha por aparelho inscrito
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   id             bigserial primary key,
   user_id        uuid default auth.uid() references auth.users(id) on delete cascade,
@@ -663,50 +346,313 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   ultimo_envio   date,
   created_at     timestamptz default now()
 );
-ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+
+-- Cardápio público antigo (link fixo por loja). O cardápio novo é /pedido/<loja>.
+CREATE TABLE IF NOT EXISTS cardapios (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL UNIQUE,
+  nome_loja  TEXT,
+  dados      JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Agente WhatsApp: histórico de conversas (só service_role acessa)
+CREATE TABLE IF NOT EXISTS agent_conversas (
+  id         bigserial primary key,
+  telefone   text        not null,
+  role       text        not null check (role in ('user', 'assistant')),
+  conteudo   text        not null,
+  created_at timestamptz default now()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_conversas_tel_created ON agent_conversas (telefone, created_at DESC);
+
+
+-- =============================================================================
+-- 3. COLUNAS ADICIONADAS COM O TEMPO (bancos criados antes ficam atualizados)
+-- =============================================================================
+
+-- insumos
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS peso_emb    numeric default 0;
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS peso_un     numeric;
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS link_compra text default '';
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS marca       text default '';
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS user_id     uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS imagem_url  text;
+-- Ingredientes derivados (ovo → clara + gema): parent_fator = fração do peso do pai
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_insumo_id bigint REFERENCES insumos(id) ON DELETE SET NULL;
+ALTER TABLE insumos ADD COLUMN IF NOT EXISTS parent_fator     numeric DEFAULT NULL;
+
+ALTER TABLE insumo_fornecedores ADD COLUMN IF NOT EXISTS link_compra text default '';
+ALTER TABLE insumo_fornecedores ADD COLUMN IF NOT EXISTS telefone    text default '';
+ALTER TABLE insumo_fornecedores ADD COLUMN IF NOT EXISTS user_id     uuid default auth.uid() references auth.users(id) on delete cascade;
+
+-- embalagens
+ALTER TABLE embalagens ADD COLUMN IF NOT EXISTS qtd_compra   numeric default 0;
+ALTER TABLE embalagens ADD COLUMN IF NOT EXISTS custo_compra numeric default 0;
+ALTER TABLE embalagens ADD COLUMN IF NOT EXISTS link_compra  text default '';
+ALTER TABLE embalagens ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
+
+-- receitas
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS peso_liquido       numeric;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS unidade_gera       text default 'un';
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS fator_perda        numeric default null;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS instrucoes         text default null;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS tempo_forno        integer default null;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS temp_forno         integer default null;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS tempo_resfriamento integer default null;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS tipo_resfriamento  text default null;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS user_id            uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS porcoes            integer;               -- custo por porção
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS imagem_url         text;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS estoque_atual      numeric;               -- estoque de preparos
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS estoque_min        numeric default 0;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS tem_ferver         boolean default false;
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS qtd_por_unidade    numeric default null;  -- receita em unidades (null = em peso)
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS tempos_forno       jsonb default null;    -- [{tempo, temperatura}]
+-- Proporções: ingrediente que vale 100% (i:<insumoId> / r:<subReceitaId> / n:<nome>). Null = o de maior peso.
+ALTER TABLE receitas ADD COLUMN IF NOT EXISTS proporcao_base     text;
+
+ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS insumo_id      bigint references insumos(id) on delete set null;
+ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS sub_receita_id bigint;  -- sem FK, evita ciclo no PostgREST
+ALTER TABLE receita_ingredientes ADD COLUMN IF NOT EXISTS user_id        uuid default auth.uid() references auth.users(id) on delete cascade;
+
+-- produtos
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS composicao   jsonb;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS preco_direta numeric;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS preco_99     numeric;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS preco_ifood  numeric;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS tipo         text default 'produto';
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS fragilidade  text default 'robusto';
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS custo_direto numeric;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS fornecedor   text default '';
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS whatsapp     text default '';
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS link_compra  text default '';
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS estoque_atual numeric;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS estoque_min  numeric default 0;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS secao        text default '';       -- seção do cardápio
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS margem_alvo  numeric default null;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS imagem_url   text;                  -- capa
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS descricao    text;                  -- texto do cardápio online
+-- No cardápio: os que já existiam ficaram ativos; novos nascem fora do cardápio
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS ativo        boolean NOT NULL DEFAULT true;
+ALTER TABLE produtos ALTER COLUMN ativo SET DEFAULT false;
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS fornada      integer;               -- unidades por produção
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS prontidao    jsonb;                 -- fluxo do Prontidão
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS midias       jsonb;                 -- [{ tipo: 'imagem'|'video', url, poster? }]
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS ordem        int;                   -- posição na seção do cardápio
+
+ALTER TABLE produto_receitas   ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE produto_embalagens ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
+
+-- encomendas (pedidos)
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS tipo_entrega text default 'Retirada';
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS frete        numeric default 0;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS user_id      uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS data_pago    date;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS entrega_lat  numeric;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS entrega_lng  numeric;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS entrega_frag text default 'robusto';
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS envio_id     bigint references envios(id) on delete set null;
+-- Pedido aberto só reserva; ao virar Entregue o app baixa do estoque e marca isto
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS estoque_baixado boolean NOT NULL DEFAULT false;
+
+ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS produto_id bigint references produtos(id) on delete set null;
+
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE compras  ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
+ALTER TABLE vendas   ADD COLUMN IF NOT EXISTS user_id uuid default auth.uid() references auth.users(id) on delete cascade;
+
+-- produção
+ALTER TABLE producoes      ADD COLUMN IF NOT EXISTS checks       jsonb default '[]'::jsonb;
+ALTER TABLE producao_itens ALTER COLUMN receita_nome DROP NOT NULL;
+ALTER TABLE producao_itens ADD COLUMN IF NOT EXISTS tipo         text default 'receita';
+ALTER TABLE producao_itens ADD COLUMN IF NOT EXISTS produto_id   bigint;
+ALTER TABLE producao_itens ADD COLUMN IF NOT EXISTS produto_nome text;
+ALTER TABLE producao_itens ADD COLUMN IF NOT EXISTS modo         text default 'doses';
+ALTER TABLE producao_itens ADD COLUMN IF NOT EXISTS valor_alvo   numeric;
+ALTER TABLE producao_itens ADD COLUMN IF NOT EXISTS snapshot     jsonb;
+ALTER TABLE producao_itens ALTER COLUMN quantidade TYPE numeric;   -- doses fracionárias
+
+-- conta
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url text;
+
+
+-- =============================================================================
+-- 4. SEGURANÇA (RLS) — cada usuário só lê/escreve as próprias linhas
+-- =============================================================================
+ALTER TABLE insumos                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE insumo_fornecedores    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE insumo_cost_history    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE embalagens             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE embalagem_fornecedores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE receitas               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE receita_ingredientes   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE produtos               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE produto_receitas       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE produto_embalagens     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE prontidao_lotes        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE interesses             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE encomendas             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE encomenda_itens        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE envios                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE clientes               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE compras                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vendas                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE producoes              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE producao_itens         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE contagem_snapshots     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_config            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE profiles               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE push_subscriptions     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cardapios              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_conversas        ENABLE ROW LEVEL SECURITY;  -- sem policy: só service_role
+
+-- Tabelas originais: limpa políticas antigas e deixa só "own_data"
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT tablename, policyname FROM pg_policies
+    WHERE schemaname = 'public' AND tablename IN (
+      'insumos','insumo_fornecedores','embalagens','produtos','receitas',
+      'receita_ingredientes','produto_receitas','produto_embalagens',
+      'encomendas','encomenda_itens','clientes','compras','vendas'
+    )
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', r.policyname, r.tablename);
+  END LOOP;
+END $$;
+
+CREATE POLICY "own_data" ON insumos              FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON insumo_fornecedores  FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON embalagens           FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON produtos             FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON receitas             FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON receita_ingredientes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON produto_receitas     FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON produto_embalagens   FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON encomendas           FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON encomenda_itens      FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON clientes             FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON compras              FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+CREATE POLICY "own_data" ON vendas               FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+-- Cardápio online lê os produtos sem login
+CREATE POLICY "produtos public read" ON produtos FOR SELECT USING (true);
+
+-- Demais tabelas
+DROP POLICY IF EXISTS "own_data" ON insumo_cost_history;
+CREATE POLICY "own_data" ON insumo_cost_history FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON embalagem_fornecedores;
+CREATE POLICY "own_data" ON embalagem_fornecedores FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON prontidao_lotes;
+CREATE POLICY "own_data" ON prontidao_lotes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON interesses;
+CREATE POLICY "own_data" ON interesses FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON envios;
+CREATE POLICY "own_data" ON envios FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON producoes;
+CREATE POLICY "own_data" ON producoes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON producao_itens;
+CREATE POLICY "own_data" ON producao_itens FOR ALL
+  USING (producao_id IN (SELECT id FROM producoes WHERE user_id = auth.uid()))
+  WITH CHECK (producao_id IN (SELECT id FROM producoes WHERE user_id = auth.uid()));
+DROP POLICY IF EXISTS "users manage own snapshots" ON contagem_snapshots;
+CREATE POLICY "users manage own snapshots" ON contagem_snapshots FOR ALL USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own_data" ON user_config;
+CREATE POLICY "own_data" ON user_config FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "profiles_own" ON profiles;
+CREATE POLICY "profiles_own" ON profiles FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "own_data" ON push_subscriptions;
 CREATE POLICY "own_data" ON push_subscriptions FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "cardapios public read" ON cardapios;
+CREATE POLICY "cardapios public read" ON cardapios FOR SELECT USING (true);
+DROP POLICY IF EXISTS "cardapios owner write" ON cardapios;
+CREATE POLICY "cardapios owner write" ON cardapios FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-CREATE EXTENSION IF NOT EXISTS pg_net;
 
-CREATE OR REPLACE FUNCTION enviar_lembretes_push() RETURNS void
+-- =============================================================================
+-- 5. FUNÇÕES DO APP E DO CARDÁPIO ONLINE
+-- =============================================================================
+
+-- Cliente (sem login) manda o pedido. Não mexe no estoque: o pedido só reserva
+-- e o app baixa ao virar Entregue.
+DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb);
+DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric);
+CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
+  p_user_id      uuid,
+  p_cliente      text,
+  p_contato      text,
+  p_tipo_entrega text,
+  p_endereco     text,
+  p_obs          text,
+  p_itens        jsonb,
+  p_frete        numeric default 0,
+  p_data_entrega date default null,
+  p_lat          numeric default null,
+  p_lng          numeric default null,
+  p_frag         text default 'robusto'
+) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE devidos jsonb;
+DECLARE
+  v_id       text;
+  v_last_id  text;
+  v_next_num int := 1;
+  v_total    numeric := 0;
+  v_item     jsonb;
 BEGIN
-  WITH d AS (
-    SELECT s.id, s.endpoint, s.p256dh, s.auth, (now() AT TIME ZONE s.fuso)::date AS hoje
-    FROM push_subscriptions s
-    WHERE s.ativo
-      AND s.hora_lembrete IS NOT NULL
-      AND to_char(now() AT TIME ZONE s.fuso, 'HH24:MI') >= s.hora_lembrete
-      AND (s.ultimo_envio IS NULL OR s.ultimo_envio < (now() AT TIME ZONE s.fuso)::date)
-  ), marcados AS (
-    UPDATE push_subscriptions p SET ultimo_envio = d.hoje FROM d WHERE p.id = d.id
-    RETURNING d.endpoint, d.p256dh, d.auth
-  )
-  SELECT coalesce(jsonb_agg(jsonb_build_object('endpoint', endpoint,
-           'keys', jsonb_build_object('p256dh', p256dh, 'auth', auth))), '[]'::jsonb)
-    INTO devidos FROM marcados;
-
-  IF jsonb_array_length(devidos) > 0 THEN
-    PERFORM net.http_post(
-      url     := 'https://guaxi-app.vercel.app/api/lembrete-push',
-      headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer <CRON_SECRET>'),
-      body    := jsonb_build_object('subs', devidos, 'url', '/prontidao')
-    );
+  SELECT id INTO v_last_id FROM encomendas WHERE user_id = p_user_id ORDER BY created_at DESC LIMIT 1;
+  IF v_last_id IS NOT NULL THEN
+    v_next_num := COALESCE((regexp_match(v_last_id, 'PED-(\d+)'))[1]::int, 0) + 1;
   END IF;
-END $$;
-REVOKE ALL ON FUNCTION enviar_lembretes_push() FROM public, anon, authenticated;
+  v_id := 'PED-' || lpad(v_next_num::text, 3, '0');
 
-SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar_lembretes_push()');
+  FOR v_item IN SELECT * FROM jsonb_array_elements(p_itens) LOOP
+    v_total := v_total + (v_item->>'preco_unit')::numeric * (v_item->>'quantidade')::numeric;
+  END LOOP;
 
--- ── Pedidos × estoque ─────────────────────────────────────────────────────────
--- Pedido aberto reserva; vira Entregue → o app baixa do engatilho e marca a flag.
-ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS estoque_baixado boolean NOT NULL DEFAULT false;
--- (na migração: UPDATE encomendas SET estoque_baixado = true WHERE status = 'Entregue';)
+  INSERT INTO encomendas
+    (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto,
+     data_entrega, entrega_lat, entrega_lng, entrega_frag)
+  VALUES
+    (v_id, p_user_id, p_cliente, p_contato, 'FormExterno', p_tipo_entrega, p_endereco, p_obs,
+     v_total + COALESCE(p_frete, 0), COALESCE(p_frete, 0), 'Pendente', 'Aguardando',
+     p_data_entrega, p_lat, p_lng, COALESCE(p_frag, 'robusto'));
 
--- Disponível pra venda nova = pronto nas etapas vendáveis − reservado (pedidos abertos até amanhã).
+  INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id, produto_id)
+  SELECT v_id, elem->>'produto_nome', (elem->>'quantidade')::numeric, (elem->>'preco_unit')::numeric,
+         p_user_id, (elem->>'produto_id')::bigint
+    FROM jsonb_array_elements(p_itens) AS elem;
+
+  RETURN v_id;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.submit_pedido_externo TO anon;
+
+-- Config pública da loja: entrega + ordem das seções do cardápio
+CREATE OR REPLACE FUNCTION public.get_delivery_config(p_user_id uuid)
+RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+  SELECT jsonb_build_object(
+    'delivery',    COALESCE(config->'delivery', '{}'::jsonb),
+    'secoesOrdem', COALESCE(config->'secoesOrdem', '[]'::jsonb)
+  )
+  FROM user_config WHERE user_id = p_user_id
+$$;
+GRANT EXECUTE ON FUNCTION public.get_delivery_config TO anon;
+
+-- Apaga pedido. Não mexe no estoque (aberto só reserva; o entregue já baixou).
+CREATE OR REPLACE FUNCTION public.delete_pedido(p_id text, p_user_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  DELETE FROM encomendas WHERE id = p_id AND user_id = p_user_id;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.delete_pedido TO authenticated;
+
+-- Disponível pra venda = pronto nas etapas vendáveis − reservado (pedidos abertos até amanhã).
+-- a_caminho = nas etapas anteriores ("volta em breve" no cardápio).
 -- Etapas vendáveis por fluxo espelham src/lib/prontidao.js (FLUXOS) — manter em sincronia.
 -- Choux: assadas 90% também contam (reassar leva 15 min e recheia na hora).
 DROP FUNCTION IF EXISTS public.produtos_disponiveis(uuid);
@@ -740,36 +686,8 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
 $$;
 GRANT EXECUTE ON FUNCTION public.produtos_disponiveis TO anon, authenticated;
 
--- Migração (nov/2026): choux virou massa crua → assadas 90% → reassadas (recheia na hora).
--- "Vitrine" não existe mais; "cascas" passou a ser "Assadas 90%".
--- UPDATE prontidao_lotes SET etapa = 'reassadas' WHERE etapa = 'vitrine';
--- UPDATE produtos SET prontidao = jsonb_set(prontidao, '{etapas}',
---     (coalesce(prontidao->'etapas', '{}'::jsonb) - 'vitrine')
---     || jsonb_build_object('reassadas', jsonb_build_object('meta', 3), 'cascas', jsonb_build_object('meta', 10)))
---   || jsonb_build_object('noPedido', 'bater o recheio e rechear na hora')
--- WHERE prontidao->>'fluxo' = 'choux';
-
--- ── Cardápio online: várias fotos/vídeos por produto ──────────────────────────
--- midias = [{ tipo: 'imagem'|'video', url, poster? }]; imagem_url segue como a capa.
-ALTER TABLE produtos ADD COLUMN IF NOT EXISTS midias jsonb;
--- Posição do produto dentro da seção no cardápio (Produtos → Organizar)
-ALTER TABLE produtos ADD COLUMN IF NOT EXISTS ordem int;
-
--- ── "Avise-me quando voltar" ──────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS interesses (
-  id          bigserial primary key,
-  user_id     uuid references auth.users(id) on delete cascade,
-  produto_id  bigint references produtos(id) on delete cascade,
-  nome        text,
-  telefone    text not null,
-  created_at  timestamptz default now(),
-  avisado_em  timestamptz
-);
-ALTER TABLE interesses ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "own_data" ON interesses;
-CREATE POLICY "own_data" ON interesses FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-
--- Cliente (sem login) registra interesse; ignora repetido do mesmo telefone ainda não avisado
+-- "Avise-me": cliente (sem login) registra interesse; ignora repetido do mesmo
+-- telefone ainda não avisado.
 CREATE OR REPLACE FUNCTION public.registrar_interesse(p_user_id uuid, p_produto_id bigint, p_nome text, p_telefone text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
@@ -780,13 +698,90 @@ BEGIN
 END $$;
 GRANT EXECUTE ON FUNCTION public.registrar_interesse TO anon, authenticated;
 
--- ── Limpeza: receitas de tutorial/seed sem user_id ────────────────────────────
--- Se uma receita existe com user_id NULL (inserida como demo global), a policy
--- "user_id = auth.uid()" impede que o usuário a apague via UI.
--- Rode no Supabase SQL Editor para remover de vez:
--- DELETE FROM receitas WHERE user_id IS NULL;
 
--- ── Recarrega o schema cache do PostgREST ─────────────────────────────────────
--- Deve ser a ÚLTIMA instrução: garante que colunas/funções novas fiquem
--- imediatamente visíveis para a API (evita erro "... in the schema cache").
+-- =============================================================================
+-- 6. LEMBRETE DE FIM DO DIA (Web Push)
+-- =============================================================================
+-- A cada 10 min o banco vê quem já passou da hora do lembrete e ainda não
+-- recebeu hoje, e chama /api/lembrete-push. A senha (CRON_SECRET, a mesma do
+-- Vercel) fica guardada no Vault do Supabase, fora deste arquivo.
+
+-- Guarda o CRON_SECRET no Vault (uma vez só). Se a função antiga tinha a senha
+-- escrita nela, copia de lá automaticamente.
+DO $$
+DECLARE s text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM vault.secrets WHERE name = 'guaxi_cron_secret') THEN
+    SELECT substring(p.prosrc FROM 'Bearer ([^''<>[:space:]]+)''') INTO s
+      FROM pg_proc p WHERE p.proname = 'enviar_lembretes_push' LIMIT 1;
+    IF s IS NOT NULL THEN
+      PERFORM vault.create_secret(s, 'guaxi_cron_secret', 'CRON_SECRET do Vercel (lembrete push)');
+    ELSE
+      RAISE NOTICE 'Lembrete push: guarde o CRON_SECRET uma vez com: SELECT vault.create_secret(''<valor>'', ''guaxi_cron_secret'');';
+    END IF;
+  END IF;
+EXCEPTION WHEN others THEN
+  RAISE NOTICE 'Vault indisponível (%): lembrete push fica sem senha', SQLERRM;
+END $$;
+
+CREATE OR REPLACE FUNCTION enviar_lembretes_push() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE devidos jsonb; segredo text;
+BEGIN
+  SELECT decrypted_secret INTO segredo FROM vault.decrypted_secrets WHERE name = 'guaxi_cron_secret' LIMIT 1;
+  IF segredo IS NULL THEN
+    RAISE WARNING 'guaxi_cron_secret não está no Vault — lembrete não enviado';
+    RETURN;
+  END IF;
+
+  WITH d AS (
+    SELECT s.id, s.endpoint, s.p256dh, s.auth, (now() AT TIME ZONE s.fuso)::date AS hoje
+    FROM push_subscriptions s
+    WHERE s.ativo
+      AND s.hora_lembrete IS NOT NULL
+      AND to_char(now() AT TIME ZONE s.fuso, 'HH24:MI') >= s.hora_lembrete
+      AND (s.ultimo_envio IS NULL OR s.ultimo_envio < (now() AT TIME ZONE s.fuso)::date)
+  ), marcados AS (
+    UPDATE push_subscriptions p SET ultimo_envio = d.hoje FROM d WHERE p.id = d.id
+    RETURNING d.endpoint, d.p256dh, d.auth
+  )
+  SELECT coalesce(jsonb_agg(jsonb_build_object('endpoint', endpoint,
+           'keys', jsonb_build_object('p256dh', p256dh, 'auth', auth))), '[]'::jsonb)
+    INTO devidos FROM marcados;
+
+  IF jsonb_array_length(devidos) > 0 THEN
+    PERFORM net.http_post(
+      url     := 'https://guaxi-app.vercel.app/api/lembrete-push',
+      headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || segredo),
+      body    := jsonb_build_object('subs', devidos, 'url', '/prontidao')
+    );
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION enviar_lembretes_push() FROM public, anon, authenticated;
+
+-- Agenda (rodar de novo só atualiza o mesmo agendamento)
+SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar_lembretes_push()');
+
+
+-- =============================================================================
+-- 7. AJUSTES DE DADOS (cada um só age uma vez; rodar de novo não muda nada)
+-- =============================================================================
+
+-- Choux (nov/2026): massa crua → assadas 90% → reassadas, recheia na hora.
+-- "Vitrine" deixou de existir; "cascas" passou a se chamar "Assadas 90%".
+UPDATE prontidao_lotes SET etapa = 'reassadas' WHERE etapa = 'vitrine';
+UPDATE produtos SET prontidao = jsonb_set(prontidao, '{etapas}',
+    (coalesce(prontidao->'etapas', '{}'::jsonb) - 'vitrine')
+    || jsonb_build_object('reassadas', jsonb_build_object('meta', 3), 'cascas', jsonb_build_object('meta', 10)))
+  || jsonb_build_object('noPedido', 'bater o recheio e rechear na hora')
+WHERE prontidao->>'fluxo' = 'choux' AND prontidao->'etapas' ? 'vitrine';
+
+-- Já rodados no passado (ficam só de registro, não precisam rodar de novo):
+--   UPDATE encomendas SET estoque_baixado = true WHERE status = 'Entregue';
+--   DELETE FROM receitas WHERE user_id IS NULL;   -- receitas de exemplo sem dono
+
+
+-- =============================================================================
+-- 8. RECARREGAR A API (sempre por último: colunas/funções novas aparecem na hora)
+-- =============================================================================
 NOTIFY pgrst, 'reload schema';
