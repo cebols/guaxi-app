@@ -2558,3 +2558,63 @@ export async function cancelarEnvio(userId, envioId) {
   if (!r.ok) throw new Error(j.error || 'Falha ao cancelar')
   return j
 }
+
+// ── Atendimento (WhatsApp) ────────────────────────────────────────────────────
+// Conversas do bot + suas respostas. null = tabela ainda não existe no banco.
+export async function getAtendimentos() {
+  const { data, error } = await supabase.from('atendimentos')
+    .select('telefone, nome, bot_pausado, precisa_humano, motivo, ultima_msg_em, ultima_msg_cliente_em, lido_em')
+    .order('ultima_msg_em', { ascending: false, nullsFirst: false }).limit(200)
+  if (error) return null
+  const { data: msgs } = await supabase.from('agent_conversas').select('telefone, role, conteudo, created_at')
+    .order('created_at', { ascending: false }).limit(1000)
+  const ultima = {}, naoLidas = {}
+  const lidoPor = Object.fromEntries((data || []).map(a => [a.telefone, a.lido_em ? new Date(a.lido_em).getTime() : 0]))
+  for (const m of (msgs || [])) {
+    if (!ultima[m.telefone]) ultima[m.telefone] = m
+    if (m.role === 'user' && new Date(m.created_at).getTime() > (lidoPor[m.telefone] ?? 0)) naoLidas[m.telefone] = (naoLidas[m.telefone] || 0) + 1
+  }
+  return (data || []).map(a => ({
+    telefone: a.telefone, nome: a.nome || '', botPausado: a.bot_pausado, precisaHumano: a.precisa_humano, motivo: a.motivo || '',
+    ultimaMsgEm: a.ultima_msg_em, ultimaMsgClienteEm: a.ultima_msg_cliente_em,
+    ultima: ultima[a.telefone] || null, naoLidas: naoLidas[a.telefone] || 0,
+  }))
+}
+
+export async function getConversa(telefone) {
+  const { data, error } = await supabase.from('agent_conversas').select('id, role, conteudo, created_at')
+    .eq('telefone', telefone).order('created_at', { ascending: false }).limit(300)
+  if (error) throw error
+  return (data || []).reverse()
+}
+
+export async function marcarAtendimentoLido(telefone) {
+  await supabase.from('atendimentos').update({ lido_em: new Date().toISOString() }).eq('telefone', telefone)
+}
+
+// Assumir (bot quieto) ou devolver pro bot
+export async function setBotPausado(telefone, pausado) {
+  const upd = pausado ? { bot_pausado: true } : { bot_pausado: false, precisa_humano: false, motivo: null }
+  const { error } = await supabase.from('atendimentos').update(upd).eq('telefone', telefone)
+  if (error) throw error
+}
+
+// Sua resposta sai pelo número da Guaxí (Edge Function whatsapp-enviar)
+export async function enviarWhatsApp(telefone, texto) {
+  const { error } = await supabase.functions.invoke('whatsapp-enviar', { body: { telefone, texto } })
+  if (error) {
+    let msg = error.message
+    try { const j = await error.context?.json(); if (j?.error) msg = j.error } catch { /* mantém a mensagem padrão */ }
+    throw new Error(msg)
+  }
+}
+
+// Pedidos de um cliente pelo telefone (últimos dígitos)
+export async function getPedidosDoTelefone(telefone) {
+  const fim = String(telefone || '').replace(/\D/g, '').slice(-8)
+  if (fim.length < 8) return []
+  const { data } = await supabase.from('encomendas').select('id, status, pgto, data_entrega, valor, contato')
+    .order('created_at', { ascending: false }).limit(300)
+  return (data || []).filter(p => String(p.contato || '').replace(/\D/g, '').endsWith(fim)).slice(0, 5)
+}
+

@@ -69,7 +69,7 @@ Deno.serve(async (req: Request) => {
   EdgeRuntime.waitUntil((async () => {
     try {
       const reply = await runAgent(supabase, msg.from, msg.body, msg.pushName)
-      await sendMetaMessage(msg.from, reply, { phoneNumberId, accessToken })
+      if (reply) await sendMetaMessage(msg.from, reply, { phoneNumberId, accessToken })
     } catch (err) {
       console.error('Agent error:', err)
       try {

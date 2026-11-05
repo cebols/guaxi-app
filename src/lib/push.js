@@ -48,6 +48,37 @@ export async function ativarLembrete(hora) {
   return sub
 }
 
+// Avisos na hora (ex.: cliente chamou no WhatsApp) neste aparelho, sem mexer no
+// horário do lembrete de fim do dia (aparelho novo entra sem lembrete).
+export async function ativarAvisos() {
+  if (!suportaPush()) throw new Error('Este navegador não suporta notificações')
+  const perm = await Notification.requestPermission()
+  if (perm !== 'granted') throw new Error('Permissão de notificação negada. Libere nas configurações do navegador/app.')
+  const reg = await registro()
+  const sub = await reg.pushManager.getSubscription()
+    || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC_KEY) })
+  const j = sub.toJSON()
+  const { data: existe } = await supabase.from('push_subscriptions').select('id').eq('endpoint', j.endpoint).maybeSingle()
+  const { error } = existe
+    ? await supabase.from('push_subscriptions').update({ ativo: true }).eq('endpoint', j.endpoint)
+    : await supabase.from('push_subscriptions').insert({
+        endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, hora_lembrete: null,
+        fuso: Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo', aparelho: nomeAparelho(), ativo: true,
+      })
+  if (error) throw error
+  return sub
+}
+
+// Este aparelho já recebe avisos?
+export async function avisosAtivos() {
+  try {
+    const sub = await inscricaoAtual()
+    if (!sub) return false
+    const { data } = await supabase.from('push_subscriptions').select('ativo').eq('endpoint', sub.endpoint).maybeSingle()
+    return !!data?.ativo
+  } catch { return false }
+}
+
 export async function lerLembrete() {
   const sub = await inscricaoAtual()
   if (!sub) return null

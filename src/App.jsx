@@ -23,6 +23,7 @@ const MiseEnPlace       = lazy(() => import('./pages/MiseEnPlace'))
 const ProducaoTodo      = lazy(() => import('./pages/ProducaoTodo'))
 const ProducaoHistorico = lazy(() => import('./pages/ProducaoHistorico'))
 const Prontidao         = lazy(() => import('./pages/Prontidao'))
+const Atendimento       = lazy(() => import('./pages/Atendimento'))
 const CardapioPublico = lazy(() => import('./pages/CardapioPublico'))
 const PedidoExterno   = lazy(() => import('./pages/PedidoExterno'))
 const Menu            = lazy(() => import('./pages/Menu'))
@@ -35,6 +36,7 @@ function PageFallback() {
 const NAV_BOTTOM = [
   { path: '/',        label: 'Início',   icon: HomeIcon },
   { path: '/pedidos', label: 'Pedidos',  icon: PedidosIcon },
+  { path: '/atendimento', label: 'Atendimento', icon: AtendimentoIcon },
   { path: '/envios',  label: 'Envios',   icon: EnviosIcon },
   { path: '/fichas',  label: 'Receitas', icon: FichasIcon },
   { path: '/vendas',  label: 'Vendas',   icon: VendasIcon },
@@ -291,6 +293,7 @@ export default function App() {
             <Route path="/mise-en-place/historico" element={<ProducaoHistorico />} />
             <Route path="/producao/:id"            element={<ProducaoTodo />} />
             <Route path="/prontidao"               element={<Prontidao />} />
+            <Route path="/atendimento"             element={<Atendimento />} />
             <Route path="/configuracoes"       element={<Configuracoes />} />
             <Route path="/perfil"              element={<Perfil />} />
             <Route path="/menu"                element={<Menu />} />
@@ -413,6 +416,12 @@ function ConfigIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <line x1="12" y1="1" x2="12" y2="23"/>
     <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+  </svg>
+}
+function AtendimentoIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 11.5a8.4 8.4 0 01-9 8.4 8.6 8.6 0 01-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 1121 11.5z"/>
+    <path d="M8 11h.01M12 11h.01M16 11h.01"/>
   </svg>
 }
 function ProntidaoIcon() {

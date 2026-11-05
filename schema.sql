@@ -367,6 +367,20 @@ CREATE TABLE IF NOT EXISTS agent_conversas (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_conversas_tel_created ON agent_conversas (telefone, created_at DESC);
 
+-- Atendimento do WhatsApp: um registro por cliente (telefone)
+CREATE TABLE IF NOT EXISTS atendimentos (
+  telefone              text primary key,
+  user_id               uuid references auth.users(id) on delete cascade,
+  nome                  text,
+  bot_pausado           boolean not null default false,  -- você assumiu: o bot não responde
+  precisa_humano        boolean not null default false,  -- o bot chamou você
+  motivo                text,
+  ultima_msg_em         timestamptz,
+  ultima_msg_cliente_em timestamptz,                     -- janela de 24h da Meta pra responder
+  lido_em               timestamptz,
+  created_at            timestamptz default now()
+);
+
 
 -- =============================================================================
 -- 3. COLUNAS ADICIONADAS COM O TEMPO (bancos criados antes ficam atualizados)
@@ -479,6 +493,11 @@ ALTER TABLE producao_itens ALTER COLUMN quantidade TYPE numeric;   -- doses frac
 -- conta
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url text;
 
+-- conversas do WhatsApp: dono da conversa + mensagens suas ('humano') além das do cliente e do bot
+ALTER TABLE agent_conversas ADD COLUMN IF NOT EXISTS user_id uuid references auth.users(id) on delete cascade;
+ALTER TABLE agent_conversas DROP CONSTRAINT IF EXISTS agent_conversas_role_check;
+ALTER TABLE agent_conversas ADD CONSTRAINT agent_conversas_role_check CHECK (role in ('user', 'assistant', 'humano'));
+
 
 -- =============================================================================
 -- 4. SEGURANÇA (RLS) — cada usuário só lê/escreve as próprias linhas
@@ -508,7 +527,8 @@ ALTER TABLE user_config            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE profiles               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE push_subscriptions     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cardapios              ENABLE ROW LEVEL SECURITY;
-ALTER TABLE agent_conversas        ENABLE ROW LEVEL SECURITY;  -- sem policy: só service_role
+ALTER TABLE agent_conversas        ENABLE ROW LEVEL SECURITY;  -- o bot grava com service_role; o dono lê
+ALTER TABLE atendimentos           ENABLE ROW LEVEL SECURITY;
 
 -- Tabelas originais: limpa políticas antigas e deixa só "own_data"
 DO $$
@@ -568,6 +588,10 @@ DROP POLICY IF EXISTS "profiles_own" ON profiles;
 CREATE POLICY "profiles_own" ON profiles FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "own_data" ON push_subscriptions;
 CREATE POLICY "own_data" ON push_subscriptions FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON agent_conversas;
+CREATE POLICY "own_data" ON agent_conversas FOR SELECT USING (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON atendimentos;
+CREATE POLICY "own_data" ON atendimentos FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 DROP POLICY IF EXISTS "cardapios public read" ON cardapios;
 CREATE POLICY "cardapios public read" ON cardapios FOR SELECT USING (true);
 DROP POLICY IF EXISTS "cardapios owner write" ON cardapios;
@@ -883,6 +907,30 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION enviar_lembretes_push() FROM public, anon, authenticated;
 
+-- Aviso na hora no celular da dona (ex.: cliente chamou no WhatsApp). Chamado pelo
+-- agente do WhatsApp (service_role); usa as mesmas inscrições do lembrete.
+CREATE OR REPLACE FUNCTION avisar_dono(p_user_id uuid, p_titulo text, p_corpo text,
+                                       p_url text default '/atendimento', p_tag text default 'atendimento')
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE subs jsonb; segredo text;
+BEGIN
+  SELECT decrypted_secret INTO segredo FROM vault.decrypted_secrets WHERE name = 'guaxi_cron_secret' LIMIT 1;
+  IF segredo IS NULL THEN RETURN 0; END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('endpoint', endpoint,
+           'keys', jsonb_build_object('p256dh', p256dh, 'auth', auth))), '[]'::jsonb)
+    INTO subs FROM push_subscriptions WHERE user_id = p_user_id AND ativo;
+  IF jsonb_array_length(subs) = 0 THEN RETURN 0; END IF;
+  PERFORM net.http_post(
+    url     := 'https://guaxi-app.vercel.app/api/lembrete-push',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || segredo),
+    body    := jsonb_build_object('subs', subs, 'titulo', left(p_titulo, 80), 'corpo', left(p_corpo, 180),
+                                  'url', p_url, 'tag', p_tag)
+  );
+  RETURN jsonb_array_length(subs);
+END $$;
+REVOKE ALL ON FUNCTION avisar_dono(uuid, text, text, text, text) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION avisar_dono(uuid, text, text, text, text) TO service_role;
+
 -- Agenda (rodar de novo só atualiza o mesmo agendamento)
 SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar_lembretes_push()');
 
@@ -899,6 +947,15 @@ UPDATE produtos SET prontidao = jsonb_set(prontidao, '{etapas}',
     || jsonb_build_object('reassadas', jsonb_build_object('meta', 3), 'cascas', jsonb_build_object('meta', 10)))
   || jsonb_build_object('noPedido', 'bater o recheio e rechear na hora')
 WHERE prontidao->>'fluxo' = 'choux' AND prontidao->'etapas' ? 'vitrine';
+
+-- Atendimento (nov/2026): conversas antigas do WhatsApp ganham dono (app de uma loja só:
+-- o dono dos produtos) e cada cliente vira um atendimento.
+UPDATE agent_conversas SET user_id = (SELECT user_id FROM produtos WHERE user_id IS NOT NULL LIMIT 1)
+WHERE user_id IS NULL;
+INSERT INTO atendimentos (telefone, user_id, ultima_msg_em, ultima_msg_cliente_em, lido_em)
+SELECT telefone, max(user_id::text)::uuid, max(created_at), max(created_at) FILTER (WHERE role = 'user'), max(created_at)
+FROM agent_conversas WHERE user_id IS NOT NULL GROUP BY telefone
+ON CONFLICT (telefone) DO NOTHING;
 
 -- Já rodados no passado (ficam só de registro, não precisam rodar de novo):
 --   UPDATE encomendas SET estoque_baixado = true WHERE status = 'Entregue';

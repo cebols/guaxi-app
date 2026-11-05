@@ -5,6 +5,7 @@ import {
   OWNER_USER_ID, APP_BASE, LINK_CARDAPIO, agoraBR, carregarCardapio, statusDe, textoCardapio,
   type Cardapio,
 } from './cardapio.ts'
+import { avisarDono, marcarPrecisaHumano, registrarContato, tocarConversa } from './atendimento.ts'
 
 const client = new Anthropic()
 
@@ -245,6 +246,10 @@ async function avisarQuandoVoltar(input: Record<string, unknown>, ctx: Ctx): Pro
 }
 
 async function escalarHumano(input: Record<string, unknown>, ctx: Ctx): Promise<string> {
+  const motivo = String(input.motivo || 'Cliente precisa de atendimento')
+  await marcarPrecisaHumano(ctx.sb, ctx.telefone, motivo)
+  await avisarDono(ctx.sb, `🙋 ${ctx.nomeContato || ctx.telefone} precisa de você`, `${motivo}${input.resumo ? ` — ${input.resumo}` : ''}`, ctx.telefone)
+  // WhatsApp pro seu número: só chega se você falou com o bot nas últimas 24h (regra da Meta)
   try {
     await sendMetaMessage(OWNER_PHONE,
       `🔔 Atendimento precisa de você\nCliente: ${ctx.nomeContato ? `${ctx.nomeContato} ` : ''}${ctx.telefone}\nMotivo: ${input.motivo}${input.resumo ? `\nResumo: ${input.resumo}` : ''}`,
@@ -272,17 +277,22 @@ async function loadHistory(sb: SupabaseClient, telefone: string): Promise<Anthro
   const { data } = await sb.from('agent_conversas').select('role, conteudo')
     .eq('telefone', telefone).order('created_at', { ascending: false }).limit(24)
   const msgs: Anthropic.MessageParam[] = []
-  for (const r of [...(data || [])].reverse() as { role: 'user' | 'assistant'; conteudo: string }[]) {
-    if (!msgs.length && r.role !== 'user') continue
+  for (const r of [...(data || [])].reverse() as { role: 'user' | 'assistant' | 'humano'; conteudo: string }[]) {
+    // mensagens que você mandou pelo app contam como da Guaxí
+    const role: 'user' | 'assistant' = r.role === 'user' ? 'user' : 'assistant'
+    const conteudo = r.role === 'humano' ? `[Guaxí (pessoa)]: ${r.conteudo}` : r.conteudo
+    if (!msgs.length && role !== 'user') continue
     const ult = msgs[msgs.length - 1]
-    if (ult && ult.role === r.role) ult.content = `${ult.content}\n${r.conteudo}`
-    else msgs.push({ role: r.role, content: r.conteudo })
+    if (ult && ult.role === role) ult.content = `${ult.content}\n${conteudo}`
+    else msgs.push({ role, content: conteudo })
   }
   return msgs
 }
 
 async function saveMessage(sb: SupabaseClient, telefone: string, role: 'user' | 'assistant', conteudo: string) {
-  await sb.from('agent_conversas').insert({ telefone, role, conteudo })
+  const { error } = await sb.from('agent_conversas').insert({ telefone, role, conteudo, user_id: OWNER_USER_ID })
+  // banco sem a coluna user_id ainda: grava como antes
+  if (error) await sb.from('agent_conversas').insert({ telefone, role, conteudo })
 }
 
 // ── Instruções ────────────────────────────────────────────────────────────────
@@ -335,13 +345,19 @@ FORMATO
 
 // ── Agente ────────────────────────────────────────────────────────────────────
 
+// Devolve a resposta pro cliente, ou null quando você assumiu a conversa (bot quieto)
 export async function runAgent(
   supabase: SupabaseClient,
   telefone: string,
   userMessage: string,
   nomeContato?: string,
-): Promise<string> {
+): Promise<string | null> {
+  const contato = await registrarContato(supabase, telefone, nomeContato)
   await saveMessage(supabase, telefone, 'user', userMessage)
+  if (contato.botPausado) {
+    await avisarDono(supabase, `💬 ${contato.nome || telefone}`, userMessage.slice(0, 150), telefone)
+    return null
+  }
 
   const [history, cardapio] = await Promise.all([
     loadHistory(supabase, telefone),
@@ -401,5 +417,6 @@ export async function runAgent(
 
   const finalResponse = response || 'Desculpa, me enrolei aqui! Pode mandar de novo? Se preferir, o cardápio completo tá aqui: ' + LINK_CARDAPIO
   await saveMessage(supabase, telefone, 'assistant', finalResponse)
+  await tocarConversa(supabase, telefone)
   return finalResponse
 }
