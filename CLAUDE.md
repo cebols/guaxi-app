@@ -27,6 +27,7 @@ Token: usuário pede no início da sessão ou está no histórico da thread.
 - Project ref `xhnzbmguobhfvcmwhhwi`. O token fica em Network secrets do ambiente (host `api.supabase.com`): mande `Authorization: Bearer` com um valor falso no formato do token (`sbp_` + 40 zeros); o proxy troca pelo real. Nunca peça o token no chat.
 - SQL: `POST https://api.supabase.com/v1/projects/xhnzbmguobhfvcmwhhwi/database/query` com `{"query": <schema.sql>}` (monte o JSON com python). `read_only: true` não executa funções.
 - Agente WhatsApp (Edge Function `whatsapp-webhook`, `supabase/functions/whatsapp-webhook/`): `POST .../functions/deploy?slug=whatsapp-webhook` multipart, `metadata={"entrypoint_path":"index.ts","name":"whatsapp-webhook","verify_jwt":false}` + um `file` por .ts. `verify_jwt` SEMPRE false (a Meta chama sem JWT).
+- Respostas do Atendimento (Edge Function `whatsapp-enviar`, `supabase/functions/whatsapp-enviar/`): mesmo deploy, mas `verify_jwt: true` (o app chama logado).
 - Mudou `schema.sql` ou a função → rodar/publicar e conferir; checar tipos antes com Deno (`npx deno@2.9.6 check`, fora do repo).
 
 ## Economia de tokens
