@@ -3,7 +3,7 @@ import { useLocation, useNavigate as useRRNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
-import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, updateEncomendaItens, deletePedido, reconciliarBaixasPedidos } from '../services/db'
+import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, updateEncomendaItens, deletePedido, reconciliarBaixasPedidos, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp } from '../services/db'
 
 const STATUS_OPTS = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
 const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
@@ -777,6 +777,18 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
   const setItem = (i, k, v) => setItens(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
 
   const wa = waLink(pedido.contato)
+  const navRR = useRRNavigate()
+  const [contatoAtd, setContatoAtd] = useState(null)
+  const [enviandoWa, setEnviandoWa] = useState(null)
+  useEffect(() => { getContatosAtendimento().then(cs => setContatoAtd(acharContato(cs, pedido.contato))) }, [pedido.contato])
+  const pelaGuaxi = janelaAberta(contatoAtd)
+  async function enviarPelaGuaxi(label, msg) {
+    if (!confirm(`Mandar pelo WhatsApp da Guaxí?\n\n${msg}`)) return
+    setEnviandoWa(label)
+    try { await enviarWhatsApp(contatoAtd.telefone, msg, { pausar: false }); show('Enviado pelo WhatsApp da Guaxí') }
+    catch (e) { show('Erro: ' + e.message) }
+    finally { setEnviandoWa(null) }
+  }
   const itensSubtotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit)||0) * (parseFloat(it.quantidade)||1), 0)
   const freteNum = tipoEntrega === 'Entrega' ? (parseFloat(frete) || 0) : 0
   const totalAtual = itensSubtotal + freteNum
@@ -888,8 +900,15 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
         {/* WhatsApp */}
         {wa && (
           <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 10 }}>
-              WhatsApp — {pedido.cliente?.split(' ')[0]}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{ flex: 1, fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
+                WhatsApp — {pedido.cliente?.split(' ')[0]}{pelaGuaxi ? ' · sai pelo número da Guaxí' : ''}
+              </div>
+              {contatoAtd && (
+                <button onClick={() => navRR(`/atendimento?c=${contatoAtd.telefone}`)} style={{ fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(37,211,102,.35)', background: 'transparent', color: '#4ade80', cursor: 'pointer' }}>
+                  💬 Conversa
+                </button>
+              )}
             </div>
             {WA_TEMPLATES.map(t => {
               const msg = fillTemplate(t.msg, { ...pedido, valor: totalAtual })
@@ -898,7 +917,9 @@ function DetalheView({ pedido, alertMap, onBack, onSaved }) {
                   key={t.label}
                   href={`${wa}?text=${encodeURIComponent(msg)}`}
                   target="_blank" rel="noreferrer"
+                  onClick={pelaGuaxi ? (e) => { e.preventDefault(); enviarPelaGuaxi(t.label, msg) } : undefined}
                   style={{
+                    opacity: enviandoWa === t.label ? 0.5 : 1,
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '10px 8px', borderRadius: 8,
                     background: 'rgba(37,211,102,.06)', border: '1.5px solid rgba(37,211,102,.15)',

@@ -137,6 +137,7 @@ function ItemConversa({ a, ativo, onClick }) {
 }
 
 function Conversa({ a, onMudou }) {
+  const navigate = useNavigate()
   const [msgs, setMsgs] = useState(null)
   const [texto, setTexto] = useState('')
   const [enviando, setEnviando] = useState(false)
@@ -193,7 +194,6 @@ function Conversa({ a, onMudou }) {
           <div style={{ fontWeight: 800, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.nome || fmtTel(a.telefone)}</div>
           <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
             <a href={`https://wa.me/${a.telefone}`} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>{fmtTel(a.telefone)}</a>
-            {pedidos.length > 0 && <> · pedidos: {pedidos.map(p => p.id).join(', ')}</>}
           </div>
         </div>
         <button onClick={alternarBot} style={{
@@ -201,6 +201,20 @@ function Conversa({ a, onMudou }) {
           border: a.botPausado ? '1px solid #333' : 'none', background: a.botPausado ? 'transparent' : 'var(--teal)', color: a.botPausado ? 'var(--text-secondary)' : '#fff',
         }}>{a.botPausado ? '🤖 Devolver pro bot' : '🧑 Assumir'}</button>
       </div>
+      {pedidos.length > 0 && (
+        <div style={{ padding: '7px 12px', borderBottom: '1px solid #2a2a2a', display: 'flex', gap: 6, overflowX: 'auto' }}>
+          {pedidos.map(p => {
+            const rota = ['ASSIGNING_DRIVER', 'ON_GOING', 'PICKED_UP'].includes(p.envioStatus)
+            return (
+              <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, fontSize: 12, padding: '4px 9px', borderRadius: 999, background: 'var(--bg-input)', border: '1px solid #333' }}>
+                <span onClick={() => navigate('/pedidos', { state: { openPedidoId: p.id } })} style={{ cursor: 'pointer', fontWeight: 700 }}>{p.id}</span>
+                <span style={{ color: p.status === 'Entregue' ? '#4ade80' : 'var(--text-tertiary)' }}>{rota ? '🛵 em rota' : p.status}</span>
+                {rota && p.rastreio && <a href={p.rastreio} target="_blank" rel="noreferrer" style={{ color: 'var(--teal)', fontWeight: 700, textDecoration: 'none' }}>rastrear ↗</a>}
+              </span>
+            )
+          })}
+        </div>
+      )}
       {a.precisaHumano && (
         <div style={{ padding: '8px 12px', fontSize: 12.5, color: '#f5b544', background: 'rgba(245,181,68,.08)', borderBottom: '1px solid #2a2a2a' }}>
           🙋 O bot chamou você{a.motivo ? `: ${a.motivo}` : ''}. Ele fica quieto até você devolver a conversa.

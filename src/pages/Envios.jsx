@@ -1,22 +1,31 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
 import {
   getPedidosParaAgrupar, getEnvios, gerarEnvios, desfazerEnvio,
   despacharEnvio, atualizarStatusEnvio, atualizarEnvio, cancelarEnvio, cotarEnvio,
+  getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
 } from '../services/db'
 
 const fmtR = (n) => `R$ ${Number(n || 0).toFixed(2).replace('.', ',')}`
+const VEIC = { LALAGO: { icon: '🛵', nome: 'Moto' }, HATCHBACK: { icon: '🚗', nome: 'Hatch' }, CAR: { icon: '🚗', nome: 'Carro' }, VAN: { icon: '🚐', nome: 'Van' } }
 const VEIC_LABEL = { LALAGO: '🛵 Moto (LALAGO)', HATCHBACK: '🚗 Hatchback', CAR: '🚗 Carro (CAR)', VAN: '🚐 Van' }
-const VEIC_OPTS = ['LALAGO', 'HATCHBACK', 'CAR', 'VAN']
 
-const STATUS_LABEL = {
-  FILA: 'Na fila', ASSIGNING_DRIVER: 'Buscando motorista', ON_GOING: 'A caminho da coleta',
-  PICKED_UP: 'Coletado · em entrega', COMPLETED: 'Entregue', CANCELED: 'Cancelado',
-  EXPIRED: 'Expirado', REJECTED: 'Rejeitado',
+const STATUS = {
+  ORGANIZAR:        { nome: 'A organizar',          cor: '#9ca3af' },
+  FILA:             { nome: 'Na fila',              cor: '#9ca3af' },
+  ASSIGNING_DRIVER: { nome: 'Buscando motorista',   cor: '#f5b544', pulsa: true },
+  ON_GOING:         { nome: 'Motorista indo buscar', cor: '#60a5fa', pulsa: true },
+  PICKED_UP:        { nome: 'Saiu pra entrega',     cor: '#2dd4bf', pulsa: true },
+  COMPLETED:        { nome: 'Entregue',             cor: '#4ade80' },
+  CANCELED:         { nome: 'Cancelado',            cor: '#f87171' },
+  EXPIRED:          { nome: 'Expirado',             cor: '#f87171' },
+  REJECTED:         { nome: 'Rejeitado',            cor: '#f87171' },
 }
 const EM_ROTA = ['ASSIGNING_DRIVER', 'ON_GOING', 'PICKED_UP']
+const CANAL = { FormExterno: '🌐 cardápio', WhatsApp: '💬 WhatsApp', iFood: 'iFood', '99Food': '99Food', Presencial: 'balcão' }
 
 function diaLabel(s) {
   if (!s) return '—'
@@ -28,59 +37,95 @@ const nItens = (peds) => peds.reduce((s, p) => s + p.itens.reduce((a, i) => a + 
 const vTotal = (peds) => peds.reduce((s, p) => s + (Number(p.valor) || 0), 0)
 const fTotal = (peds) => peds.reduce((s, p) => s + (Number(p.frete) || 0), 0)
 
-const card = { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 12, padding: 12, marginBottom: 12 }
-const btn = (bg, fg = '#000') => ({ background: bg, color: fg, border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer' })
-const col = { flex: '1 1 280px', minWidth: 280, background: '#141414', borderRadius: 14, padding: 12 }
+const btn = (bg, fg = '#000') => ({ background: bg, color: fg, border: 'none', borderRadius: 9, padding: '9px 13px', fontSize: 13, fontWeight: 700, cursor: 'pointer' })
+const miniBtn = { background: '#242424', color: '#cfcfcf', border: '1px solid #303030', borderRadius: 8, padding: '5px 9px', fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'none', whiteSpace: 'nowrap' }
+const col = { minWidth: 0, background: '#141414', borderRadius: 14, padding: 12 }
 const colTitle = { fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.05em', color: '#888', marginBottom: 10, padding: '0 2px' }
 
-function PedidoMini({ p }) {
+function StatusPill({ status }) {
+  const s = STATUS[status] || { nome: status, cor: '#9ca3af' }
   return (
-    <div style={{ borderTop: '1px solid #242424', padding: '7px 0', fontSize: 12.5 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <span style={{ fontWeight: 600, color: '#e8e8e8' }}>{p.cliente} {p.frag === 'fragil' && '🍰'}</span>
-        <span style={{ color: '#22b886', fontWeight: 700 }}>{fmtR(p.frete)}</span>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, color: s.cor, background: `${s.cor}1a`, border: `1px solid ${s.cor}40`, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap' }}>
+      <span className={s.pulsa ? 'env-pulsa' : ''} style={{ width: 7, height: 7, borderRadius: 4, background: s.cor }} />
+      {s.nome}
+    </span>
+  )
+}
+
+// Uma parada (pedido) do envio
+function Parada({ n, p, envio, contato, detalhe, onConversa, onPedido, onAvisar, avisando }) {
+  const primeiro = p.cliente.split(' ')[0]
+  const itens = p.itens.map(i => `${i.quantidade}× ${i.produto}`).join(', ')
+  return (
+    <div style={{ display: 'flex', gap: 10, padding: '9px 0', borderTop: '1px solid #242424' }}>
+      <div style={{ width: 22, height: 22, borderRadius: 11, flexShrink: 0, display: 'grid', placeItems: 'center', fontSize: 11.5, fontWeight: 800, background: '#262626', color: '#bbb', marginTop: 1 }}>{n}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          <span onClick={onPedido} style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 13.5, color: '#ececec', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {p.cliente}{p.frag === 'fragil' && <span title="frágil" style={{ fontSize: 12, marginLeft: 5 }}>🍰</span>}
+          </span>
+          <span style={{ fontSize: 12, color: '#22b886', fontWeight: 700, whiteSpace: 'nowrap' }}>{fmtR(p.frete)}</span>
+        </div>
+        <div style={{ fontSize: 12, color: '#8d8d8d', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: detalhe ? 'normal' : 'nowrap' }}>
+          {CANAL[p.canal] && <span style={{ fontSize: 10.5, color: '#9a9a9a', background: '#242424', borderRadius: 6, padding: '1px 6px', marginRight: 6 }}>{CANAL[p.canal]}</span>}
+          {itens}
+        </div>
+        {detalhe && p.endereco && <div style={{ fontSize: 11.5, color: '#6f6f6f', marginTop: 3 }}>📍 {p.endereco}</div>}
+        {detalhe && p.obs && <div style={{ fontSize: 11.5, color: '#b59b80', marginTop: 3 }}>📝 {p.obs}</div>}
+        {detalhe && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
+            <button onClick={onPedido} style={miniBtn}>📄 Pedido {p.id}</button>
+            {contato && <button onClick={onConversa} style={miniBtn}>💬 Conversa</button>}
+            {envio && <button onClick={onAvisar} disabled={avisando} style={miniBtn}>{avisando ? '…' : `📲 Avisar ${primeiro}`}</button>}
+          </div>
+        )}
       </div>
-      <div style={{ color: '#777', marginTop: 2 }}>{p.itens.map(i => `${i.quantidade}× ${i.produto}`).join(', ')}</div>
-      {p.endereco && <div style={{ color: '#666', fontSize: 11, marginTop: 2 }}>{p.endereco}</div>}
-      {p.obs && <div style={{ color: '#a98', fontSize: 11, marginTop: 2 }}>obs: {p.obs}</div>}
     </div>
   )
 }
 
-// Cabeçalho compacto clicável + resumo. Children = detalhe (mostrado se aberto).
-function Chip({ children, color, bg }) {
-  return <span style={{ fontSize: 11, fontWeight: 700, color: color || '#bbb', background: bg || '#242424', padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap' }}>{children}</span>
-}
-
-function CardBase({ titulo, tag, peds, aberto, onToggle, children, footer }) {
-  const [hov, setHov] = useState(false)
+function EnvioCard({ dia, status, veiculo, peds, envio, contatos, aberto, onToggle, acoes, onConversa, onPedido, onAvisar, avisando }) {
+  const v = VEIC[veiculo]
+  const custo = Number(envio?.precoTotal) || 0
+  const frete = fTotal(peds)
+  const sobra = frete - custo
   return (
-    <div style={{ ...card, padding: 0, overflow: 'hidden', borderColor: aberto ? '#3a3a3a' : (hov ? '#383838' : '#2a2a2a'), boxShadow: hov ? '0 2px 10px rgba(0,0,0,.35)' : 'none', transition: 'border-color .12s, box-shadow .12s' }}>
-      <div onClick={onToggle} onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)}
-        style={{ cursor: 'pointer', padding: '11px 12px 10px', background: hov ? '#1f1f1f' : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <strong style={{ fontSize: 15 }}>{titulo}</strong>
-            {tag}
-          </div>
-          <div style={{ display: 'flex', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
-            <Chip>📦 {peds.length} ped</Chip>
-            <Chip>🧁 {nItens(peds)} itens</Chip>
-            <Chip color="#e8e8e8" bg="#2e2e2e">{fmtR(vTotal(peds))}</Chip>
-            <Chip color="#22b886" bg="rgba(34,184,134,.13)">frete {fmtR(fTotal(peds))}</Chip>
-          </div>
+    <div style={{ background: '#1a1a1a', border: `1px solid ${aberto ? '#3a3a3a' : '#2a2a2a'}`, borderRadius: 14, marginBottom: 12, overflow: 'hidden' }}>
+      <div onClick={onToggle} style={{ padding: '12px 13px 10px', cursor: 'pointer' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <strong style={{ fontSize: 16, flex: 1 }}>{diaLabel(dia)}</strong>
+          <StatusPill status={status} />
         </div>
-        <div style={{ flexShrink: 0, width: 26, height: 26, borderRadius: '50%', background: aberto ? '#22b886' : '#262626', border: `1px solid ${aberto ? '#22b886' : '#3a3a3a'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: aberto ? '#000' : '#9a9a9a' }}>
-          {aberto ? '▲' : '▼'}
+        <div style={{ fontSize: 12, color: '#8a8a8a', marginTop: 4 }}>
+          {v ? `${v.icon} ${v.nome} · ` : ''}{peds.length} parada{peds.length === 1 ? '' : 's'} · {nItens(peds)} itens · {fmtR(vTotal(peds))}
         </div>
       </div>
-      {(aberto || footer) && (
-        <div style={{ padding: '0 12px 12px' }}>
-          {aberto && peds.map(p => <PedidoMini key={p.id} p={p} />)}
-          {aberto && children}
-          {footer}
+
+      <div style={{ padding: '0 13px' }}>
+        {peds.map((p, i) => (
+          <Parada key={p.id} n={i + 1} p={p} envio={envio} contato={acharContato(contatos, p.contato)} detalhe={aberto}
+            onConversa={() => onConversa(p)} onPedido={() => onPedido(p)} onAvisar={() => onAvisar(p, envio)} avisando={avisando === p.id} />
+        ))}
+      </div>
+
+      {envio?.driverNome && (
+        <div style={{ margin: '4px 13px 0', padding: '8px 10px', background: '#202020', borderRadius: 10, fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 16 }}>🧑‍✈️</span>
+          <span style={{ flex: 1, minWidth: 0 }}><b>{envio.driverNome}</b>{envio.driverPlate ? ` · ${envio.driverPlate}` : ''}</span>
+          {envio.driverPhone && <a href={`tel:${envio.driverPhone}`} style={{ ...miniBtn, padding: '4px 8px' }}>📞</a>}
         </div>
       )}
+
+      <div style={{ margin: '10px 13px 0', paddingTop: 9, borderTop: '1px solid #242424', display: 'flex', gap: 14, fontSize: 12, color: '#8a8a8a', flexWrap: 'wrap' }}>
+        <span>Frete cobrado <b style={{ color: '#22b886' }}>{fmtR(frete)}</b></span>
+        {custo > 0 && <span>Lalamove <b style={{ color: '#e8e8e8' }}>{fmtR(custo)}</b></span>}
+        {custo > 0 && <span>{sobra >= 0 ? 'sobra' : 'falta'} <b style={{ color: sobra >= 0 ? '#4ade80' : '#f87171' }}>{fmtR(Math.abs(sobra))}</b></span>}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, padding: '10px 13px 13px', flexWrap: 'wrap', alignItems: 'center' }}>
+        {acoes}
+        <button onClick={onToggle} style={{ ...miniBtn, marginLeft: 'auto', background: 'transparent' }}>{aberto ? 'menos ▲' : 'detalhes ▼'}</button>
+      </div>
     </div>
   )
 }
@@ -88,14 +133,17 @@ function CardBase({ titulo, tag, peds, aberto, onToggle, children, footer }) {
 export default function Envios() {
   const { user } = useAuth()
   const { show } = useToast()
+  const navigate = useNavigate()
   const { data: pendentes, loading: l1, reload: rP } = useData(getPedidosParaAgrupar)
   const { data: envios, loading: l2, reload: rE } = useData(getEnvios)
+  const { data: contatos, reload: rC } = useData(getContatosAtendimento)
   const [busy, setBusy] = useState(null)
   const [mapaAberto, setMapaAberto] = useState(null)
   const [expanded, setExpanded] = useState(() => new Set())
   const [disp, setDisp] = useState(null)   // modal de despacho
+  const [avisando, setAvisando] = useState(null)
 
-  const reload = () => { rP(); rE() }
+  const reload = () => { rP(); rE(); rC() }
   const toggle = (k) => setExpanded(s => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n })
   const open = (k) => expanded.has(k)
 
@@ -117,12 +165,28 @@ export default function Envios() {
     !(e.pedidos.length === 0 && e.status !== 'COMPLETED'))
   const mapEnvio = (envios || []).find(e => e.id === mapaAberto && e.shareLink)
 
-  const whatsLink = (p, e) => {
+  const irConversa = (p) => { const c = acharContato(contatos, p.contato); if (c) navigate(`/atendimento?c=${c.telefone}`) }
+  const irPedido = (p) => navigate('/pedidos', { state: { openPedidoId: p.id } })
+
+  // Avisa o cliente da entrega: pelo WhatsApp da Guaxí quando dá (janela de 24h),
+  // senão abre o seu WhatsApp com a mensagem pronta.
+  const avisar = async (p, e) => {
+    const primeiro = p.cliente.split(' ')[0]
+    const msg = EM_ROTA.includes(e.status) && e.shareLink
+      ? `Oi ${primeiro}! Seu pedido da Guaxí saiu pra entrega 🛵 Dá pra acompanhar por aqui: ${e.shareLink}`
+      : `Oi ${primeiro}! Seu pedido da Guaxí sai pra entrega ${diaLabel(e.dataEntrega)} 💛`
+    const c = acharContato(contatos, p.contato)
+    if (janelaAberta(c)) {
+      if (!confirm(`Mandar pelo WhatsApp da Guaxí pra ${p.cliente}?\n\n${msg}`)) return
+      setAvisando(p.id)
+      try { await enviarWhatsApp(c.telefone, msg, { pausar: false }); show(`Enviado pra ${primeiro}`) }
+      catch (err) { show('Erro: ' + err.message) }
+      finally { setAvisando(null) }
+      return
+    }
     const fone = (p.contato || '').replace(/\D/g, '')
-    const num = fone.startsWith('55') ? fone : `55${fone}`
-    const msg = `Oi ${p.cliente}! Seu pedido sai para entrega ${diaLabel(e.dataEntrega)}. Frete: ${fmtR(p.frete)}.` +
-      (e.shareLink ? ` Acompanhe a entrega: ${e.shareLink}` : '')
-    return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`
+    if (!fone) { show('Pedido sem telefone'); return }
+    window.open(`https://wa.me/${fone.startsWith('55') ? fone : `55${fone}`}?text=${encodeURIComponent(msg)}`, '_blank')
   }
 
   // ── Modal de despacho (cotação por categoria) ──
@@ -146,9 +210,11 @@ export default function Envios() {
   const selQuote = disp?.quotes?.find(q => q.veiculo === disp.sel)
   const minTotal = disp?.quotes ? Math.min(...disp.quotes.filter(q => q.total != null).map(q => q.total)) : null
 
+  const comum = { contatos, onConversa: irConversa, onPedido: irPedido, onAvisar: avisar, avisando }
+
   return (
     <div style={{ padding: '16px 14px 24px', color: '#e8e8e8', maxWidth: 1280, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 10 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>Envios</h1>
         <button onClick={() => run('gerar', gerarEnvios, (ids) => ids.length ? `${ids.length} envio(s) criado(s)` : 'Nada para agrupar')}
           disabled={busy === 'gerar' || !(pendentes || []).length}
@@ -158,14 +224,14 @@ export default function Envios() {
       </div>
       {(l1 || l2) && <div style={{ color: '#666' }}>Carregando…</div>}
 
-      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', maxHeight: mapEnvio ? '42vh' : 'none', overflowY: mapEnvio ? 'auto' : 'visible', overflowX: 'auto' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 12, alignItems: 'start' }}>
 
         {/* A ORGANIZAR */}
         <div style={col}>
           <div style={colTitle}>A organizar · {(pendentes || []).length}</div>
           {Object.keys(porDia).length === 0 && <div style={{ color: '#555', fontSize: 13 }}>Sem pedidos soltos.</div>}
           {Object.entries(porDia).map(([dia, peds]) => (
-            <CardBase key={dia} titulo={diaLabel(dia)} peds={peds} aberto={open('d:' + dia)} onToggle={() => toggle('d:' + dia)} />
+            <EnvioCard key={dia} dia={dia} status="ORGANIZAR" peds={peds} aberto={open('d:' + dia)} onToggle={() => toggle('d:' + dia)} {...comum} />
           ))}
         </div>
 
@@ -174,14 +240,12 @@ export default function Envios() {
           <div style={colTitle}>Na fila · {fila.length}</div>
           {fila.length === 0 && <div style={{ color: '#555', fontSize: 13 }}>Vazio.</div>}
           {fila.map(e => (
-            <CardBase key={e.id} titulo={diaLabel(e.dataEntrega)} peds={e.pedidos} aberto={open('e:' + e.id)} onToggle={() => toggle('e:' + e.id)}
-              tag={<span style={{ fontSize: 11, color: '#888' }}>{VEIC_LABEL[e.veiculo] || e.veiculo}</span>}
-              footer={
-                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button onClick={() => abrirDespacho(e)} style={btn('#22b886')}>🚀 Despachar</button>
-                  <button onClick={() => run('x' + e.id, () => desfazerEnvio(e.id), 'Desfeito')} disabled={busy === 'x' + e.id} style={btn('#2a2a2a', '#ccc')}>Desfazer</button>
-                </div>
-              } />
+            <EnvioCard key={e.id} dia={e.dataEntrega} status={e.status} veiculo={e.veiculo} peds={e.pedidos} envio={e}
+              aberto={open('e:' + e.id)} onToggle={() => toggle('e:' + e.id)} {...comum}
+              acoes={<>
+                <button onClick={() => abrirDespacho(e)} style={btn('#22b886')}>🚀 Despachar</button>
+                <button onClick={() => run('x' + e.id, () => desfazerEnvio(e.id), 'Desfeito')} disabled={busy === 'x' + e.id} style={btn('#262626', '#ccc')}>Desfazer</button>
+              </>} />
           ))}
         </div>
 
@@ -190,21 +254,13 @@ export default function Envios() {
           <div style={colTitle}>Em rota · {emRota.length}</div>
           {emRota.length === 0 && <div style={{ color: '#555', fontSize: 13 }}>Vazio.</div>}
           {emRota.map(e => (
-            <CardBase key={e.id} titulo={diaLabel(e.dataEntrega)} peds={e.pedidos} aberto={open('e:' + e.id)} onToggle={() => toggle('e:' + e.id)}
-              tag={<span style={{ fontSize: 11, color: '#f0b429', fontWeight: 700 }}>{STATUS_LABEL[e.status] || e.status}</span>}
-              footer={
-                <>
-                  {e.driverNome && <div style={{ fontSize: 12, color: '#aaa', marginTop: 6 }}>🧑‍✈️ {e.driverNome} · {e.driverPlate} · {e.driverPhone}</div>}
-                  {open('e:' + e.id) && e.pedidos.map(p => (
-                    <a key={p.id} href={whatsLink(p, e)} target="_blank" rel="noreferrer" style={{ ...btn('#1f6b50', '#9ff0cf'), display: 'inline-block', textDecoration: 'none', fontSize: 11, padding: '4px 9px', marginTop: 4, marginRight: 4 }}>📲 {p.cliente.split(' ')[0]}</a>
-                  ))}
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                    <button onClick={() => run('s' + e.id, () => atualizarStatusEnvio(user.id, e.id), (r) => `Status: ${STATUS_LABEL[r.status] || r.status}`)} disabled={busy === 's' + e.id} style={btn('#2a2a2a', '#ccc')}>{busy === 's' + e.id ? '…' : '🔄 Atualizar'}</button>
-                    {e.shareLink && <button onClick={() => setMapaAberto(mapaAberto === e.id ? null : e.id)} style={btn(mapaAberto === e.id ? '#22b886' : '#2a2a2a', mapaAberto === e.id ? '#000' : '#ccc')}>🗺️ {mapaAberto === e.id ? 'Fechar' : 'Mapa'}</button>}
-                    <button onClick={() => { if (confirm('Cancelar este envio? Os pedidos voltam para "A organizar".')) run('c' + e.id, () => cancelarEnvio(user.id, e.id), (r) => `Cancelado (${r.lalamoveCancel})`) }} disabled={busy === 'c' + e.id} style={btn('#3a1f1f', '#f87171')}>{busy === 'c' + e.id ? '…' : '✕ Cancelar'}</button>
-                  </div>
-                </>
-              } />
+            <EnvioCard key={e.id} dia={e.dataEntrega} status={e.status} veiculo={e.veiculo} peds={e.pedidos} envio={e}
+              aberto={open('e:' + e.id)} onToggle={() => toggle('e:' + e.id)} {...comum}
+              acoes={<>
+                {e.shareLink && <button onClick={() => setMapaAberto(mapaAberto === e.id ? null : e.id)} style={btn(mapaAberto === e.id ? '#22b886' : '#1f3b33', mapaAberto === e.id ? '#000' : '#9ff0cf')}>🗺️ {mapaAberto === e.id ? 'Fechar mapa' : 'Mapa'}</button>}
+                <button onClick={() => run('s' + e.id, () => atualizarStatusEnvio(user.id, e.id), (r) => `Status: ${STATUS[r.status]?.nome || r.status}`)} disabled={busy === 's' + e.id} style={btn('#262626', '#ccc')}>{busy === 's' + e.id ? '…' : '🔄 Atualizar'}</button>
+                <button onClick={() => { if (confirm('Cancelar este envio? Os pedidos voltam para "A organizar".')) run('c' + e.id, () => cancelarEnvio(user.id, e.id), (r) => `Cancelado (${r.lalamoveCancel})`) }} disabled={busy === 'c' + e.id} style={btn('transparent', '#f87171')}>{busy === 'c' + e.id ? '…' : 'Cancelar'}</button>
+              </>} />
           ))}
         </div>
 
@@ -213,26 +269,31 @@ export default function Envios() {
           <div style={colTitle}>Finalizados · {finais.length}</div>
           {finais.length === 0 && <div style={{ color: '#555', fontSize: 13 }}>Vazio.</div>}
           {finais.map(e => (
-            <CardBase key={e.id} titulo={diaLabel(e.dataEntrega)} peds={e.pedidos} aberto={open('e:' + e.id)} onToggle={() => toggle('e:' + e.id)}
-              tag={<span style={{ fontSize: 11, color: e.status === 'COMPLETED' ? '#22b886' : '#f87171', fontWeight: 700 }}>{STATUS_LABEL[e.status] || e.status}</span>}
-              footer={e.pedidos.length > 0 && e.status !== 'COMPLETED' && (
-                <button onClick={() => run('r' + e.id, () => desfazerEnvio(e.id), 'Pedidos devolvidos para A organizar')} disabled={busy === 'r' + e.id} style={{ ...btn('#2a2a2a', '#ccc'), marginTop: 8 }}>{busy === 'r' + e.id ? '…' : '↩︎ Reabrir pedidos'}</button>
+            <EnvioCard key={e.id} dia={e.dataEntrega} status={e.status} veiculo={e.veiculo} peds={e.pedidos} envio={e}
+              aberto={open('e:' + e.id)} onToggle={() => toggle('e:' + e.id)} {...comum}
+              acoes={e.pedidos.length > 0 && e.status !== 'COMPLETED' && (
+                <button onClick={() => run('r' + e.id, () => desfazerEnvio(e.id), 'Pedidos devolvidos para A organizar')} disabled={busy === 'r' + e.id} style={btn('#262626', '#ccc')}>{busy === 'r' + e.id ? '…' : '↩︎ Reabrir pedidos'}</button>
               )} />
           ))}
         </div>
       </div>
 
-      {/* MAPA grande abaixo */}
+      {/* MAPA de rastreio */}
       {mapEnvio && (
-        <div style={{ marginTop: 14, background: '#141414', borderRadius: 14, padding: 12, height: '50vh', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <strong style={{ fontSize: 14 }}>🗺️ Rastreio · {diaLabel(mapEnvio.dataEntrega)} · {STATUS_LABEL[mapEnvio.status] || mapEnvio.status}</strong>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <a href={mapEnvio.shareLink} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#22b886' }}>abrir em nova aba ↗</a>
-              <button onClick={() => setMapaAberto(null)} style={btn('#2a2a2a', '#ccc')}>Fechar</button>
+        <div style={{ marginTop: 14, background: '#141414', border: '1px solid #262626', borderRadius: 16, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', flexWrap: 'wrap', borderBottom: '1px solid #262626' }}>
+            <span style={{ fontSize: 18 }}>🗺️</span>
+            <div style={{ flex: 1, minWidth: 160 }}>
+              <div style={{ fontWeight: 800, fontSize: 14.5 }}>Rastreio · {diaLabel(mapEnvio.dataEntrega)}</div>
+              <div style={{ fontSize: 12, color: '#8a8a8a', marginTop: 2 }}>
+                {mapEnvio.pedidos.map(p => p.cliente.split(' ')[0]).join(', ')}{mapEnvio.driverNome ? ` · 🧑‍✈️ ${mapEnvio.driverNome}` : ''}
+              </div>
             </div>
+            <StatusPill status={mapEnvio.status} />
+            <a href={mapEnvio.shareLink} target="_blank" rel="noreferrer" style={{ ...miniBtn, color: '#22b886' }}>Abrir ↗</a>
+            <button onClick={() => setMapaAberto(null)} style={miniBtn}>✕</button>
           </div>
-          <iframe src={mapEnvio.shareLink} title={`tracking-${mapEnvio.id}`} style={{ flex: 1, width: '100%', border: '1px solid #2a2a2a', borderRadius: 10 }} />
+          <iframe src={mapEnvio.shareLink} title={`tracking-${mapEnvio.id}`} style={{ display: 'block', width: '100%', height: '62vh', minHeight: 360, border: 'none', background: '#e5e5e5' }} />
         </div>
       )}
 

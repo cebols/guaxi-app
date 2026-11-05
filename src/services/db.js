@@ -2441,7 +2441,7 @@ const FINAIS = ['Entregue', 'Cancelado']
 export async function getPedidosParaAgrupar() {
   const { data, error } = await supabase
     .from('encomendas')
-    .select('id, cliente, contato, endereco, obs, valor, frete, data_entrega, entrega_lat, entrega_lng, entrega_frag, status, encomenda_itens(produto, quantidade)')
+    .select('id, cliente, contato, canal, endereco, obs, valor, frete, data_entrega, entrega_lat, entrega_lng, entrega_frag, status, pgto, encomenda_itens(produto, quantidade)')
     .eq('tipo_entrega', 'Entrega')
     .is('envio_id', null)
     .not('data_entrega', 'is', null)
@@ -2451,8 +2451,8 @@ export async function getPedidosParaAgrupar() {
   return (data || [])
     .filter(r => !FINAIS.includes(r.status))
     .map(r => ({
-      id: r.id, cliente: r.cliente, contato: r.contato || '', endereco: r.endereco || '',
-      obs: r.obs || '', valor: r.valor || 0, frete: r.frete || 0,
+      id: r.id, cliente: r.cliente, contato: r.contato || '', canal: r.canal || '', endereco: r.endereco || '',
+      obs: r.obs || '', valor: r.valor || 0, frete: r.frete || 0, status: r.status, pgto: r.pgto,
       dataEntrega: r.data_entrega, frag: r.entrega_frag || 'robusto',
       itens: (r.encomenda_itens || []).map(i => ({ produto: i.produto, quantidade: i.quantidade })),
     }))
@@ -2462,7 +2462,7 @@ export async function getPedidosParaAgrupar() {
 export async function getEnvios() {
   const { data, error } = await supabase
     .from('envios')
-    .select('*, encomendas(id, cliente, contato, endereco, obs, valor, frete, entrega_frag, encomenda_itens(produto, quantidade))')
+    .select('*, encomendas(id, cliente, contato, canal, endereco, obs, valor, frete, entrega_frag, status, pgto, encomenda_itens(produto, quantidade))')
     .order('data_entrega')
   if (error) throw error
   return (data || []).map(e => ({
@@ -2470,8 +2470,9 @@ export async function getEnvios() {
     orderId: e.order_id, shareLink: e.share_link, precoTotal: e.price_total || 0,
     driverNome: e.driver_nome, driverPhone: e.driver_phone, driverPlate: e.driver_plate,
     pedidos: (e.encomendas || []).map(p => ({
-      id: p.id, cliente: p.cliente, contato: p.contato || '', endereco: p.endereco || '',
+      id: p.id, cliente: p.cliente, contato: p.contato || '', canal: p.canal || '', endereco: p.endereco || '',
       obs: p.obs || '', valor: p.valor || 0, frete: p.frete || 0, frag: p.entrega_frag || 'robusto',
+      status: p.status, pgto: p.pgto,
       itens: (p.encomenda_itens || []).map(i => ({ produto: i.produto, quantidade: i.quantidade })),
     })),
   }))
@@ -2600,8 +2601,8 @@ export async function setBotPausado(telefone, pausado) {
 }
 
 // Sua resposta sai pelo número da Guaxí (Edge Function whatsapp-enviar)
-export async function enviarWhatsApp(telefone, texto) {
-  const { error } = await supabase.functions.invoke('whatsapp-enviar', { body: { telefone, texto } })
+export async function enviarWhatsApp(telefone, texto, { pausar = true } = {}) {
+  const { error } = await supabase.functions.invoke('whatsapp-enviar', { body: { telefone, texto, pausar } })
   if (error) {
     let msg = error.message
     try { const j = await error.context?.json(); if (j?.error) msg = j.error } catch { /* mantém a mensagem padrão */ }
@@ -2613,8 +2614,24 @@ export async function enviarWhatsApp(telefone, texto) {
 export async function getPedidosDoTelefone(telefone) {
   const fim = String(telefone || '').replace(/\D/g, '').slice(-8)
   if (fim.length < 8) return []
-  const { data } = await supabase.from('encomendas').select('id, status, pgto, data_entrega, valor, contato')
+  const { data } = await supabase.from('encomendas').select('id, status, pgto, data_entrega, valor, contato, tipo_entrega, envios(status, share_link)')
     .order('created_at', { ascending: false }).limit(300)
   return (data || []).filter(p => String(p.contato || '').replace(/\D/g, '').endsWith(fim)).slice(0, 5)
+    .map(p => ({ id: p.id, status: p.status, pgto: p.pgto, dataEntrega: p.data_entrega, valor: p.valor, tipoEntrega: p.tipo_entrega,
+      envioStatus: p.envios?.status || null, rastreio: p.envios?.share_link || null }))
 }
+
+// Contatos do Atendimento (pra ligar pedido ↔ conversa). Casa pelos últimos 8 dígitos.
+export async function getContatosAtendimento() {
+  const { data, error } = await supabase.from('atendimentos').select('telefone, nome, ultima_msg_cliente_em, bot_pausado')
+  if (error) return []
+  return (data || []).map(a => ({ telefone: a.telefone, nome: a.nome || '', ultimaMsgClienteEm: a.ultima_msg_cliente_em, botPausado: a.bot_pausado }))
+}
+export function acharContato(contatos, telefone) {
+  const fim = String(telefone || '').replace(/\D/g, '').slice(-8)
+  if (fim.length < 8) return null
+  return (contatos || []).find(c => c.telefone.endsWith(fim)) || null
+}
+// Dá pra mandar pelo número da Guaxí agora? (janela de 24h da Meta)
+export const janelaAberta = (contato) => !!contato?.ultimaMsgClienteEm && Date.now() - new Date(contato.ultimaMsgClienteEm).getTime() < 24 * 3600e3
 

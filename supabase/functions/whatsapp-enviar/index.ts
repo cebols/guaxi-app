@@ -1,6 +1,7 @@
 // Envia pelo WhatsApp da Guaxí uma mensagem escrita por você no app (tela Atendimento).
 // Exige login (verify_jwt) e só manda pra clientes do seu atendimento, dentro da
-// janela de 24h da Meta. Ao responder, você assume a conversa (o bot pausa).
+// janela de 24h da Meta. Ao responder, você assume a conversa (o bot pausa), a não
+// ser que mande pausar: false (avisos como o link de rastreio da entrega).
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const cors = {
@@ -23,7 +24,7 @@ Deno.serve(async (req: Request) => {
   const user = auth?.user
   if (!user) return json({ error: 'Faça login de novo' }, 401)
 
-  let body: { telefone?: string; texto?: string }
+  let body: { telefone?: string; texto?: string; pausar?: boolean }
   try { body = await req.json() } catch { return json({ error: 'Corpo inválido' }, 400) }
   const telefone = String(body.telefone || '').replace(/\D/g, '')
   const texto = String(body.texto || '').trim()
@@ -49,6 +50,9 @@ Deno.serve(async (req: Request) => {
 
   const agora = new Date().toISOString()
   await sb.from('agent_conversas').insert({ telefone, role: 'humano', conteudo: texto, user_id: user.id })
-  await sb.from('atendimentos').update({ bot_pausado: true, precisa_humano: false, ultima_msg_em: agora, lido_em: agora }).eq('telefone', telefone)
+  const upd = body.pausar === false
+    ? { ultima_msg_em: agora }
+    : { bot_pausado: true, precisa_humano: false, ultima_msg_em: agora, lido_em: agora }
+  await sb.from('atendimentos').update(upd).eq('telefone', telefone)
   return json({ ok: true })
 })
