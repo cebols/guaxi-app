@@ -684,7 +684,10 @@ function MontarSheet({ alvo, onClose, onDone }) {
   const etapas = etapasDoProduto(p)
   const chaveMem = `montagem_etapa_${p.id}`
   const [etapa, setEtapa] = useState(() => {
-    const salva = montado?.etapa || (() => { try { return localStorage.getItem(chaveMem) } catch { return null } })()
+    if (montado?.etapa) return montado.etapa
+    // com etapa de embalagem, o montado sempre começa "Sem embalagem"
+    if (etapas[0]?.key === 'embalar') return 'embalar'
+    const salva = (() => { try { return localStorage.getItem(chaveMem) } catch { return null } })()
     return etapas.some(e => e.key === salva) ? salva : (etapas[0]?.key || null)
   })
   const [salvando, setSalvando] = useState(false)
@@ -725,7 +728,7 @@ function MontarSheet({ alvo, onClose, onDone }) {
                 <button key={e.key} onClick={() => setEtapa(e.key)} style={{
                   flex: 1, minWidth: 90, padding: '10px 8px', borderRadius: 10, cursor: 'pointer', fontSize: 14, fontWeight: 700,
                   border: `1.5px solid ${on ? cor : '#333'}`, background: on ? `${cor}1f` : 'transparent', color: on ? cor : 'var(--text-secondary)',
-                }}>{e.local === 'freezer' ? '❄ ' : ''}{e.nome}</button>
+                }}>{e.local === 'freezer' ? '❄ ' : e.local === 'embalar' ? '📦 ' : ''}{e.nome}</button>
               )
             })}
           </div>

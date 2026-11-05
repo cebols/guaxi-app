@@ -738,8 +738,9 @@ async function movimentarComFluxo(id, delta, origem) {
   const { data: p, error } = await supabase.from('produtos').select('prontidao').eq('id', id).single()
   const f = !error && p?.prontidao?.fluxo
   if (!f || !FLUXOS[f]) return false
-  const keys = FLUXOS[f].etapas.map(e => e.key)
+  // etapas reais do produto (inclui "Sem embalagem" quando ligada)
   const etapas = etapasDoProduto({ id, prontidao: p.prontidao })
+  const keys = etapas.map(e => e.key)
   try {
     if (delta > 0) {
       // devolução volta pronta pro engatilho; etapa escolhida (montagem) entra já pronta
@@ -764,6 +765,34 @@ export async function moverProntidao(produtoId, de, para, n) {
   if (!(movido > 0)) throw new Error('Não tem nada nessa etapa pra mover')
   const criadoId = await inserirLote(produtoId, para, movido)
   return { produtoId, de, para, n: movido, consumidos, criadoId }
+}
+
+// Embalar: tira da etapa "Sem embalagem" pros destinos escolhidos e baixa as
+// embalagens do produto (ex: 1 saco autocolante por unidade) do estoque.
+// destinos: [{ etapa, qtd }]
+export async function embalarProduto(prod, destinos) {
+  const movs = []
+  for (const d of destinos) if (d.qtd > 0) movs.push(await moverProntidao(prod.id, 'embalar', d.etapa, d.qtd))
+  const n = movs.reduce((s, m) => s + m.n, 0)
+  const embalagens = []
+  for (const e of (prod.embalagens || [])) {
+    const q = (Number(e.quantidade) || 1) * n
+    if (e.embalagemId && q > 0 && await ajustarEstoqueEmbalagem(e.embalagemId, -q)) embalagens.push({ id: e.embalagemId, q })
+  }
+  return { movs, embalagens, n }
+}
+
+export async function desfazerEmbalar(info) {
+  for (const m of [...info.movs].reverse()) await desfazerMovimento(m)
+  for (const e of info.embalagens) await ajustarEstoqueEmbalagem(e.id, e.q)
+}
+
+// Só mexe se a embalagem tem estoque controlado (estoque_atual não nulo)
+async function ajustarEstoqueEmbalagem(id, delta) {
+  const { data } = await supabase.from('embalagens').select('estoque_atual').eq('id', id).single()
+  if (data?.estoque_atual == null) return false
+  const { error } = await supabase.from('embalagens').update({ estoque_atual: Math.max(0, Number(data.estoque_atual) + delta) }).eq('id', id)
+  return !error
 }
 
 export async function desfazerMovimento(mov) {
@@ -803,7 +832,7 @@ export async function setProdutoProntidao(prod, cfg) {
   if (error) throw error
   const f = cfg?.fluxo && FLUXOS[cfg.fluxo]
   if (!f) return
-  const keys = f.etapas.map(e => e.key)
+  const keys = etapasDoProduto({ ...prod, prontidao: cfg }).map(e => e.key)
   const { data: ls, error: e2 } = await supabase.from('prontidao_lotes').select('id, etapa').eq('produto_id', prod.id)
   if (e2) throw e2
   const orfaos = (ls || []).filter(l => !keys.includes(l.etapa)).map(l => l.id)

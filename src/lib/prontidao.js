@@ -10,7 +10,13 @@ export const LOCAL = {
   geladeira: { icon: '',  cor: '#2dd4bf', nome: 'geladeira' },
   ambiente:  { icon: '',  cor: '#f5b544', nome: 'ambiente' },
   pronto:    { icon: '',  cor: '#4ade80', nome: 'vitrine' },
+  embalar:   { icon: '📦', cor: '#c084fc', nome: 'sem embalagem' },
 }
+
+// Etapa opcional "Sem embalagem": porta de entrada dos produtos que embalam antes
+// de guardar (saco autocolante, base + cúpula). Não conta como pronto pra vender.
+const ETAPA_EMBALAR = { key: 'embalar', nome: 'Sem embalagem', local: 'embalar' }
+export const usaEmbalagem = (prod) => !!prod?.prontidao?.embalar && fluxoAtivo(prod) && fluxoAtivo(prod) !== 'choux'
 
 export const FLUXOS = {
   degelo: {
@@ -68,15 +74,16 @@ export function metaPadrao(prod) {
 export function sugerirConfig(prod) {
   const n = (prod?.nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   const meta = metaPadrao(prod)
-  if (/choux|chou\b/.test(n)) return { fluxo: 'choux', etapas: { reassadas: { meta: 6 }, vitrine: { meta: 3 } } }
-  if (/cookie/.test(n))       return { fluxo: 'assado', etapas: { degelo: { meta } } }
-  if (/cheesecake/.test(n))   return { fluxo: 'direto', noPedido: 'micro-ondas fraco 1 min + geleia' }
-  if (/bombo|bombom/.test(n)) return { fluxo: 'direto', noPedido: 'sai fechado, degela no trajeto' }
-  if (/barra/.test(n))        return { fluxo: 'degelo', etapas: { degelo: { meta, tempoH: 8, validadeH: 720 } } }
-  if (/tarte|torta/.test(n))  return { fluxo: 'degelo', etapas: { degelo: { meta, tempoH: 4, validadeH: 48 } } }
-  if (/mousse/.test(n))       return { fluxo: 'degelo', etapas: { degelo: { meta, tempoH: 3, validadeH: 48 } } }
-  if (/brownie/.test(n))      return { fluxo: 'degelo', etapas: { degelo: { meta, tempoH: 3, validadeH: 120 } } }
-  return { fluxo: 'degelo', etapas: { degelo: { meta } } }
+  if (/choux|chou\b/.test(n)) return { fluxo: 'choux', embalar: false, etapas: { reassadas: { meta: 6 }, vitrine: { meta: 3 } } }
+  if (/cookie/.test(n))       return { fluxo: 'assado', embalar: true, etapas: { degelo: { meta } } }
+  if (/cheesecake/.test(n))   return { fluxo: 'direto', embalar: false, noPedido: 'micro-ondas fraco 1 min + geleia' }
+  if (/bombo|bombom/.test(n)) return { fluxo: 'direto', embalar: true, noPedido: 'sai fechado, degela no trajeto' }
+  if (/barra/.test(n))        return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, tempoH: 8, validadeH: 720 } } }
+  if (/tarte|torta/.test(n))  return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, tempoH: 4, validadeH: 48 } } }
+  if (/entreme/.test(n))      return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, tempoH: 4, validadeH: 72 } } }
+  if (/mousse/.test(n))       return { fluxo: 'degelo', embalar: false, etapas: { degelo: { meta, tempoH: 3, validadeH: 48 } } }
+  if (/brownie/.test(n))      return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, tempoH: 3, validadeH: 120 } } }
+  return { fluxo: 'degelo', embalar: false, etapas: { degelo: { meta } } }
 }
 
 // Etapas do produto: as do fluxo + ajustes salvos (meta, tempo, validade)
@@ -84,7 +91,12 @@ export function etapasDoProduto(prod) {
   const f = fluxoAtivo(prod)
   if (!f) return []
   const over = prod.prontidao?.etapas || {}
-  const etapas = FLUXOS[f].etapas
+  let etapas = FLUXOS[f].etapas
+  if (usaEmbalagem(prod)) {
+    // cookie: depois de assar (sai da massa crua); os demais: logo na entrada
+    const pos = f === 'assado' ? 1 : 0
+    etapas = [...etapas.slice(0, pos), ETAPA_EMBALAR, ...etapas.slice(pos)]
+  }
   return etapas.map((e, i) => {
     const o = over[e.key] || {}
     const ultima = i === etapas.length - 1
@@ -100,8 +112,11 @@ export function etapasDoProduto(prod) {
   })
 }
 
-export const verboMover = (prod, de, para) =>
-  FLUXOS[fluxoAtivo(prod)]?.verbos?.[`${de}>${para}`] || 'Mover'
+export function verboMover(prod, de, para) {
+  if (de === 'embalar') return 'Embalar'
+  if (para === 'embalar' && de === 'cru') return 'Assar'
+  return FLUXOS[fluxoAtivo(prod)]?.verbos?.[`${de}>${para}`] || 'Mover'
+}
 
 const H = 3600 * 1000
 
@@ -154,6 +169,15 @@ export function analisarProduto(prod, lotes, agora = Date.now(), reservado = 0) 
   if (det.length === 1) falta = Math.max(0, reservado - (det[0].prontos + det[0].pendentes))
   const total = det.reduce((s, e) => s + e.qtd - e.vencidos, 0)
   const abaixoMin = prod.estoqueMin > 0 && total - reservado < prod.estoqueMin
+  const iEmb = det.findIndex(e => e.key === 'embalar')
+  if (iEmb >= 0 && iEmb < det.length - 1) {
+    const semEmb = det[iEmb].prontos + det[iEmb].pendentes
+    if (semEmb > 0) {
+      const ja = movs.find(m => m.de === 'embalar')
+      if (ja) ja.n = semEmb
+      else movs.push({ tipo: 'mover', de: 'embalar', para: det[iEmb + 1].key, n: semEmb, verbo: 'Embalar' })
+    }
+  }
   // Ordem do trabalho: descartar vencidos → mover (do freezer pra frente) → produzir
   const sugestoes = [
     ...det.filter(e => e.vencidos > 0).map(e => ({ tipo: 'vencidos', etapa: e.key, n: e.vencidos })),
@@ -168,8 +192,10 @@ export function analisarProduto(prod, lotes, agora = Date.now(), reservado = 0) 
   let status, rotulo
   if (vendaveis <= 0) {
     status = 'pausar'
+    const semEmb = det.find(e => e.key === 'embalar')
     rotulo = eng.prontos > 0 && reservado > 0 ? 'Tudo reservado'
-      : eng.pendentes > 0 && eng.proxPronto ? `Pronto às ${hhmm(eng.proxPronto)}` : 'Pausar'
+      : eng.pendentes > 0 && eng.proxPronto ? `Pronto às ${hhmm(eng.proxPronto)}`
+      : semEmb && semEmb.qtd - semEmb.vencidos > 0 ? 'Falta embalar' : 'Pausar'
   } else if (sugestoes.length || det.some(e => e.venceLogo > 0)) {
     status = 'atencao'; rotulo = 'Atenção'
   } else {
