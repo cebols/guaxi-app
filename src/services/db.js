@@ -440,6 +440,7 @@ export async function getProdutos() {
       ativo:        r.ativo ?? true,
       fornada:      r.fornada ?? null,
       prontidao:    r.prontidao ?? null,
+      midias:       Array.isArray(r.midias) ? r.midias : null,
       margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
       imagemUrl:   r.imagem_url || null,
       receitas:    (r.composicao?.receitas    || []),
@@ -470,6 +471,7 @@ export async function getProdutos() {
     ativo:        r.ativo ?? true,
     fornada:      r.fornada ?? null,
     prontidao:    r.prontidao ?? null,
+    midias:       Array.isArray(r.midias) ? r.midias : null,
     margemAlvo:   r.margem_alvo ?? r.composicao?.margemAlvo ?? null,
     imagemUrl:   r.imagem_url || null,
     componentes: (r.composicao?.componentes || []),
@@ -535,7 +537,8 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     preco_direta:   toNum(prod.precoDireta),
     preco_99:       toNum(prod.preco99),
     preco_ifood:    toNum(prod.precoIfood),
-    estoque_atual:  prod.estoqueAtual !== '' && prod.estoqueAtual != null ? parseFloat(prod.estoqueAtual) : null,
+    // undefined = não mexe (produto acompanhado no Prontidão: o estoque é a soma das etapas)
+    estoque_atual:  prod.estoqueAtual === undefined ? undefined : (prod.estoqueAtual !== '' && prod.estoqueAtual != null ? parseFloat(prod.estoqueAtual) : null),
     estoque_min:    parseFloat(prod.estoqueMin) || 0,
     margem_alvo:    prod.margemAlvo != null && prod.margemAlvo !== '' ? parseFloat(prod.margemAlvo) : null,
     imagem_url:     prod.imagemUrl ?? undefined,
@@ -543,10 +546,11 @@ export async function saveProduto(prod, receitaItems = [], embalagemItems = []) 
     secao:          prod.secao     ?? undefined,
     ativo:          prod.ativo === undefined ? undefined : !!prod.ativo,
     fornada:        prod.fornada === undefined ? undefined : (parseInt(prod.fornada) > 0 ? parseInt(prod.fornada) : null),
+    midias:         Array.isArray(prod.midias) ? prod.midias : undefined,
   }
 
   const saved = await upsert('produtos', row, prod.id || null,
-    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fragilidade', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'estoque_atual', 'margem_alvo', 'imagem_url', 'ativo', 'fornada'])
+    ['preco_direta', 'preco_99', 'preco_ifood', 'custo_direto', 'tipo', 'fragilidade', 'fornecedor', 'whatsapp', 'link_compra', 'estoque_min', 'estoque_atual', 'margem_alvo', 'imagem_url', 'ativo', 'fornada', 'midias'])
   const prodId = prod.id || saved.id
 
   // Always save composicao JSON as backup (works even without junction tables)
@@ -2284,36 +2288,58 @@ export async function getCardapioPublico(id) {
 
 export async function getPublicProdutos(userId) {
   const base = 'id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo, secao'
-  // Tenta com colunas novas (fragilidade, ativo); se ainda não existirem, cai pro básico
+  // Tenta com colunas novas; se ainda não existirem no banco, cai pro básico
   let data, error
-  for (const cols of [`${base}, fragilidade, ativo`, `${base}, fragilidade`, base]) {
-    ;({ data, error } = await supabase
-      .from('produtos')
-      .select(cols)
-      .eq('user_id', userId)
-      .gt('estoque_atual', 0)
-      .order('nome'))
+  for (const cols of [`${base}, fragilidade, ativo, midias`, `${base}, fragilidade, ativo`, `${base}, fragilidade`, base]) {
+    ;({ data, error } = await supabase.from('produtos').select(cols).eq('user_id', userId).order('nome'))
     if (!error) break
   }
   if (error) throw error
-  // Disponível = pronto no engatilho (Prontidão) − reservado por pedidos abertos.
-  // Se a função ainda não existir no banco, cai no estoque total.
+  // Disponível = pronto no engatilho − reservado; a caminho = nas etapas anteriores.
+  // Sem a função no banco, cai no estoque total (e esconde os zerados, como antes).
   let disp = null
   const { data: dd, error: de } = await supabase.rpc('produtos_disponiveis', { p_user_id: userId })
-  if (!de && Array.isArray(dd)) disp = Object.fromEntries(dd.map(x => [Number(x.produto_id), Number(x.disponivel) || 0]))
+  if (!de && Array.isArray(dd)) disp = Object.fromEntries(dd.map(x => [Number(x.produto_id), { d: Number(x.disponivel) || 0, c: Number(x.a_caminho) || 0 }]))
   return (data || [])
-    .filter(r => r.ativo !== false && (disp ? (disp[Number(r.id)] || 0) > 0 : true))
-    .map(r => ({
-    id: r.id,
-    nome: r.nome,
-    descricao: r.descricao || '',
-    precoDireta: r.preco_direta,
-    estoqueAtual: disp ? disp[Number(r.id)] : r.estoque_atual,
-    imagemUrl: r.imagem_url || null,
-    tipo: r.tipo || 'produto',
-    secao: r.secao || '',
-    fragilidade: r.fragilidade || 'robusto',
-  }))
+    .filter(r => r.ativo !== false && r.tipo !== 'combo' && r.preco_direta > 0)
+    .map(r => {
+      const info = disp ? disp[Number(r.id)] : null
+      const disponivel = disp ? (info?.d || 0) : (r.estoque_atual || 0)
+      return {
+        id: r.id,
+        nome: r.nome,
+        descricao: r.descricao || '',
+        precoDireta: r.preco_direta,
+        estoqueAtual: disponivel,
+        aCaminho: info?.c || 0,
+        esgotado: !(disponivel > 0),
+        imagemUrl: r.imagem_url || null,
+        midias: Array.isArray(r.midias) && r.midias.length ? r.midias : (r.imagem_url ? [{ tipo: 'imagem', url: r.imagem_url }] : []),
+        tipo: r.tipo || 'produto',
+        secao: r.secao || '',
+        fragilidade: r.fragilidade || 'robusto',
+      }
+    })
+    .filter(p => disp || !p.esgotado)
+}
+
+// "Avise-me quando voltar" — o cliente deixa nome e WhatsApp (sem login)
+export async function registrarInteresse(userId, produtoId, nome, telefone) {
+  const { error } = await supabase.rpc('registrar_interesse', { p_user_id: userId, p_produto_id: produtoId, p_nome: nome || '', p_telefone: telefone })
+  if (error) throw error
+}
+
+export async function getInteresses() {
+  const { data, error } = await supabase.from('interesses').select('id, produto_id, nome, telefone, created_at, avisado_em')
+    .is('avisado_em', null).order('created_at')
+  if (error) return []   // tabela ainda não criada
+  return (data || []).map(i => ({ id: i.id, produtoId: Number(i.produto_id), nome: i.nome || '', telefone: i.telefone, createdAt: i.created_at }))
+}
+
+export async function marcarInteressesAvisados(ids) {
+  if (!ids?.length) return
+  const { error } = await supabase.from('interesses').update({ avisado_em: new Date().toISOString() }).in('id', ids)
+  if (error) throw error
 }
 
 export async function getPublicDeliveryConfig(userId) {

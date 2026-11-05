@@ -76,7 +76,28 @@ function TipoBadge({ tipo }) {
   return <span style={{ marginLeft: 6, fontSize: 10, background: b.bg, color: b.color, borderRadius: 4, padding: '1px 5px', verticalAlign: 'middle' }}>{b.label}</span>
 }
 
-const CROP_ASPECT = 4 / 3
+// Lê duração e tira a capa (1º quadro) de um vídeo local, sem enviar nada
+function lerVideo(src) {
+  return new Promise((resolve) => {
+    const v = document.createElement('video')
+    v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = src
+    const fim = (poster) => resolve({ duracao: Number.isFinite(v.duration) ? v.duration : 0, poster })
+    const t = setTimeout(() => fim(null), 8000)
+    v.onloadeddata = () => { try { v.currentTime = Math.min(0.5, (v.duration || 1) / 2) } catch { clearTimeout(t); fim(null) } }
+    v.onseeked = () => {
+      try {
+        const esc = Math.min(1, 720 / Math.max(v.videoWidth, v.videoHeight, 1))
+        const c = document.createElement('canvas')
+        c.width = Math.round(v.videoWidth * esc); c.height = Math.round(v.videoHeight * esc)
+        c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
+        c.toBlob(b => { clearTimeout(t); fim(b) }, 'image/jpeg', 0.85)
+      } catch { clearTimeout(t); fim(null) }
+    }
+    v.onerror = () => { clearTimeout(t); fim(null) }
+  })
+}
+
+const CROP_ASPECT = 4 / 5   // foto vertical, igual ao cartão do cardápio online
 
 async function cropToBlob(imgEl, pixelCrop) {
   const scaleX = imgEl.naturalWidth / imgEl.width
@@ -150,7 +171,7 @@ function OrganizarCardapioSheet({ produtos, onSave, onClose }) {
   )
 }
 
-const FORM_EMPTY = { nome: '', tipo: 'produto', fragilidade: 'robusto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueAtual: '', estoqueMin: '', fornada: '', margemAlvo: null, imagemUrl: '', ativo: false }
+const FORM_EMPTY = { nome: '', tipo: 'produto', fragilidade: 'robusto', secao: '', descricao: '', custoDireto: '', fornecedor: '', whatsapp: '', linkCompra: '', precoDireta: '', preco99: '', precoIfood: '', estoqueAtual: '', estoqueMin: '', fornada: '', margemAlvo: null, imagemUrl: '', midias: [], ativo: false }
 
 function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedoresList, onSave, onDelete, onClose, hasPrev, hasNext, onPrev, onNext, navLabel }) {
   const [form, setForm] = useState(item
@@ -172,6 +193,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
         fornada:     item.fornada     ?? '',
         margemAlvo:  item.margemAlvo ?? null,
         imagemUrl:   item.imagemUrl   || '',
+        midias:      Array.isArray(item.midias) ? item.midias : (item.imagemUrl ? [{ tipo: 'imagem', url: item.imagemUrl }] : []),
         ativo:       item.ativo ?? true,
       }
     : { ...FORM_EMPTY }
@@ -222,7 +244,8 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
       const blob = await cropToBlob(cropImgRef.current, completedCrop)
       const path = `produtos/${Date.now()}.jpg`
       const url = await uploadImage(path, new File([blob], 'crop.jpg', { type: 'image/jpeg' }))
-      set('imagemUrl', url)
+      // nova foto entra na galeria do cardápio (a primeira é a capa)
+      setForm(f => ({ ...f, midias: [...(f.midias || []), { tipo: 'imagem', url }] }))
       URL.revokeObjectURL(cropSrc)
       setCropSrc(null)
     } catch (e) {
@@ -233,6 +256,36 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
   }
 
   const handleImgUpload = (file) => { if (file) openCrop(file) }
+
+  // Vídeo curto (sem som, em loop no cardápio). Gera a capa a partir do 1º quadro.
+  const handleVideoUpload = async (file) => {
+    if (!file) return
+    if (file.size > 45 * 1024 * 1024) { alert('Vídeo grande demais (máx. 45 MB). Corta um trecho menor.'); return }
+    setUploadingImg(true)
+    try {
+      const local = URL.createObjectURL(file)
+      const { duracao, poster } = await lerVideo(local)
+      URL.revokeObjectURL(local)
+      if (duracao > 30) { alert('Use um vídeo de até 30 segundos — ele toca em loop no cardápio.'); return }
+      const ext = (file.name.split('.').pop() || 'mp4').toLowerCase()
+      const url = await uploadImage(`produtos/videos/${Date.now()}.${ext}`, file)
+      const posterUrl = poster ? await uploadImage(`produtos/${Date.now()}-poster.jpg`, new File([poster], 'poster.jpg', { type: 'image/jpeg' })) : null
+      setForm(f => ({ ...f, midias: [...(f.midias || []), { tipo: 'video', url, poster: posterUrl }] }))
+    } catch (e) {
+      alert('Erro ao enviar vídeo: ' + e.message)
+    } finally {
+      setUploadingImg(false)
+    }
+  }
+  const moverMidia = (i, d) => setForm(f => {
+    const m = [...(f.midias || [])]; const j = i + d
+    if (j < 0 || j >= m.length) return f
+    ;[m[i], m[j]] = [m[j], m[i]]
+    return { ...f, midias: m }
+  })
+  const removerMidia = (i) => setForm(f => ({ ...f, midias: (f.midias || []).filter((_, k) => k !== i) }))
+  const capaDe = (m) => { const c = (m || [])[0]; return c ? (c.tipo === 'video' ? (c.poster || '') : c.url) : '' }
+  const temFluxo = !!item?.prontidao?.fluxo && item.prontidao.fluxo !== 'nenhum'
 
   const isAvulso = form.tipo === 'avulso'
   const isCombo  = form.tipo === 'combo'
@@ -318,7 +371,12 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
     const recItems    = isAvulso || isCombo ? [] : recRowsLive.filter(r => r.receitaId)
     const embItems    = isAvulso || isCombo ? [] : embRows.filter(e => e.embalagemId)
     const componentes = isCombo ? comboRows.filter(r => r.produtoId) : []
-    return [{ ...form, id: item?.id, precoSugerido: precos.base, componentes }, recItems, embItems]
+    const midias = form.midias || []
+    return [{
+      ...form, id: item?.id, precoSugerido: precos.base, componentes, midias,
+      imagemUrl: capaDe(midias),                                   // capa = 1ª mídia
+      ...(temFluxo ? { estoqueAtual: undefined } : {}),            // estoque vem do Prontidão
+    }, recItems, embItems]
   }
 
   const doSilentSave = async () => {
@@ -421,7 +479,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
             {/* Foto + Nome */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
               <div style={{ position: 'relative', flexShrink: 0 }}>
-                <ItemThumb url={form.imagemUrl} nome={form.nome || '?'} size={56} radius={10} />
+                <ItemThumb url={capaDe(form.midias) || form.imagemUrl} nome={form.nome || '?'} size={56} radius={10} />
                 <label style={{
                   position: 'absolute', inset: 0, borderRadius: 10, cursor: 'pointer',
                   background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -435,6 +493,38 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                 <div style={fieldLabel}>Nome *</div>
                 <input className="field-input" style={{ marginBottom: 0 }} placeholder="ex: Choux Craquelin" value={form.nome} onChange={e => set('nome', e.target.value)} />
               </div>
+            </div>
+
+            {/* Fotos e vídeos do cardápio online */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={fieldLabel}>Fotos e vídeos do cardápio <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>· a 1ª é a capa</span></div>
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+                {(form.midias || []).map((m, i) => (
+                  <div key={m.url + i} style={{ width: 72, flexShrink: 0 }}>
+                    <div style={{ position: 'relative', width: 72, height: 90, borderRadius: 9, overflow: 'hidden', background: 'var(--bg-input)', border: i === 0 ? '2px solid var(--teal)' : '1px solid var(--border-light-color)' }}>
+                      {m.tipo === 'video'
+                        ? (m.poster ? <img src={m.poster} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <video src={m.url} muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />)
+                        : <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                      {m.tipo === 'video' && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 9, fontWeight: 800, background: 'rgba(0,0,0,.6)', color: '#fff', borderRadius: 5, padding: '1px 5px' }}>▶</span>}
+                      {i === 0 && <span style={{ position: 'absolute', bottom: 4, left: 4, fontSize: 9, fontWeight: 800, background: 'var(--teal)', color: '#fff', borderRadius: 5, padding: '1px 5px' }}>capa</span>}
+                      <button onClick={() => removerMidia(i)} aria-label="Remover" style={{ position: 'absolute', top: 3, right: 3, width: 20, height: 20, borderRadius: 10, border: 'none', background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 12, cursor: 'pointer', lineHeight: 1 }}>×</button>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
+                      <button onClick={() => moverMidia(i, -1)} disabled={i === 0} style={{ background: 'none', border: 'none', color: i === 0 ? 'var(--text-tertiary)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, padding: '0 6px' }}>‹</button>
+                      <button onClick={() => moverMidia(i, 1)} disabled={i === form.midias.length - 1} style={{ background: 'none', border: 'none', color: i === form.midias.length - 1 ? 'var(--text-tertiary)' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 14, padding: '0 6px' }}>›</button>
+                    </div>
+                  </div>
+                ))}
+                <label style={{ width: 72, height: 90, flexShrink: 0, borderRadius: 9, border: '1px dashed var(--teal)', color: 'var(--teal)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  <span style={{ fontSize: 18 }}>📷</span>+ Foto
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { handleImgUpload(e.target.files[0]); e.target.value = '' }} />
+                </label>
+                <label style={{ width: 72, height: 90, flexShrink: 0, borderRadius: 9, border: '1px dashed var(--teal)', color: 'var(--teal)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  <span style={{ fontSize: 18 }}>{uploadingImg ? '⏳' : '🎬'}</span>+ Vídeo
+                  <input type="file" accept="video/*" style={{ display: 'none' }} onChange={e => { handleVideoUpload(e.target.files[0]); e.target.value = '' }} />
+                </label>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>Vídeo até 30 s — toca sem som e em loop no cardápio. Salve o produto pra publicar.</div>
             </div>
 
             {/* No cardápio */}
@@ -731,10 +821,11 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
 
             {/* Estoque atual e mínimo */}
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Estoque atual</span>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Estoque atual{temFluxo ? ' · conte no Prontidão' : ''}</span>
               <input type="text" inputMode="decimal"
                 placeholder="—"
                 value={form.estoqueAtual}
+                disabled={temFluxo}
                 onChange={e => set('estoqueAtual', e.target.value)}
                 style={{
                   padding: '6px 14px', borderRadius: 6, background: 'var(--bg-input)',
@@ -1116,11 +1207,12 @@ export default function Produtos() {
             <button
               onClick={() => {
                 const url = `${window.location.origin}/pedido/${user?.id}`
-                navigator.clipboard.writeText(url).then(() => show('Link copiado!')).catch(() => show(url))
+                if (navigator.share) { navigator.share({ title: 'Guaxí Pâtisserie', url }).catch(() => {}); return }
+                navigator.clipboard.writeText(url).then(() => show('Link do cardápio copiado!')).catch(() => show(url))
               }}
               style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
             >
-              🔗 LinkForm
+              🔗 Cardápio online
             </button>
             <button onClick={() => setSheet({ type: 'produto' })} style={{ background: 'var(--teal)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               + Novo

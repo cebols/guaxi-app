@@ -708,8 +708,9 @@ ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS estoque_baixado boolean NOT NULL
 
 -- Disponível pra venda nova = pronto no engatilho − reservado (pedidos abertos até amanhã).
 -- Engatilho por fluxo espelha src/lib/prontidao.js (FLUXOS) — manter em sincronia.
+DROP FUNCTION IF EXISTS public.produtos_disponiveis(uuid);
 CREATE OR REPLACE FUNCTION public.produtos_disponiveis(p_user_id uuid)
-RETURNS TABLE(produto_id bigint, disponivel numeric)
+RETURNS TABLE(produto_id bigint, disponivel numeric, a_caminho numeric)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   WITH eng AS (
     SELECT p.id, p.estoque_atual,
@@ -722,7 +723,10 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     SELECT e.id,
       CASE WHEN e.etapa IS NULL THEN coalesce(e.estoque_atual, 0)
            ELSE coalesce((SELECT sum(l.qtd) FROM prontidao_lotes l WHERE l.produto_id = e.id AND l.etapa = e.etapa), 0)
-      END AS qtd
+      END AS qtd,
+      CASE WHEN e.etapa IS NULL THEN 0
+           ELSE coalesce((SELECT sum(l.qtd) FROM prontidao_lotes l WHERE l.produto_id = e.id AND l.etapa <> e.etapa), 0)
+      END AS caminho
     FROM eng e
   ), reservado AS (
     SELECT i.produto_id AS id, sum(i.quantidade) AS qtd
@@ -731,9 +735,38 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
       AND (en.data_entrega IS NULL OR en.data_entrega <= (now() AT TIME ZONE 'America/Sao_Paulo')::date + 1)
     GROUP BY i.produto_id
   )
-  SELECT pr.id, greatest(0, pr.qtd - coalesce(r.qtd, 0)) FROM pronto pr LEFT JOIN reservado r ON r.id = pr.id
+  SELECT pr.id, greatest(0, pr.qtd - coalesce(r.qtd, 0)), pr.caminho FROM pronto pr LEFT JOIN reservado r ON r.id = pr.id
 $$;
 GRANT EXECUTE ON FUNCTION public.produtos_disponiveis TO anon, authenticated;
+
+-- ── Cardápio online: várias fotos/vídeos por produto ──────────────────────────
+-- midias = [{ tipo: 'imagem'|'video', url, poster? }]; imagem_url segue como a capa.
+ALTER TABLE produtos ADD COLUMN IF NOT EXISTS midias jsonb;
+
+-- ── "Avise-me quando voltar" ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS interesses (
+  id          bigserial primary key,
+  user_id     uuid references auth.users(id) on delete cascade,
+  produto_id  bigint references produtos(id) on delete cascade,
+  nome        text,
+  telefone    text not null,
+  created_at  timestamptz default now(),
+  avisado_em  timestamptz
+);
+ALTER TABLE interesses ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own_data" ON interesses;
+CREATE POLICY "own_data" ON interesses FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+-- Cliente (sem login) registra interesse; ignora repetido do mesmo telefone ainda não avisado
+CREATE OR REPLACE FUNCTION public.registrar_interesse(p_user_id uuid, p_produto_id bigint, p_nome text, p_telefone text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM produtos WHERE id = p_produto_id AND user_id = p_user_id) THEN RAISE EXCEPTION 'produto inválido'; END IF;
+  IF coalesce(trim(p_telefone), '') = '' THEN RAISE EXCEPTION 'telefone obrigatório'; END IF;
+  IF EXISTS (SELECT 1 FROM interesses WHERE produto_id = p_produto_id AND telefone = p_telefone AND avisado_em IS NULL) THEN RETURN; END IF;
+  INSERT INTO interesses (user_id, produto_id, nome, telefone) VALUES (p_user_id, p_produto_id, left(p_nome, 80), left(p_telefone, 30));
+END $$;
+GRANT EXECUTE ON FUNCTION public.registrar_interesse TO anon, authenticated;
 
 -- ── Limpeza: receitas de tutorial/seed sem user_id ────────────────────────────
 -- Se uma receita existe com user_id NULL (inserida como demo global), a policy

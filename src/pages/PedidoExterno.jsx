@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig } from '../services/db'
+import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig, registrarInteresse } from '../services/db'
 
 const fmtR = (v) =>
   Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -24,8 +24,8 @@ function CheckAnim() {
       `}</style>
       <g className="check-wrap">
         <circle className="check-circle" cx="26" cy="26" r="25"
-          fill="none" stroke="#22b886" strokeWidth="2" />
-        <path className="check-mark" fill="none" stroke="#22b886"
+          fill="none" stroke="#185D9C" strokeWidth="2" />
+        <path className="check-mark" fill="none" stroke="#185D9C"
           strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"
           d="M14 27l8 8 16-16" />
       </g>
@@ -33,79 +33,201 @@ function CheckAnim() {
   )
 }
 
-// ── Product card ──────────────────────────────────────────────
-function ProdutoCard({ produto, qtd, onAdd, onRemove }) {
+// ── Identidade Guaxí ──────────────────────────────────────────
+const C = { rosa: '#FBDAE1', azul: '#185D9C', azulEsc: '#0E3C68', azulClaro: '#E3EDF7', creme: '#FFF9F7', tinta: '#1D2B3A', tinta2: '#5B6878', linha: '#EBCDD5' }
+const FONTE = 'Figtree, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+const SERIF = '"Cormorant Garamond", Georgia, "Times New Roman", serif'
+const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
+
+function useFontesMarca() {
+  useEffect(() => {
+    if (document.getElementById('fontes-guaxi')) return
+    const l = document.createElement('link')
+    l.id = 'fontes-guaxi'; l.rel = 'stylesheet'
+    l.href = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Figtree:wght@400;500;600;700;800&display=swap'
+    document.head.appendChild(l)
+  }, [])
+}
+
+// Dados do cliente guardados só neste aparelho (não precisa digitar de novo)
+const CHAVE_CLIENTE = 'guaxi_cliente'
+export const lerCliente = () => { try { return JSON.parse(localStorage.getItem(CHAVE_CLIENTE) || '{}') } catch { return {} } }
+export const salvarCliente = (d) => { try { localStorage.setItem(CHAVE_CLIENTE, JSON.stringify({ ...lerCliente(), ...d })) } catch {} }
+
+const fmtTel = (v) => {
+  const d = v.replace(/\D/g, '').slice(0, 11)
+  if (d.length > 7) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+  if (d.length > 2) return `(${d.slice(0, 2)}) ${d.slice(2)}`
+  return d
+}
+
+// Vídeo que só toca quando está na tela (economiza dado no 4G)
+function VideoLoop({ src, poster, style }) {
+  const ref = useRef(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver(([e]) => { if (e.isIntersecting) el.play().catch(() => {}); else el.pause() }, { threshold: 0.4 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [src])
+  return <video ref={ref} src={src} poster={poster || undefined} muted loop playsInline preload="metadata" style={style} />
+}
+
+// Carrossel de fotos/vídeos com bolinhas (arrasta pro lado)
+function Midias({ midias, nome, aspect = '4 / 5', radius = 0, onIndex }) {
+  const [idx, setIdx] = useState(0)
+  const ref = useRef(null)
+  const lista = midias?.length ? midias : [null]
+  const onScroll = () => {
+    const el = ref.current
+    if (!el) return
+    const i = Math.round(el.scrollLeft / el.clientWidth)
+    if (i !== idx) { setIdx(i); onIndex?.(i) }
+  }
+  const cover = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' }
   return (
-    <div style={{
-      background: 'var(--bg-card)',
-      border: '1px solid #2a2a2a',
-      borderRadius: 14,
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column',
-    }}>
-      {/* Photo */}
-      <div style={{ position: 'relative', paddingTop: '50%', background: '#1a1a1a', flexShrink: 0 }}>
-        {produto.imagemUrl ? (
-          <img
-            src={produto.imagemUrl}
-            alt={produto.nome}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        ) : (
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 40, color: '#333',
-          }}>🍫</div>
-        )}
-        {produto.estoqueAtual != null && (
-          <div style={{
-            position: 'absolute', top: 8, right: 8,
-            background: 'rgba(0,0,0,.7)', borderRadius: 6,
-            fontSize: 10, fontWeight: 700, padding: '2px 7px',
-            color: produto.estoqueAtual <= 3 ? '#f59e0b' : '#999',
-          }}>
-            {produto.estoqueAtual <= 3 ? `⚠ Últimas ${produto.estoqueAtual}` : `${produto.estoqueAtual} un`}
+    <div style={{ position: 'relative', aspectRatio: aspect, background: C.rosa, borderRadius: radius, overflow: 'hidden' }}>
+      <div ref={ref} onScroll={onScroll} style={{ display: 'flex', width: '100%', height: '100%', overflowX: lista.length > 1 ? 'auto' : 'hidden', scrollSnapType: 'x mandatory', scrollbarWidth: 'none' }}>
+        {lista.map((m, i) => (
+          <div key={i} style={{ flex: '0 0 100%', height: '100%', scrollSnapAlign: 'start' }}>
+            {!m ? (
+              <div style={{ ...cover, display: 'grid', placeItems: 'center' }}><img src="/brand/guaxinim.png" alt="" style={{ width: '45%', opacity: 0.35 }} /></div>
+            ) : m.tipo === 'video' ? (
+              <VideoLoop src={m.url} poster={m.poster} style={cover} />
+            ) : (
+              <img src={m.url} alt={nome} loading="lazy" style={cover} />
+            )}
           </div>
+        ))}
+      </div>
+      {lista.some(m => m?.tipo === 'video') && (
+        <span style={{ position: 'absolute', top: 8, left: 8, fontSize: 10.5, fontWeight: 800, padding: '3px 8px', borderRadius: 99, background: 'rgba(255,255,255,.92)', color: C.azulEsc }}>▶ vídeo</span>
+      )}
+      {lista.length > 1 && (
+        <div style={{ position: 'absolute', bottom: 7, left: 0, right: 0, display: 'flex', gap: 4, justifyContent: 'center', pointerEvents: 'none' }}>
+          {lista.map((_, i) => <i key={i} style={{ width: i === idx ? 12 : 5, height: 5, borderRadius: 3, background: i === idx ? '#fff' : 'rgba(255,255,255,.6)', transition: 'width .2s' }} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProdutoCard({ produto, qtd, onAdd, onRemove, onAbrir }) {
+  const esg = produto.esgotado
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: `0 1px 0 ${C.linha}, 0 6px 14px rgba(14,60,104,.06)`, display: 'flex', flexDirection: 'column' }}>
+      <div onClick={onAbrir} style={{ position: 'relative', cursor: 'pointer', opacity: esg ? 0.55 : 1, filter: esg ? 'grayscale(.35)' : 'none' }}>
+        <Midias midias={produto.midias} nome={produto.nome} />
+        {!esg && produto.estoqueAtual > 0 && produto.estoqueAtual <= 3 && (
+          <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 10.5, fontWeight: 800, padding: '3px 8px', borderRadius: 99, background: 'rgba(255,255,255,.92)', color: C.azulEsc }}>Últimas {produto.estoqueAtual}</span>
+        )}
+        {esg && (
+          <span style={{ position: 'absolute', left: 8, right: 8, bottom: 8, textAlign: 'center', fontSize: 11.5, fontWeight: 800, color: C.azulEsc, background: 'rgba(255,255,255,.94)', borderRadius: 8, padding: '4px' }}>
+            {produto.aCaminho > 0 ? 'volta em breve' : 'esgotado'}
+          </span>
         )}
       </div>
-
-      {/* Info */}
-      <div style={{ padding: '10px 12px 12px', flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>{produto.nome}</div>
+      <div style={{ padding: '9px 10px 10px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+        <div onClick={onAbrir} style={{ cursor: 'pointer', fontFamily: SERIF, fontWeight: 700, fontSize: 17, lineHeight: 1.08, color: C.azulEsc }}>{produto.nome}</div>
         {produto.descricao && (
-          <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{produto.descricao}</div>
+          <div style={{ fontSize: 11.5, color: C.tinta2, marginTop: 3, lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{produto.descricao}</div>
         )}
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal)', marginTop: 'auto', paddingTop: 4 }}>
-          {fmtR(produto.precoDireta)}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 8, gap: 6 }}>
+          <b style={{ fontSize: 15, fontWeight: 800, color: C.tinta }}>{fmtR(produto.precoDireta)}</b>
+          {esg ? (
+            <button onClick={onAbrir} style={{ border: `1.5px solid ${C.azul}`, background: 'transparent', color: C.azul, borderRadius: 99, padding: '5px 10px', fontSize: 11.5, fontWeight: 800, cursor: 'pointer', fontFamily: FONTE }}>Avise-me</button>
+          ) : qtd === 0 ? (
+            <button onClick={onAdd} aria-label={`Adicionar ${produto.nome}`} style={{ width: 34, height: 34, borderRadius: '50%', border: 'none', background: C.azul, color: '#fff', fontSize: 21, fontWeight: 700, lineHeight: 1, cursor: 'pointer' }}>+</button>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', background: C.azulClaro, borderRadius: 99 }}>
+              <button onClick={onRemove} style={{ width: 30, height: 32, border: 'none', background: 'none', color: C.azul, fontSize: 19, fontWeight: 800, cursor: 'pointer' }}>−</button>
+              <span style={{ minWidth: 16, textAlign: 'center', fontWeight: 800, color: C.azul }}>{qtd}</span>
+              <button onClick={onAdd} style={{ width: 30, height: 32, border: 'none', background: 'none', color: C.azul, fontSize: 19, fontWeight: 800, cursor: 'pointer' }}>+</button>
+            </div>
+          )}
         </div>
-
-        {/* Add / counter */}
-        {qtd === 0 ? (
-          <button
-            onClick={onAdd}
-            style={{
-              width: '100%', padding: '9px 0', borderRadius: 9,
-              background: 'var(--teal)', color: '#000',
-              border: 'none', fontWeight: 700, fontSize: 14, cursor: 'pointer',
-              marginTop: 6,
-            }}
-          >
-            Adicionar
-          </button>
-        ) : (
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            marginTop: 6, background: 'var(--teal-light)', borderRadius: 9, padding: '5px 10px',
-          }}>
-            <button onClick={onRemove} style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 22, fontWeight: 700, cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>−</button>
-            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--teal)' }}>{qtd} no carrinho</span>
-            <button onClick={onAdd} style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 22, fontWeight: 700, cursor: 'pointer', lineHeight: 1, padding: '0 4px' }}>+</button>
-          </div>
-        )}
       </div>
     </div>
+  )
+}
+
+// Página do doce: galeria grande, descrição inteira, quantidade — ou "Avise-me"
+function ProdutoSheet({ produto, qtdNoCarrinho, onClose, onConfirmar, userId }) {
+  const [qtd, setQtd] = useState(Math.max(1, qtdNoCarrinho || 1))
+  const [idx, setIdx] = useState(0)
+  const cli = lerCliente()
+  const [nome, setNome] = useState(cli.nome || '')
+  const [tel, setTel] = useState(cli.telefone || '')
+  const [estado, setEstado] = useState(null) // null | 'enviando' | 'ok' | erro
+  const max = produto.estoqueAtual > 0 ? produto.estoqueAtual : 99
+  const esg = produto.esgotado
+
+  async function avisar() {
+    if (tel.replace(/\D/g, '').length < 10) { setEstado('Informe um WhatsApp com DDD'); return }
+    setEstado('enviando')
+    try {
+      await registrarInteresse(userId, produto.id, nome.trim(), tel)
+      salvarCliente({ nome: nome.trim(), telefone: tel })
+      setEstado('ok')
+    } catch (e) { setEstado('Não deu pra registrar agora. Tenta de novo?') }
+  }
+
+  const inp = { width: '100%', padding: '11px 12px', borderRadius: 10, border: `1.5px solid ${C.linha}`, background: '#fff', color: C.tinta, fontSize: 15, fontFamily: FONTE, outline: 'none', boxSizing: 'border-box' }
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(14,30,50,.45)', zIndex: 40 }} />
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, maxWidth: 640, margin: '0 auto', maxHeight: '92dvh', overflowY: 'auto', background: C.creme, borderRadius: '22px 22px 0 0', zIndex: 41, fontFamily: FONTE, color: C.tinta }}>
+        <div style={{ position: 'relative' }}>
+          <Midias midias={produto.midias} nome={produto.nome} aspect="1 / 1" onIndex={setIdx} />
+          <button onClick={onClose} aria-label="Fechar" style={{ position: 'absolute', top: 10, right: 10, width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,.92)', color: C.azulEsc, fontSize: 20, cursor: 'pointer' }}>×</button>
+        </div>
+        <div style={{ padding: '14px 18px 22px' }}>
+          {produto.midias?.length > 1 && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10, overflowX: 'auto' }}>
+              {produto.midias.map((m, i) => (
+                <div key={i} style={{ width: 46, height: 46, flexShrink: 0, borderRadius: 9, overflow: 'hidden', border: `2px solid ${i === idx ? C.azul : 'transparent'}`, background: C.rosa }}>
+                  {m.tipo === 'video'
+                    ? (m.poster ? <img src={m.poster} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <div style={{ display: 'grid', placeItems: 'center', height: '100%', color: C.azul, fontSize: 14 }}>▶</div>)
+                    : <img src={m.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ fontFamily: SERIF, fontWeight: 700, fontSize: 26, lineHeight: 1.05, color: C.azulEsc }}>{produto.nome}</div>
+          {produto.descricao && <div style={{ fontSize: 14, color: C.tinta2, marginTop: 8, lineHeight: 1.5, whiteSpace: 'pre-line' }}>{produto.descricao}</div>}
+          <div style={{ fontSize: 18, fontWeight: 800, marginTop: 10 }}>{fmtR(produto.precoDireta)}</div>
+
+          {!esg ? (
+            <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', border: `1.5px solid ${C.linha}`, borderRadius: 12, background: '#fff' }}>
+                <button onClick={() => setQtd(q => Math.max(1, q - 1))} style={{ width: 42, height: 46, border: 'none', background: 'none', color: C.azul, fontSize: 20, fontWeight: 800, cursor: 'pointer' }}>−</button>
+                <b style={{ minWidth: 24, textAlign: 'center' }}>{qtd}</b>
+                <button onClick={() => setQtd(q => Math.min(max, q + 1))} style={{ width: 42, height: 46, border: 'none', background: 'none', color: C.azul, fontSize: 20, fontWeight: 800, cursor: 'pointer' }}>+</button>
+              </div>
+              <button onClick={() => onConfirmar(qtd)} style={{ flex: 1, height: 48, borderRadius: 12, border: 'none', background: C.azul, color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', fontFamily: FONTE }}>
+                {qtdNoCarrinho ? 'Atualizar' : 'Adicionar'} · {fmtR(produto.precoDireta * qtd)}
+              </button>
+            </div>
+          ) : estado === 'ok' ? (
+            <div style={{ marginTop: 16, padding: '12px 14px', borderRadius: 12, background: C.azulClaro, color: C.azulEsc, fontWeight: 700, fontSize: 14 }}>
+              Pronto! A gente te chama no WhatsApp quando voltar 💙
+            </div>
+          ) : (
+            <div style={{ marginTop: 16, padding: '14px', borderRadius: 14, background: '#fff', border: `1px solid ${C.linha}` }}>
+              <div style={{ fontWeight: 800, color: C.azulEsc, marginBottom: 2 }}>{produto.aCaminho > 0 ? 'Volta em breve' : 'Esgotado no momento'}</div>
+              <div style={{ fontSize: 13, color: C.tinta2, marginBottom: 10 }}>Deixa seu WhatsApp que a gente avisa quando voltar.</div>
+              <input style={{ ...inp, marginBottom: 8 }} placeholder="Seu nome" value={nome} onChange={e => setNome(e.target.value)} />
+              <input style={{ ...inp, marginBottom: 10 }} type="tel" inputMode="numeric" placeholder="WhatsApp com DDD" value={tel} onChange={e => setTel(fmtTel(e.target.value))} />
+              {estado && estado !== 'enviando' && <div style={{ fontSize: 12.5, color: '#c0392b', marginBottom: 8 }}>{estado}</div>}
+              <button onClick={avisar} disabled={estado === 'enviando'} style={{ width: '100%', height: 46, borderRadius: 12, border: 'none', background: C.azul, color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', fontFamily: FONTE }}>
+                {estado === 'enviando' ? 'Enviando...' : 'Avisar quando voltar'}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -113,7 +235,7 @@ function ProdutoCard({ produto, qtd, onAdd, onRemove }) {
 function Field({ label, children }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#8A95A3', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{label}</div>
       {children}
     </div>
   )
@@ -124,8 +246,8 @@ function Input({ style, ...props }) {
     <input
       style={{
         width: '100%', padding: '11px 14px', borderRadius: 10,
-        background: '#1e1e1e', border: '1px solid #333',
-        color: '#e8e8e8', fontSize: 15, fontFamily: 'inherit', outline: 'none',
+        background: '#FFFFFF', border: '1px solid #EBCDD5',
+        color: '#1D2B3A', fontSize: 15, fontFamily: 'inherit', outline: 'none',
         ...style,
       }}
       {...props}
@@ -144,9 +266,14 @@ export default function PedidoExterno() {
   const [submitting, setSubmitting] = useState(false)
   const [pedidoId, setPedidoId]     = useState(null)
 
-  const [form, setForm] = useState({
-    nome: '', telefone: '', tipoEntrega: 'Retirada',
-    cep: '', ruaBairro: '', cidade: '', numero: '', complemento: '', obs: '',
+  // Já vem com nome/WhatsApp/endereço da última compra (guardados só neste aparelho)
+  const [form, setForm] = useState(() => {
+    const c = lerCliente()
+    return {
+      nome: c.nome || '', telefone: c.telefone || '', tipoEntrega: c.tipoEntrega || 'Retirada',
+      cep: '', ruaBairro: '', cidade: '', numero: c.numero || '', complemento: c.complemento || '', obs: '',
+      cepSalvo: c.cep || '',
+    }
   })
   const [loadingCep, setLoadingCep] = useState(false)
   const [cepError, setCepError]     = useState('')
@@ -159,6 +286,16 @@ export default function PedidoExterno() {
   const [deliveryCfg, setDeliveryCfg] = useState(null)
   const [secoesOrdem, setSecoesOrdem] = useState([])
   const [secaoAtiva, setSecaoAtiva]   = useState(null)
+  const [aberto, setAberto]           = useState(null) // produto com a página aberta
+  useFontesMarca()
+  // Endereço da última compra: ao ir pro checkout com Entrega, já preenche o CEP e calcula o frete
+  useEffect(() => {
+    if (step !== 'checkout' || form.tipoEntrega !== 'Entrega' || form.cep || !form.cepSalvo) return
+    const v = form.cepSalvo.replace(/\D/g, '')
+    if (v.length !== 8) return
+    setForm(f => ({ ...f, cep: v.slice(0, 5) + '-' + v.slice(5) }))
+    fetchCep(v)
+  }, [step, form.tipoEntrega]) // eslint-disable-line react-hooks/exhaustive-deps
   const deliveryCfgRef = useRef(null)
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -166,7 +303,13 @@ export default function PedidoExterno() {
   useEffect(() => {
     if (!userId) return
     getPublicProdutos(userId)
-      .then(setProdutos)
+      .then(lista => {
+        setProdutos(lista)
+        // link direto pro doce: /pedido/<loja>?produto=<id> (usado no aviso do WhatsApp)
+        const pid = new URLSearchParams(window.location.search).get('produto')
+        const alvo = pid && lista.find(p => String(p.id) === pid)
+        if (alvo) setAberto(alvo)
+      })
       .catch(e => setLoadError(e.message))
     getPublicDeliveryConfig(userId)
       .then(cfg => {
@@ -222,6 +365,7 @@ export default function PedidoExterno() {
   }, [produtos, secoesOrdem])
 
   const addItem = (prod) => {
+    if (prod.esgotado) return
     const current = carrinho[prod.id] || 0
     if (current >= (prod.estoqueAtual || 99)) return
     setCarrinho(c => ({ ...c, [prod.id]: current + 1 }))
@@ -373,6 +517,7 @@ export default function PedidoExterno() {
     setSubmitting(true)
     try {
       const id = await submitPedidoExterno(userId, { ...form, endereco }, carrinhoItens, freteValor, entrega)
+      salvarCliente({ nome: form.nome, telefone: form.telefone, tipoEntrega: form.tipoEntrega, cep: form.cep, numero: form.numero, complemento: form.complemento })
       setPedidoId(id)
       setStep('confirm')
     } catch (e) {
@@ -385,24 +530,24 @@ export default function PedidoExterno() {
   // ── Loading / error ──────────────────────────────────────────
   if (!produtos && !loadError) {
     return (
-      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#121212', color: '#999', fontFamily: 'system-ui,sans-serif' }}>
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FFF9F7', color: '#5B6878', fontFamily: FONTE }}>
         Carregando...
       </div>
     )
   }
   if (loadError) {
     return (
-      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#121212', color: '#f07070', fontFamily: 'system-ui,sans-serif', padding: 32, textAlign: 'center' }}>
+      <div style={{ minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#FFF9F7', color: '#c0392b', fontFamily: FONTE, padding: 32, textAlign: 'center' }}>
         Não foi possível carregar o cardápio.
       </div>
     )
   }
 
   const shell = {
-    background: '#121212',
+    background: '#FFF9F7',
     minHeight: '100dvh',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    color: '#e8e8e8',
+    fontFamily: FONTE,
+    color: '#1D2B3A',
     maxWidth: 640,
     margin: '0 auto',
   }
@@ -414,45 +559,45 @@ export default function PedidoExterno() {
         <div style={{ padding: '60px 24px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 20 }}>
           <CheckAnim />
           <div style={{ fontSize: 24, fontWeight: 700 }}>Pedido enviado!</div>
-          <div style={{ fontSize: 14, color: '#999', lineHeight: 1.6, maxWidth: 300 }}>
-            Seu pedido <strong style={{ color: '#22b886' }}>{pedidoId}</strong> foi recebido.<br />
+          <div style={{ fontSize: 14, color: '#5B6878', lineHeight: 1.6, maxWidth: 300 }}>
+            Seu pedido <strong style={{ color: '#185D9C' }}>{pedidoId}</strong> foi recebido.<br />
             Entraremos em contato pelo WhatsApp em breve.
           </div>
 
           {/* Receipt */}
           <div style={{ width: '100%', maxWidth: 400, marginTop: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>Resumo do pedido</div>
-            <div style={{ background: '#1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#5B6878', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>Resumo do pedido</div>
+            <div style={{ background: '#FFFFFF', borderRadius: 12, overflow: 'hidden' }}>
               {carrinhoItens.map((it, i) => (
                 <div key={it.produto.id} style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   padding: '12px 16px',
-                  borderBottom: i < carrinhoItens.length - 1 ? '1px solid #2a2a2a' : 'none',
+                  borderBottom: i < carrinhoItens.length - 1 ? '1px solid #EBCDD5' : 'none',
                   fontSize: 14,
                 }}>
                   <span>
                     <span style={{ fontWeight: 600 }}>{it.produto.nome}</span>
-                    <span style={{ color: '#666', marginLeft: 6 }}>×{it.qtd}</span>
+                    <span style={{ color: '#5B6878', marginLeft: 6 }}>×{it.qtd}</span>
                   </span>
                   <span style={{ fontWeight: 600 }}>{fmtR((it.produto.precoDireta || 0) * it.qtd)}</span>
                 </div>
               ))}
             </div>
             {frete && frete.valor > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 4px', fontSize: 13, color: '#999', borderTop: '1px solid #2a2a2a' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 4px', fontSize: 13, color: '#5B6878', borderTop: '1px solid #EBCDD5' }}>
                 <span>Frete {frete.viaDias ? `(${diaLabel(frete.dia)})` : `(${frete.distKm.toFixed(1)} km)`}</span>
                 <span>{fmtR(frete.valor)}</span>
               </div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 4px', fontWeight: 700, fontSize: 17, borderTop: frete && frete.valor > 0 ? '1px solid #2a2a2a' : 'none' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 4px', fontWeight: 700, fontSize: 17, borderTop: frete && frete.valor > 0 ? '1px solid #EBCDD5' : 'none' }}>
               <span>Total</span>
-              <span style={{ color: '#22b886' }}>{fmtR(total + (frete ? frete.valor : 0))}</span>
+              <span style={{ color: '#185D9C' }}>{fmtR(total + (frete ? frete.valor : 0))}</span>
             </div>
           </div>
 
           <button
             onClick={() => { setStep('catalog'); setCarrinho({}) }}
-            style={{ marginTop: 8, padding: '12px 32px', borderRadius: 10, background: '#22b886', color: '#000', border: 'none', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}
+            style={{ marginTop: 8, padding: '12px 32px', borderRadius: 10, background: '#185D9C', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}
           >
             Fechar
           </button>
@@ -466,31 +611,31 @@ export default function PedidoExterno() {
     return (
       <div style={shell}>
         {/* Header */}
-        <div style={{ position: 'sticky', top: 0, background: '#1e1e1e', borderBottom: '1px solid #2a2a2a', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, zIndex: 10 }}>
-          <button onClick={() => setStep('catalog')} style={{ background: 'none', border: 'none', color: '#999', fontSize: 22, cursor: 'pointer', padding: 0, lineHeight: 1 }}>←</button>
+        <div style={{ position: 'sticky', top: 0, background: '#FFFFFF', borderBottom: '1px solid #EBCDD5', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, zIndex: 10 }}>
+          <button onClick={() => setStep('catalog')} style={{ background: 'none', border: 'none', color: '#5B6878', fontSize: 22, cursor: 'pointer', padding: 0, lineHeight: 1 }}>←</button>
           <span style={{ fontWeight: 700, fontSize: 16 }}>Finalizar pedido</span>
         </div>
 
         <div style={{ padding: '20px 20px 120px' }}>
           {/* Order summary */}
           <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#666', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Seu pedido</div>
-            <div style={{ background: '#1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#5B6878', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Seu pedido</div>
+            <div style={{ background: '#FFFFFF', borderRadius: 12, overflow: 'hidden' }}>
               {carrinhoItens.map((it, i) => (
                 <div key={it.produto.id} style={{
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                   padding: '11px 14px',
-                  borderBottom: i < carrinhoItens.length - 1 ? '1px solid #2a2a2a' : 'none',
+                  borderBottom: i < carrinhoItens.length - 1 ? '1px solid #EBCDD5' : 'none',
                   fontSize: 13,
                 }}>
-                  <span>{it.produto.nome} <span style={{ color: '#666' }}>×{it.qtd}</span></span>
+                  <span>{it.produto.nome} <span style={{ color: '#5B6878' }}>×{it.qtd}</span></span>
                   <span style={{ fontWeight: 600 }}>{fmtR((it.produto.precoDireta || 0) * it.qtd)}</span>
                 </div>
               ))}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 4px', fontWeight: 700, fontSize: 16 }}>
               <span>Total</span>
-              <span style={{ color: '#22b886' }}>{fmtR(total)}</span>
+              <span style={{ color: '#185D9C' }}>{fmtR(total)}</span>
             </div>
           </div>
 
@@ -524,9 +669,9 @@ export default function PedidoExterno() {
                   onClick={() => setF('tipoEntrega', opt)}
                   style={{
                     flex: 1, padding: '11px 0', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer',
-                    border: `1.5px solid ${form.tipoEntrega === opt ? '#22b886' : '#333'}`,
-                    background: form.tipoEntrega === opt ? 'rgba(34,184,134,.12)' : 'transparent',
-                    color: form.tipoEntrega === opt ? '#22b886' : '#666',
+                    border: `1.5px solid ${form.tipoEntrega === opt ? '#185D9C' : '#EBCDD5'}`,
+                    background: form.tipoEntrega === opt ? 'rgba(24,93,156,.1)' : 'transparent',
+                    color: form.tipoEntrega === opt ? '#185D9C' : '#666',
                   }}
                 >{opt}</button>
               ))}
@@ -549,27 +694,27 @@ export default function PedidoExterno() {
                     style={{ paddingRight: 40 }}
                   />
                   {loadingCep && (
-                    <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: '#666', fontSize: 13 }}>...</div>
+                    <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: '#5B6878', fontSize: 13 }}>...</div>
                   )}
                 </div>
-                {cepError && <div style={{ fontSize: 12, color: '#f07070', marginTop: 4 }}>{cepError}</div>}
+                {cepError && <div style={{ fontSize: 12, color: '#c0392b', marginTop: 4 }}>{cepError}</div>}
               </Field>
 
               {form.ruaBairro && (
                 <Field label="Rua, Bairro">
-                  <Input value={form.ruaBairro} readOnly style={{ color: '#666', background: '#161616' }} />
-                  {form.cidade && <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>{form.cidade}</div>}
+                  <Input value={form.ruaBairro} readOnly style={{ color: '#5B6878', background: '#F7EEF0' }} />
+                  {form.cidade && <div style={{ fontSize: 12, color: '#5B6878', marginTop: 4 }}>{form.cidade}</div>}
                 </Field>
               )}
 
               {/* Frete */}
               {calculandoFrete && (
-                <div style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>Calculando frete...</div>
+                <div style={{ fontSize: 13, color: '#5B6878', marginBottom: 12 }}>Calculando frete...</div>
               )}
               {freteError && !calculandoFrete && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <span style={{ fontSize: 12, color: '#f87171' }}>{freteError}</span>
-                  <button onClick={() => calcularFrete(form.cep)} style={{ fontSize: 12, color: 'var(--teal)', background: 'none', border: 'none', cursor: 'pointer' }}>🔄 Tentar novamente</button>
+                  <span style={{ fontSize: 12, color: '#c0392b' }}>{freteError}</span>
+                  <button onClick={() => calcularFrete(form.cep)} style={{ fontSize: 12, color: '#185D9C', background: 'none', border: 'none', cursor: 'pointer' }}>🔄 Tentar novamente</button>
                 </div>
               )}
               {/* Cards de frete por dia — escolha o dia, mais cheio = mais barato */}
@@ -583,7 +728,7 @@ export default function PedidoExterno() {
                   : null
                 return (
                 <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, color: '#999', marginBottom: 10 }}>Escolha o dia da entrega:</div>
+                  <div style={{ fontSize: 12, color: '#5B6878', marginBottom: 10 }}>Escolha o dia da entrega:</div>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {freteDias.map(card => {
                       const sel = diaSel === card.date
@@ -592,43 +737,43 @@ export default function PedidoExterno() {
                       return (
                         <div key={card.date} onClick={() => escolherDia(card)} style={{
                           flex: '1 1 30%', minWidth: 100, cursor: 'pointer',
-                          background: isMelhor ? 'rgba(34,184,134,0.16)' : (sel ? 'rgba(34,184,134,0.10)' : '#1a1a1a'),
-                          border: `${isMelhor ? 2 : 1.5}px solid ${isMelhor ? '#22b886' : (sel ? '#22b886' : '#2a2a2a')}`,
+                          background: isMelhor ? 'rgba(24,93,156,0.12)' : (sel ? 'rgba(24,93,156,0.08)' : '#FFFFFF'),
+                          border: `${isMelhor ? 2 : 1.5}px solid ${isMelhor ? '#185D9C' : (sel ? '#185D9C' : '#EBCDD5')}`,
                           borderRadius: 10, padding: '10px 12px', position: 'relative',
                           transform: isMelhor ? 'scale(1.03)' : 'none',
-                          boxShadow: isMelhor ? '0 0 0 3px rgba(34,184,134,0.18), 0 4px 14px rgba(34,184,134,0.25)' : 'none',
+                          boxShadow: isMelhor ? '0 0 0 3px rgba(24,93,156,0.15), 0 4px 14px rgba(24,93,156,0.2)' : 'none',
                           transition: 'all .15s ease',
                         }}>
                           {isMelhor && (
-                            <div style={{ position: 'absolute', top: -9, right: 8, background: '#22b886', color: '#000', fontSize: 9.5, fontWeight: 800, padding: '2px 7px', borderRadius: 7 }}>⭐ melhor dia</div>
+                            <div style={{ position: 'absolute', top: -9, right: 8, background: '#185D9C', color: '#fff', fontSize: 9.5, fontWeight: 800, padding: '2px 7px', borderRadius: 7 }}>⭐ melhor dia</div>
                           )}
                           {isMin && (
-                            <div style={{ position: 'absolute', top: -8, right: 8, background: '#1f6b50', color: '#9ff0cf', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6 }}>+ barato</div>
+                            <div style={{ position: 'absolute', top: -8, right: 8, background: '#E3EDF7', color: '#185D9C', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6 }}>+ barato</div>
                           )}
-                          <div style={{ fontWeight: 700, fontSize: 13, color: '#e8e8e8' }}>{diaLabel(card.date)}</div>
-                          <div style={{ fontSize: 11, color: isMelhor ? '#22b886' : '#777', margin: '2px 0 6px', fontWeight: isMelhor ? 600 : 400 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: '#1D2B3A' }}>{diaLabel(card.date)}</div>
+                          <div style={{ fontSize: 11, color: isMelhor ? '#185D9C' : '#777', margin: '2px 0 6px', fontWeight: isMelhor ? 600 : 400 }}>
                             {card.pedidos > 0 ? `junte-se a ${card.pedidos} pedido${card.pedidos > 1 ? 's' : ''}` : 'primeiro do dia'}
                           </div>
-                          <div style={{ fontWeight: 700, fontSize: isMelhor ? 17 : 15, color: card.preco === 0 ? '#22b886' : (isMelhor || sel ? '#22b886' : '#e8e8e8') }}>
+                          <div style={{ fontWeight: 700, fontSize: isMelhor ? 17 : 15, color: card.preco === 0 ? '#185D9C' : (isMelhor || sel ? '#185D9C' : '#1D2B3A') }}>
                             {card.preco === 0 ? 'Grátis' : fmtR(card.preco)}
                           </div>
                         </div>
                       )
                     })}
                   </div>
-                  <div style={{ fontSize: 11, color: '#7a7a7a', marginTop: 8, lineHeight: 1.4 }}>
-                    💡 Frete estimado — pode <strong style={{ color: '#22b886' }}>abaixar</strong> se mais pedidos forem no mesmo dia. Avisamos o valor final antes da entrega.
+                  <div style={{ fontSize: 11, color: '#5B6878', marginTop: 8, lineHeight: 1.4 }}>
+                    💡 Frete estimado — pode <strong style={{ color: '#185D9C' }}>abaixar</strong> se mais pedidos forem no mesmo dia. Avisamos o valor final antes da entrega.
                   </div>
                 </div>
                 )
               })()}
               {frete !== null && !frete.viaDias && !calculandoFrete && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', background: '#1a1a1a', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', background: '#FFFFFF', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
                   <div>
-                    <div style={{ fontWeight: 600, color: '#e8e8e8' }}>Frete ({frete.distKm.toFixed(1)} km)</div>
-                    {frete.valor === 0 && deliveryCfg?.freteGratis > 0 && <div style={{ fontSize: 11, color: '#22b886' }}>Frete grátis acima de {fmtR(deliveryCfg.freteGratis)}</div>}
+                    <div style={{ fontWeight: 600, color: '#1D2B3A' }}>Frete ({frete.distKm.toFixed(1)} km)</div>
+                    {frete.valor === 0 && deliveryCfg?.freteGratis > 0 && <div style={{ fontSize: 11, color: '#185D9C' }}>Frete grátis acima de {fmtR(deliveryCfg.freteGratis)}</div>}
                   </div>
-                  <div style={{ fontWeight: 700, color: frete.valor === 0 ? '#22b886' : '#e8e8e8' }}>
+                  <div style={{ fontWeight: 700, color: frete.valor === 0 ? '#185D9C' : '#1D2B3A' }}>
                     {frete.valor === 0 ? 'Grátis' : fmtR(frete.valor)}
                   </div>
                 </div>
@@ -655,21 +800,21 @@ export default function PedidoExterno() {
               rows={2}
               style={{
                 width: '100%', padding: '11px 14px', borderRadius: 10,
-                background: '#1e1e1e', border: '1px solid #333',
-                color: '#e8e8e8', fontSize: 14, fontFamily: 'inherit', outline: 'none', resize: 'vertical',
+                background: '#FFFFFF', border: '1px solid #EBCDD5',
+                color: '#1D2B3A', fontSize: 14, fontFamily: 'inherit', outline: 'none', resize: 'vertical',
               }}
             />
           </Field>
         </div>
 
         {/* Sticky submit */}
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, maxWidth: 640, margin: '0 auto', padding: '16px 20px', background: '#1a1a1a', borderTop: '1px solid #2a2a2a' }}>
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, maxWidth: 640, margin: '0 auto', padding: '16px 20px', background: '#FFFFFF', borderTop: '1px solid #EBCDD5' }}>
           <button
             onClick={handleSubmit}
             disabled={submitting || !form.nome || !form.telefone}
             style={{
               width: '100%', padding: 14, borderRadius: 12,
-              background: '#22b886', color: '#000', border: 'none',
+              background: '#185D9C', color: '#fff', border: 'none',
               fontWeight: 700, fontSize: 16, cursor: 'pointer',
               opacity: (!form.nome || !form.telefone || submitting) ? 0.5 : 1,
             }}
@@ -681,74 +826,56 @@ export default function PedidoExterno() {
     )
   }
 
-  // ── Catalog ───────────────────────────────────────────────────
+  // ── Catálogo ──────────────────────────────────────────────────
   const carrinhoCount = Object.values(carrinho).reduce((s, q) => s + q, 0)
-
   const secoes = produtosPorSecao.filter(g => g.secao).map(g => g.secao)
-
   const scrollToSecao = (secao) => {
     const el = document.getElementById(`secao-${secao}`)
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
     setSecaoAtiva(secao)
   }
+  const dias = (deliveryCfg?.diasEntrega || []).slice().sort((x, y) => ((x + 6) % 7) - ((y + 6) % 7)).map(d => DIAS[d])
+  const chip = { fontSize: 11.5, fontWeight: 700, color: C.azulEsc, background: 'rgba(255,255,255,.7)', border: '1px solid rgba(24,93,156,.18)', padding: '4px 10px', borderRadius: 99 }
 
   return (
-    <div style={shell}>
-      {/* Header */}
-      <div style={{ padding: '20px 20px 10px', borderBottom: '1px solid #1e1e1e' }}>
-        <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', marginBottom: 2 }}>Fazer pedido</div>
-        <div style={{ fontSize: 13, color: '#666' }}>Escolha os produtos abaixo</div>
+    <div style={{ ...shell, background: C.creme }}>
+      {/* Marca */}
+      <div style={{ background: C.rosa, padding: '20px 18px 16px', textAlign: 'center' }}>
+        <img src="/brand/guaxinim.png" alt="Guaxí" style={{ width: 104, height: 'auto', display: 'block', margin: '0 auto -2px' }} />
+        <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 36, letterSpacing: '.06em', color: C.azul, lineHeight: 1 }}>GUAXÍ</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 200, margin: '7px auto 4px' }}>
+          <i style={{ flex: 1, height: 1, background: C.azul }} /><b style={{ width: 6, height: 6, background: C.azul, transform: 'rotate(45deg)' }} /><i style={{ flex: 1, height: 1, background: C.azul }} />
+        </div>
+        <div style={{ fontFamily: SERIF, fontWeight: 600, letterSpacing: '.32em', fontSize: 13, color: C.azul }}>PÂTISSERIE</div>
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', marginTop: 12 }}>
+          {dias.length > 0 && <span style={chip}>🛵 Entregas {dias.join(' · ')}</span>}
+          <span style={chip}>Retirada</span>
+        </div>
       </div>
 
-      {/* Section nav */}
+      {/* Seções */}
       {secoes.length > 1 && (
-        <div style={{
-          position: 'sticky', top: 0, zIndex: 10,
-          background: '#121212', borderBottom: '1px solid #1e1e1e',
-          overflowX: 'auto', display: 'flex', gap: 8, padding: '10px 16px',
-          scrollbarWidth: 'none',
-        }}>
+        <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.creme, borderBottom: `1px solid ${C.linha}`, overflowX: 'auto', display: 'flex', gap: 6, padding: '10px 14px', scrollbarWidth: 'none' }}>
           {secoes.map(sec => (
-            <button
-              key={sec}
-              onClick={() => scrollToSecao(sec)}
-              style={{
-                flexShrink: 0, padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600,
-                border: `1.5px solid ${secaoAtiva === sec ? '#22b886' : '#333'}`,
-                background: secaoAtiva === sec ? 'rgba(34,184,134,.15)' : 'transparent',
-                color: secaoAtiva === sec ? '#22b886' : '#999',
-                cursor: 'pointer', whiteSpace: 'nowrap',
-              }}
-            >
-              {sec}
-            </button>
+            <button key={sec} onClick={() => scrollToSecao(sec)} style={{
+              flexShrink: 0, padding: '6px 13px', borderRadius: 99, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: FONTE,
+              background: secaoAtiva === sec ? C.azul : 'transparent', color: secaoAtiva === sec ? '#fff' : C.tinta2,
+            }}>{sec}</button>
           ))}
         </div>
       )}
 
-      {/* Grid */}
       {produtos.length === 0 ? (
-        <div style={{ padding: 40, textAlign: 'center', color: '#555', fontSize: 14 }}>
-          Nenhum produto disponível no momento.
-        </div>
+        <div style={{ padding: 40, textAlign: 'center', color: C.tinta2, fontSize: 14 }}>Nenhum produto no cardápio agora.</div>
       ) : (
-        <div style={{ padding: '16px 16px 120px' }}>
+        <div style={{ padding: '4px 12px 120px' }}>
           {produtosPorSecao.map(({ secao, items }) => (
-            <div key={secao || '__sem_secao'} id={secao ? `secao-${secao}` : undefined}>
-              {secao && (
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8, marginTop: 4 }}>
-                  {secao}
-                </div>
-              )}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 16 }}>
-                {items.map(prod => (
-                  <ProdutoCard
-                    key={prod.id}
-                    produto={prod}
-                    qtd={carrinho[prod.id] || 0}
-                    onAdd={() => addItem(prod)}
-                    onRemove={() => removeItem(prod)}
-                  />
+            <div key={secao || '__sem_secao'} id={secao ? `secao-${secao}` : undefined} style={{ scrollMarginTop: 56 }}>
+              {secao && <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 22, color: C.azulEsc, padding: '14px 4px 8px' }}>{secao}</div>}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginBottom: 8 }}>
+                {[...items].sort((x, y) => (x.esgotado ? 1 : 0) - (y.esgotado ? 1 : 0)).map(prod => (
+                  <ProdutoCard key={prod.id} produto={prod} qtd={carrinho[prod.id] || 0}
+                    onAdd={() => addItem(prod)} onRemove={() => removeItem(prod)} onAbrir={() => setAberto(prod)} />
                 ))}
               </div>
             </div>
@@ -756,28 +883,18 @@ export default function PedidoExterno() {
         </div>
       )}
 
-      {/* Floating cart bar */}
-      {carrinhoCount > 0 && (
-        <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
-          maxWidth: 640, margin: '0 auto',
-          padding: '14px 20px',
-          background: '#22b886',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(0,0,0,.6)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{carrinhoCount} item{carrinhoCount !== 1 ? 's' : ''}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#000', letterSpacing: '-0.02em' }}>{fmtR(total)}</div>
-          </div>
-          <button
-            onClick={() => setStep('checkout')}
-            style={{
-              background: '#000', color: '#22b886', border: 'none',
-              borderRadius: 10, padding: '11px 22px',
-              fontWeight: 700, fontSize: 15, cursor: 'pointer',
-            }}
-          >
-            Finalizar pedido →
+      {aberto && (
+        <ProdutoSheet produto={aberto} userId={userId} qtdNoCarrinho={carrinho[aberto.id] || 0} onClose={() => setAberto(null)}
+          onConfirmar={(q) => { setCarrinho(c => ({ ...c, [aberto.id]: q })); setAberto(null) }} />
+      )}
+
+      {/* Carrinho */}
+      {carrinhoCount > 0 && !aberto && (
+        <div style={{ position: 'fixed', left: 0, right: 0, bottom: 12, maxWidth: 616, margin: '0 auto', padding: '0 12px', zIndex: 20 }}>
+          <button onClick={() => setStep('checkout')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', borderRadius: 16, border: 'none', background: C.azul, color: '#fff', cursor: 'pointer', boxShadow: '0 10px 24px rgba(14,60,104,.35)', fontFamily: FONTE }}>
+            <span style={{ width: 26, height: 26, borderRadius: '50%', background: '#fff', color: C.azul, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 13 }}>{carrinhoCount}</span>
+            <b style={{ flex: 1, textAlign: 'left', fontSize: 15 }}>Ver carrinho</b>
+            <b style={{ fontSize: 15 }}>{fmtR(total)}</b>
           </button>
         </div>
       )}
