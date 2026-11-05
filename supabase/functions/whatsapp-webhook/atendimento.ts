@@ -30,3 +30,20 @@ export async function avisarDono(sb: SupabaseClient, titulo: string, corpo: stri
   })
   if (error) console.error('avisar_dono', error.message)
 }
+
+// Rede de segurança: sinais claros de que o cliente quer uma pessoa (não depende
+// do bot decidir). Cuidado com falso positivo: "bolo pra 20 pessoas" não conta.
+const PEDE_HUMANO: RegExp[] = [
+  /\b(atendente|atendimento humano|um humano|uma humana|pessoa de verdade|pessoa real|gente de verdade|ser humano)\b/,
+  /\b(falar|conversar|tratar) (com|c\/) (alguem|uma pessoa|um humano|a dona|o dono|a responsavel|o responsavel|a guaxi|gente de verdade|o gerente|a gerente)\b/,
+  /\b(e|eh|vc e|voce e|to falando com|estou falando com|isso e)( um| uma)? (robo|bot|maquina|ia|inteligencia artificial)\b/,
+  /\b(nao quero|chega de|para de|cansei de)( falar com)?( o| um| esse)? (robo|bot)\b/,
+  /\bme (liga|ligue|ligar)\b/,
+  /\b(quero|vou) (reclamar|fazer uma reclamacao)\b/,
+  /\b(reclamacao|procon|reembolso|estorno|veio errado|veio estragado|nao chegou|pessimo atendimento)\b/,
+]
+
+export function pedeHumano(texto: string): boolean {
+  const t = String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  return PEDE_HUMANO.some(r => r.test(t))
+}

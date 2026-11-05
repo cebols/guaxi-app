@@ -5,7 +5,7 @@ import {
   OWNER_USER_ID, APP_BASE, LINK_CARDAPIO, agoraBR, carregarCardapio, statusDe, textoCardapio,
   type Cardapio,
 } from './cardapio.ts'
-import { avisarDono, marcarPrecisaHumano, registrarContato, tocarConversa } from './atendimento.ts'
+import { avisarDono, marcarPrecisaHumano, pedeHumano, registrarContato, tocarConversa } from './atendimento.ts'
 
 const client = new Anthropic()
 
@@ -336,9 +336,12 @@ FECHAR PEDIDO
 - Use as datas certas a partir de AGORA (ex.: "quinta" = a próxima quinta).
 
 QUANDO ESCALAR (escalar_humano)
-- Encomenda personalizada / bolo ou doce sob medida: NÃO registre sozinha. Entenda o que o cliente quer e encaminhe — o prazo padrão é uns 2 dias, mas quem confirma é a Guaxí.
-- Reclamação, problema com entrega em andamento, pedido complexo, ou qualquer coisa que você não saiba resolver.
-- Sempre avise o cliente, com carinho, que uma pessoa da Guaxí vai continuar o atendimento.
+- Na dúvida, escale. É melhor chamar a Guaxí à toa do que deixar alguém sem ajuda.
+- Qualquer sinal de que o cliente prefere uma pessoa: pedir atendente/humano/a dona (com qualquer palavra), perguntar se você é robô de um jeito incomodado, pedir pra ligar, insistir na mesma pergunta, dizer que não entendeu, demonstrar pressa, irritação, frustração ou insatisfação. Não tente convencer o cliente a continuar com você.
+- Encomenda personalizada / bolo ou doce sob medida, festa, evento, pedido grande ou para empresa: NÃO registre sozinha. Entenda o que o cliente quer e encaminhe — o prazo padrão é uns 2 dias, mas quem confirma é a Guaxí.
+- Reclamação, produto com problema, entrega atrasada ou em andamento com problema, pagamento, reembolso.
+- Assunto fora do cardápio e da rotina (parcerias, fornecedor, imprensa, vaga de emprego), ou qualquer coisa que você não saiba resolver.
+- Ao escalar, avise o cliente com carinho que uma pessoa da Guaxí vai continuar por ali, e não continue o atendimento sozinha.
 
 FORMATO
 - Mensagens curtas de WhatsApp: no máximo 3 parágrafos. Negrito com *asteriscos simples*. Listas curtas quando ajudar.`
@@ -357,6 +360,15 @@ export async function runAgent(
   if (contato.botPausado) {
     await avisarDono(supabase, `💬 ${contato.nome || telefone}`, userMessage.slice(0, 150), telefone)
     return null
+  }
+  // Pediu gente de verdade (ou reclamação): vem pra você na hora, sem passar pelo bot
+  if (pedeHumano(userMessage)) {
+    await marcarPrecisaHumano(supabase, telefone, 'Cliente pediu pra falar com uma pessoa')
+    await avisarDono(supabase, `🙋 ${contato.nome || telefone} quer falar com você`, userMessage.slice(0, 150), telefone)
+    const resp = 'Claro! Já chamei uma pessoa da Guaxí pra falar com você — ela te responde por aqui assim que puder 💛'
+    await saveMessage(supabase, telefone, 'assistant', resp)
+    await tocarConversa(supabase, telefone)
+    return resp
   }
 
   const [history, cardapio] = await Promise.all([
