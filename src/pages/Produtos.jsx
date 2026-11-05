@@ -44,6 +44,7 @@ function recCustoForUnit(rec, unit, insumos) {
   return rec.custoUnid || 0
 }
 import { uploadImage } from '../services/storage'
+import { comprimirVideo } from '../lib/comprimirVideo'
 
 const PLAT_COLOR  = { Direta: 'var(--teal)', '99Food': '#f59e0b', iFood: '#ef4444' }
 const TIPO_LABELS = { produto: 'Produzido', avulso: 'Avulso', combo: 'Combo' }
@@ -145,6 +146,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
     : { ...FORM_EMPTY }
   )
   const [uploadingImg, setUploadingImg] = useState(false)
+  const [videoProg, setVideoProg] = useState(null) // { fase: 'comprimindo'|'enviando', pct }
 
   const [recRows, setRecRows] = useState(
     item?.receitas?.length > 0
@@ -204,23 +206,27 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
   const handleImgUpload = (file) => { if (file) openCrop(file) }
 
   // Vídeo curto (sem som, em loop no cardápio). Gera a capa a partir do 1º quadro.
+  // Qualquer vídeo do celular: comprime aqui mesmo (~540×960, sem som, até 30 s) e sobe
   const handleVideoUpload = async (file) => {
     if (!file) return
-    if (file.size > 45 * 1024 * 1024) { alert('Vídeo grande demais (máx. 45 MB). Corta um trecho menor.'); return }
     setUploadingImg(true)
+    setVideoProg({ fase: 'comprimindo', pct: 0 })
     try {
       const local = URL.createObjectURL(file)
-      const { duracao, poster } = await lerVideo(local)
+      const { poster } = await lerVideo(local)
       URL.revokeObjectURL(local)
-      if (duracao > 30) { alert('Use um vídeo de até 30 segundos — ele toca em loop no cardápio.'); return }
-      const ext = (file.name.split('.').pop() || 'mp4').toLowerCase()
-      const url = await uploadImage(`produtos/videos/${Date.now()}.${ext}`, file)
+      const r = await comprimirVideo(file, { maxSeg: 30, onProgresso: pct => setVideoProg({ fase: 'comprimindo', pct }) })
+      setVideoProg({ fase: 'enviando', pct: 1, mb: r.blob.size / 1048576, antes: file.size / 1048576 })
+      const tipo = r.blob.type || file.type || 'video/mp4'
+      const url = await uploadImage(`produtos/videos/${Date.now()}.${r.ext}`, new File([r.blob], `video.${r.ext}`, { type: tipo }))
       const posterUrl = poster ? await uploadImage(`produtos/${Date.now()}-poster.jpg`, new File([poster], 'poster.jpg', { type: 'image/jpeg' })) : null
       setForm(f => ({ ...f, midias: [...(f.midias || []), { tipo: 'video', url, poster: posterUrl }] }))
+      if (r.cortou) alert('O vídeo passou de 30 s — ficaram só os primeiros 30 s.')
     } catch (e) {
-      alert('Erro ao enviar vídeo: ' + e.message)
+      alert('Erro no vídeo: ' + e.message)
     } finally {
       setUploadingImg(false)
+      setVideoProg(null)
     }
   }
   const moverMidia = (i, d) => setForm(f => {
@@ -467,10 +473,22 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
                 </label>
                 <label style={{ width: 72, height: 90, flexShrink: 0, borderRadius: 9, border: '1px dashed var(--teal)', color: 'var(--teal)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
                   <span style={{ fontSize: 18 }}>{uploadingImg ? '⏳' : '🎬'}</span>+ Vídeo
-                  <input type="file" accept="video/*" style={{ display: 'none' }} onChange={e => { handleVideoUpload(e.target.files[0]); e.target.value = '' }} />
+                  <input type="file" accept="video/*" disabled={uploadingImg} style={{ display: 'none' }} onChange={e => { handleVideoUpload(e.target.files[0]); e.target.value = '' }} />
                 </label>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>Vídeo até 30 s — toca sem som e em loop no cardápio. Salve o produto pra publicar.</div>
+              {videoProg ? (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                    <span>{videoProg.fase === 'comprimindo' ? '🎬 Comprimindo vídeo… deixe esta tela aberta' : `⬆ Enviando (${videoProg.mb.toFixed(1).replace('.', ',')} MB${videoProg.antes > videoProg.mb * 1.2 ? `, era ${videoProg.antes.toFixed(0)} MB` : ''})…`}</span>
+                    {videoProg.fase === 'comprimindo' && <b>{Math.round(videoProg.pct * 100)}%</b>}
+                  </div>
+                  <div style={{ height: 5, borderRadius: 3, background: 'var(--bg-input)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.round(videoProg.pct * 100)}%`, background: 'var(--teal)', transition: 'width .3s' }} />
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>Pode mandar o vídeo direto do celular — o app comprime e corta em 30 s. Toca sem som e em loop no cardápio. Salve o produto pra publicar.</div>
+              )}
             </div>
 
             {/* No cardápio */}
