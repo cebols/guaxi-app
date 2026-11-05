@@ -46,6 +46,8 @@ function fmtQtd(v) {
   return n % 1 === 0 ? String(n) : n.toLocaleString('pt-BR', { maximumFractionDigits: 1 })
 }
 
+const nomeEtapa = (p, key) => etapasDoProduto(p).find(e => e.key === key)?.nome || key
+
 function fmtDate(iso) {
   if (!iso) return ''
   const d = new Date(iso)
@@ -86,6 +88,8 @@ export default function ProducaoTodo() {
   const [folha, setFolha]           = useState(null) // 'pedido' | 'insumos' | 'estoque'
   const [abertas, setAbertas]       = useState({})   // etapa -> aberta (sobrescreve o padrão)
   const [montarAlvo, setMontarAlvo] = useState(null) // { item, p, comps }
+  const [aviso, setAviso] = useState(null) // { nome, qtd, etapa, fluxo } depois de montar
+  useEffect(() => { if (!aviso) return; const t = setTimeout(() => setAviso(null), 7000); return () => clearTimeout(t) }, [aviso])
   const [porcaoAlvo, setPorcaoAlvo] = useState(null) // { item, p, comps }
   const [filtroThermal, setFiltroThermal] = useState(null) // null | 'ferver'
   const [confirmDel, setConfirmDel] = useState(false)
@@ -338,9 +342,8 @@ export default function ProducaoTodo() {
   const passaFiltro = (x) => (!q || norm(x.rec.nome).includes(q)) && (!filtroThermal || thermalOfRec(x.rec, filtroThermal))
   const etapasVisiveis = linha.etapas.map(e => ({ ...e, itens: e.itens.filter(passaFiltro) })).filter(e => e.itens.length)
 
-  const montagensNovas = montagem.filter(m => m.novo)
-  const totalItens = aProduzir.length + montagensNovas.length
-  const doneItens = aProduzir.filter(x => checks.has(x.chave)).length + montagensNovas.filter(m => m.montado).length
+  const totalItens = aProduzir.length + montagem.length
+  const doneItens = aProduzir.filter(x => checks.has(x.chave)).length + montagem.filter(m => m.montado).length
   const pct = totalItens > 0 ? Math.round((doneItens / totalItens) * 100) : 0
 
   const estaAberta = (k, tudoFeito) => abertas[k] ?? !tudoFeito
@@ -490,7 +493,7 @@ export default function ProducaoTodo() {
 
         {/* Montagem — o produto fechado */}
         {montagem.length > 0 && !q && !filtroThermal && (() => {
-          const feitos = montagem.filter(m => m.novo ? m.montado : m.comps.every(c => c.pronta)).length
+          const feitos = montagem.filter(m => m.montado).length
           const tudo = feitos >= montagem.length
           return (
             <div className="card" style={{ padding: 0, marginBottom: 10, overflow: 'hidden', borderLeft: '3px solid var(--teal)' }}>
@@ -513,19 +516,15 @@ export default function ProducaoTodo() {
                         <span style={{ fontSize: 11, color: 'var(--text-tertiary)', minWidth: 62, textAlign: 'right' }}>{fmtQtd(c.porUn)} {c.unidade}/un</span>
                       </div>
                     ))}
-                    {m.novo ? (
-                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                        <button onClick={() => setPorcaoAlvo(m)} style={{ padding: '9px 12px', borderRadius: 9, border: '1px solid #333', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>⚖ Ajustar porção</button>
-                        <button onClick={() => setMontarAlvo(m)} style={{
-                          flex: 1, padding: '9px 12px', borderRadius: 9, cursor: 'pointer', fontSize: 14, fontWeight: 700,
-                          border: m.montado || faltam.length ? '1px solid var(--teal)' : 'none',
-                          background: m.montado || faltam.length ? 'transparent' : 'var(--teal)',
-                          color: m.montado || faltam.length ? 'var(--teal)' : '#fff',
-                        }}>{m.montado ? 'Montado ✓' : 'Montado'}</button>
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>Produção antiga: o produto entra no estoque ao concluir as receitas.</div>
-                    )}
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                      {m.novo && <button onClick={() => setPorcaoAlvo(m)} style={{ padding: '9px 12px', borderRadius: 9, border: '1px solid #333', background: 'transparent', color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>⚖ Ajustar porção</button>}
+                      <button onClick={() => setMontarAlvo(m)} style={{
+                        flex: 1, padding: '9px 12px', borderRadius: 9, cursor: 'pointer', fontSize: 14, fontWeight: 700,
+                        border: m.montado || faltam.length ? '1px solid var(--teal)' : 'none',
+                        background: m.montado || faltam.length ? 'transparent' : 'var(--teal)',
+                        color: m.montado || faltam.length ? 'var(--teal)' : '#fff',
+                      }}>{m.montado ? `Montado ✓${m.montado.etapa ? ` · ${nomeEtapa(m.p, m.montado.etapa)}` : ''}` : '✓ Marcar montado'}</button>
+                    </div>
                   </div>
                 )
               })}
@@ -624,7 +623,14 @@ export default function ProducaoTodo() {
 
       {montarAlvo && (
         <MontarSheet alvo={montarAlvo} onClose={() => setMontarAlvo(null)}
-          onDone={async () => { setMontarAlvo(null); await reload(); reloadProdutos() }} />
+          onDone={async (info) => { setMontarAlvo(null); if (info) setAviso(info); await reload(); reloadProdutos() }} />
+      )}
+      {aviso && (
+        <div style={{ position: 'fixed', left: 12, right: 12, bottom: 'calc(76px + env(safe-area-inset-bottom))', maxWidth: 520, margin: '0 auto', zIndex: 60,
+          display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, background: '#123d30', border: '1px solid var(--teal)', boxShadow: '0 10px 24px rgba(0,0,0,.4)' }}>
+          <span style={{ flex: 1, fontSize: 14 }}>✓ {fmtQtd(aviso.qtd)} {aviso.nome} {aviso.fluxo ? <>→ Prontidão{aviso.etapa ? <b> · {aviso.etapa}</b> : null}</> : '→ estoque'}</span>
+          {aviso.fluxo && <button onClick={() => navigate('/prontidao')} style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Ver</button>}
+        </div>
       )}
       {porcaoAlvo && (
         <PorcaoSheet alvo={porcaoAlvo} prodId={prod.id} dosesPerReceita={dosesPerReceita} onClose={() => setPorcaoAlvo(null)}
@@ -695,9 +701,9 @@ function MontarSheet({ alvo, onClose, onDone }) {
   const n = parseFloat(qtd) || 0
   const btn = { width: 54, height: 54, borderRadius: 14, border: '1px solid #333', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 26, cursor: 'pointer' }
 
-  async function rodar(fn) {
+  async function rodar(fn, info) {
     setSalvando(true)
-    try { await fn(); onDone() } catch (e) { alert('Erro: ' + e.message); setSalvando(false) }
+    try { await fn(); onDone(info) } catch (e) { alert('Erro: ' + e.message); setSalvando(false) }
   }
 
   return (
@@ -734,7 +740,7 @@ function MontarSheet({ alvo, onClose, onDone }) {
           </div>
         </>
       )}
-      <button className="btn-primary" disabled={salvando || !(n > 0)} onClick={() => rodar(() => { try { if (etapa) localStorage.setItem(chaveMem, etapa) } catch {} return marcarMontado(item.id, n, etapas.length ? etapa : null) })}>
+      <button className="btn-primary" disabled={salvando || !(n > 0)} onClick={() => rodar(() => { try { if (etapa) localStorage.setItem(chaveMem, etapa) } catch {} return marcarMontado(item.id, n, etapas.length ? etapa : null) }, { nome: p.nome, qtd: n, etapa: etapas.length ? nomeEtapa(p, etapa) : null, fluxo: etapas.length > 0 })}>
         {salvando ? 'Salvando...' : montado ? `Corrigir para ${n}` : `Montado · ${n}`}
       </button>
       {montado && (

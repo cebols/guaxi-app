@@ -1568,7 +1568,8 @@ function montarItensProducao(producaoId, lote, receitas, plano) {
 
     const hasReceitas = Object.keys(p.dosesContrib).length > 0
     // Produto com receitas entra no estoque quando é MONTADO (não ao marcar a última receita)
-    const naMontagem = item.tipo === 'produto' && (p.topo || []).length > 0
+    // (inclusive quando todos os preparos vêm do estoque: ainda precisa montar)
+    const naMontagem = item.tipo === 'produto' && ((p.topo || []).length > 0 || Object.keys(p.usoEstoque || {}).length > 0)
     const snapshot = {
       debitos: p.debitos,
       credito,
@@ -2028,10 +2029,20 @@ export async function deleteProducaoItem(itemId) {
 // ── Montagem: o produto entra no estoque (e na 1ª etapa do Prontidão) quando é montado
 // etapa: em que etapa do Prontidão o produto montado entra (padrão: a primeira)
 export async function marcarMontado(itemId, qtd, etapa = null) {
-  const { data: item, error } = await supabase.from('producao_itens').select('id, snapshot, produto_id').eq('id', itemId).single()
+  const { data: item, error } = await supabase.from('producao_itens').select('id, snapshot, produto_id, producoes(checks)').eq('id', itemId).single()
   if (error) throw error
-  const snap = item.snapshot || {}
+  let snap = item.snapshot || {}
   const prodId = snap.credito?.id || item.produto_id
+  // Produção antiga: o produto já tinha entrado no estoque (ao criar ou ao concluir as
+  // receitas). Tira esse crédito e passa a valer o que foi montado, na etapa escolhida.
+  if (!snap.creditoNaMontagem) {
+    const checks = new Set((item.producoes?.checks || []).map(String))
+    const jaEntrou = snap.creditoAplicadoNaCriacao || itemCompleto(item, checks)
+    if (jaEntrou && snap.credito?.tipo === 'produto' && snap.credito.qtd > 0) {
+      await movimentarEstoqueProduto(prodId, -snap.credito.qtd, 'estorno')
+    }
+    snap = { ...snap, creditoNaMontagem: true, creditoAplicadoNaCriacao: false }
+  }
   const antes = snap.montado?.qtd || 0
   const etapaAntes = snap.montado?.etapa || null
   if (antes && etapaAntes !== etapa) {
