@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react'
+import { DndContext, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, useDroppable, closestCenter, closestCorners } from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { ItemThumb } from './ItemThumb'
 
 // ── Lista de produtos espelhando o cardápio online ───────────────────────────
 // Seções na ordem do cardápio, produtos na ordem escolhida, liga/desliga na linha,
-// pendências (sem foto/descrição/preço) e modo "Organizar" com ▲▼ e seções.
+// pendências (sem foto/descrição/preço) e modo "Organizar" (arrastar e soltar).
 
 const fmtR = v => (v == null || isNaN(v)) ? '—' : `R$ ${Number(v).toFixed(2).replace('.', ',')}`
 const norm = s => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -94,7 +97,9 @@ function Linha({ prod, disp, querem, renderPrecos, onAbrir, onToggle, salvando }
   )
 }
 
-// ── Modo organizar ────────────────────────────────────────────────────────────
+// ── Modo organizar (arrastar e soltar) ───────────────────────────────────────
+// Aba "Seções": lista compacta só com os nomes. Aba "Produtos": arrasta dentro
+// da seção ou pra outra seção. Segura na alça ⠿ (dedo ou mouse).
 function estadoInicial(grupos) {
   const secoes = grupos.filter(g => g.secao).map(g => g.secao)
   const ids = Object.fromEntries(grupos.map(g => [g.secao, g.itens.map(p => p.id)]))
@@ -103,50 +108,111 @@ function estadoInicial(grupos) {
   return { secoes, ids }
 }
 
+const SEM = '__sem__'
+const cid = s => `sec:${s || SEM}`
+const pid = id => `p:${id}`
+const idDoProduto = x => Number(String(x).slice(2))
+const grupoDe = (st, id) => {
+  const s = String(id)
+  if (s.startsWith('sec:')) { const k = s.slice(4); return k === SEM ? '' : k }
+  const n = idDoProduto(s)
+  return [...st.secoes, ''].find(k => (st.ids[k] || []).includes(n))
+}
+
+function Alca({ setRef, attributes, listeners }) {
+  return (
+    <span ref={setRef} {...attributes} {...listeners} aria-label="Arrastar"
+      style={{ touchAction: 'none', cursor: 'grab', padding: '10px 8px', margin: '-6px 0 -6px -6px', color: 'var(--text-tertiary)', fontSize: 20, lineHeight: 1, userSelect: 'none', flexShrink: 0 }}>⠿</span>
+  )
+}
+
+function SecaoArrastavel({ nome, n, editando, onEditar, onRenomear, onRemover }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: cid(nome) })
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, position: 'relative', zIndex: isDragging ? 5 : 'auto',
+      display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: isDragging ? '#2c2c2c' : 'var(--bg-card)', boxShadow: isDragging ? '0 8px 20px rgba(0,0,0,.45)' : 'none' }}>
+      <Alca setRef={setActivatorNodeRef} attributes={attributes} listeners={listeners} />
+      {editando ? (
+        <input autoFocus defaultValue={nome} onBlur={e => onRenomear(e.target.value)} onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()}
+          style={{ flex: 1, minWidth: 0, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--teal)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 14, fontWeight: 700 }} />
+      ) : (
+        <span onClick={onEditar} style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: 15, cursor: 'text' }}>{nome} <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>✎</span></span>
+      )}
+      <span style={{ fontSize: 12, color: 'var(--text-tertiary)', whiteSpace: 'nowrap' }}>{n} produto{n === 1 ? '' : 's'}</span>
+      <button onClick={onRemover} title="Remover seção (produtos vão pra Sem seção)"
+        style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #333', background: 'transparent', color: '#f87171', fontSize: 14, cursor: 'pointer', flexShrink: 0 }}>×</button>
+    </div>
+  )
+}
+
+function LinhaOrganizar({ prod, secao, secoes, onMudarSecao, alca, fantasma, flutuando }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: flutuando ? '#2c2c2c' : 'var(--bg-card)', opacity: fantasma ? 0.35 : 1,
+      boxShadow: flutuando ? '0 10px 24px rgba(0,0,0,.5)' : 'none', borderRadius: flutuando ? 10 : 0 }}>
+      {alca || <span style={{ padding: '10px 8px', margin: '-6px 0 -6px -6px', color: 'var(--text-tertiary)', fontSize: 20, lineHeight: 1 }}>⠿</span>}
+      <Thumb prod={prod} size={36} />
+      <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{prod.nome}</span>
+      {onMudarSecao && (
+        <select value={secao} onChange={e => onMudarSecao(e.target.value)} title="Mandar pra outra seção"
+          style={{ maxWidth: 120, padding: '6px', borderRadius: 8, border: '1px solid #333', background: 'var(--bg-input)', color: 'var(--text-secondary)', fontSize: 12 }}>
+          {secoes.map(x => <option key={x} value={x}>{x}</option>)}
+          <option value="">Sem seção</option>
+        </select>
+      )}
+    </div>
+  )
+}
+
+function ProdutoArrastavel({ prod, secao, secoes, onMudarSecao }) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: pid(prod.id) })
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }}>
+      <LinhaOrganizar prod={prod} secao={secao} secoes={secoes} onMudarSecao={onMudarSecao} fantasma={isDragging}
+        alca={<Alca setRef={setActivatorNodeRef} attributes={attributes} listeners={listeners} />} />
+    </div>
+  )
+}
+
+function GrupoSoltavel({ secao, ids, children }) {
+  const { setNodeRef, isOver } = useDroppable({ id: cid(secao) })
+  return (
+    <SortableContext id={cid(secao)} items={ids.map(pid)} strategy={verticalListSortingStrategy}>
+      <div ref={setNodeRef} className="card card-flush lista-prod" style={{ overflow: 'hidden', minHeight: 44, outline: isOver ? '2px solid var(--teal)' : 'none' }}>
+        {children}
+      </div>
+    </SortableContext>
+  )
+}
+
 function Organizar({ grupos, porId, onCancelar, onSalvar }) {
   const [st, setSt] = useState(() => estadoInicial(grupos))
-  const [editando, setEditando] = useState(null) // índice da seção sendo renomeada
+  const [aba, setAba] = useState('secoes')
+  const [editando, setEditando] = useState(null) // nome da seção sendo renomeada
   const [nova, setNova] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [arrastando, setArrastando] = useState(null)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
   const ordemSecs = [...st.secoes, '']
 
-  const moverProd = (id, dir) => setSt(prev => {
-    const ids = Object.fromEntries(Object.entries(prev.ids).map(([k, v]) => [k, [...v]]))
-    const secs = [...prev.secoes, '']
-    const s = secs.find(k => ids[k].includes(id))
-    const arr = ids[s], i = arr.indexOf(id), j = i + dir
-    if (j >= 0 && j < arr.length) { [arr[i], arr[j]] = [arr[j], arr[i]]; return { ...prev, ids } }
-    // passou da borda: vai pra seção vizinha
-    const k = secs.indexOf(s) + dir
-    if (k < 0 || k >= secs.length) return prev
-    arr.splice(i, 1)
-    if (dir < 0) ids[secs[k]].push(id); else ids[secs[k]].unshift(id)
-    return { ...prev, ids }
-  })
   const mudarSecao = (id, nova) => setSt(prev => {
     const ids = Object.fromEntries(Object.entries(prev.ids).map(([k, v]) => [k, v.filter(x => x !== id)]))
     ids[nova] = [...(ids[nova] || []), id]
     return { ...prev, ids }
   })
-  const moverSecao = (i, dir) => setSt(prev => {
-    const secoes = [...prev.secoes], j = i + dir
-    if (j < 0 || j >= secoes.length) return prev
-    ;[secoes[i], secoes[j]] = [secoes[j], secoes[i]]
-    return { ...prev, secoes }
-  })
-  const renomear = (i, nome) => setSt(prev => {
-    const velho = prev.secoes[i], n = nome.trim()
+  const renomear = (velho, nome) => setSt(prev => {
+    const n = nome.trim()
     if (!n || n === velho || prev.secoes.includes(n)) return prev
-    const secoes = prev.secoes.map((s, k) => k === i ? n : s)
     const ids = { ...prev.ids, [n]: prev.ids[velho] }
     delete ids[velho]
-    return { secoes, ids }
+    return { secoes: prev.secoes.map(s => s === velho ? n : s), ids }
   })
-  const removerSecao = (i) => setSt(prev => {
-    const velho = prev.secoes[i]
+  const removerSecao = (velho) => setSt(prev => {
     const ids = { ...prev.ids, '': [...prev.ids[''], ...prev.ids[velho]] }
     delete ids[velho]
-    return { secoes: prev.secoes.filter((_, k) => k !== i), ids }
+    return { secoes: prev.secoes.filter(s => s !== velho), ids }
   })
   const addSecao = () => {
     const n = nova.trim()
@@ -154,6 +220,43 @@ function Organizar({ grupos, porId, onCancelar, onSalvar }) {
     setSt(prev => prev.secoes.includes(n) ? prev : { secoes: [...prev.secoes, n], ids: { ...prev.ids, [n]: [] } })
     setNova('')
   }
+
+  // Seções: reordenar a lista
+  function soltarSecao({ active, over }) {
+    if (!over || active.id === over.id) return
+    setSt(prev => {
+      const a = prev.secoes.indexOf(String(active.id).slice(4)), b = prev.secoes.indexOf(String(over.id).slice(4))
+      return a < 0 || b < 0 ? prev : { ...prev, secoes: arrayMove(prev.secoes, a, b) }
+    })
+  }
+  // Produtos: ao passar por outra seção, já muda de grupo; ao soltar, acerta a posição
+  function passarProduto({ active, over }) {
+    if (!over) return
+    setSt(prev => {
+      const de = grupoDe(prev, active.id), para = grupoDe(prev, over.id)
+      if (de == null || para == null || de === para) return prev
+      const n = idDoProduto(active.id)
+      const destino = (prev.ids[para] || []).filter(x => x !== n)
+      const sobreItem = String(over.id).startsWith('p:')
+      let i = sobreItem ? destino.indexOf(idDoProduto(over.id)) : destino.length
+      if (i < 0) i = destino.length
+      const r = active.rect.current.translated
+      if (sobreItem && r && r.top + r.height / 2 > over.rect.top + over.rect.height / 2) i += 1
+      destino.splice(i, 0, n)
+      return { ...prev, ids: { ...prev.ids, [de]: prev.ids[de].filter(x => x !== n), [para]: destino } }
+    })
+  }
+  function soltarProduto({ active, over }) {
+    setArrastando(null)
+    if (!over) return
+    setSt(prev => {
+      const de = grupoDe(prev, active.id), para = grupoDe(prev, over.id)
+      if (de == null || de !== para || !String(over.id).startsWith('p:')) return prev
+      const arr = prev.ids[de], a = arr.indexOf(idDoProduto(active.id)), b = arr.indexOf(idDoProduto(over.id))
+      return a < 0 || b < 0 || a === b ? prev : { ...prev, ids: { ...prev.ids, [de]: arrayMove(arr, a, b) } }
+    })
+  }
+
   async function salvar() {
     setSalvando(true)
     try {
@@ -170,64 +273,76 @@ function Organizar({ grupos, porId, onCancelar, onSalvar }) {
     }
   }
 
-  const btn = { width: 32, height: 32, borderRadius: 8, border: '1px solid #333', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer', flexShrink: 0 }
   const barra = (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '10px 12px', borderRadius: 12, background: 'rgba(34,184,134,.08)', border: '1px solid rgba(34,184,134,.35)' }}>
-      <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-secondary)' }}>▲▼ muda a ordem (passa de seção na borda). É a ordem do cardápio online.</span>
+      <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-secondary)' }}>Segure o <b>⠿</b> e arraste. É a ordem do cardápio online.</span>
       <button onClick={onCancelar} disabled={salvando} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #333', background: 'transparent', color: 'var(--text-secondary)', fontWeight: 600, cursor: 'pointer' }}>Cancelar</button>
       <button onClick={salvar} disabled={salvando} style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>{salvando ? 'Salvando…' : 'Salvar'}</button>
     </div>
   )
+  const tab = (k, label) => (
+    <button onClick={() => setAba(k)} style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13.5,
+      background: aba === k ? 'var(--teal)' : 'transparent', color: aba === k ? '#fff' : 'var(--text-secondary)' }}>{label}</button>
+  )
+  const ativo = arrastando ? porId[idDoProduto(arrastando)] : null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {barra}
-      {ordemSecs.map((s, si) => {
-        const ids = st.ids[s] || []
-        if (s === '' && !ids.length) return null
-        return (
-          <div key={s || '__sem'} className="card card-flush lista-prod" style={{ overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 12px', background: 'rgba(255,255,255,.03)' }}>
-              {s === '' ? (
-                <span style={{ flex: 1, fontWeight: 700, color: 'var(--text-secondary)' }}>Sem seção <span style={{ fontWeight: 400, fontSize: 12 }}>· aparece no fim, sem título</span></span>
-              ) : editando === si ? (
-                <input autoFocus defaultValue={s} onBlur={e => { renomear(si, e.target.value); setEditando(null) }} onKeyDown={e => e.key === 'Enter' && e.currentTarget.blur()}
-                  style={{ flex: 1, padding: '6px 10px', borderRadius: 8, border: '1px solid var(--teal)', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 14, fontWeight: 700 }} />
-              ) : (
-                <span onClick={() => setEditando(si)} style={{ flex: 1, fontWeight: 800, fontSize: 15, cursor: 'text' }}>{s} <span style={{ fontWeight: 400, fontSize: 12, color: 'var(--text-tertiary)' }}>✎ · {ids.length}</span></span>
-              )}
-              {s !== '' && <>
-                <button style={btn} onClick={() => moverSecao(si, -1)} disabled={si === 0}>▲</button>
-                <button style={btn} onClick={() => moverSecao(si, 1)} disabled={si === st.secoes.length - 1}>▼</button>
-                <button style={{ ...btn, color: '#f87171' }} title="Remover seção (produtos vão pra Sem seção)" onClick={() => removerSecao(si)}>×</button>
-              </>}
-            </div>
-            {!ids.length && <div style={{ padding: '10px 14px', fontSize: 12.5, color: 'var(--text-tertiary)', borderTop: '1px solid #2a2a2a' }}>Vazia — use ▲▼ ou o seletor pra trazer produtos.</div>}
-            {ids.map(id => {
-              const p = porId[id]
-              if (!p) return null
-              return (
-                <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderTop: '1px solid #2a2a2a' }}>
-                  <Thumb prod={p} size={36} />
-                  <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.nome}</span>
-                  <select value={s} onChange={e => mudarSecao(id, e.target.value)}
-                    style={{ maxWidth: 110, padding: '6px 6px', borderRadius: 8, border: '1px solid #333', background: 'var(--bg-input)', color: 'var(--text-secondary)', fontSize: 12 }}>
-                    {st.secoes.map(x => <option key={x} value={x}>{x}</option>)}
-                    <option value="">Sem seção</option>
-                  </select>
-                  <button style={btn} onClick={() => moverProd(id, -1)}>▲</button>
-                  <button style={btn} onClick={() => moverProd(id, 1)}>▼</button>
-                </div>
-              )
-            })}
-          </div>
-        )
-      })}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <input value={nova} onChange={e => setNova(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSecao()} placeholder="Nova seção…"
-          style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1px solid #333', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 14 }} />
-        <button onClick={addSecao} style={{ padding: '0 16px', borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>+ Seção</button>
+      <div style={{ display: 'flex', gap: 4, padding: 4, borderRadius: 12, background: 'var(--bg-input)' }}>
+        {tab('secoes', `Seções (${st.secoes.length})`)}
+        {tab('produtos', 'Produtos')}
       </div>
+
+      {aba === 'secoes' ? (
+        <>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={soltarSecao}>
+            <SortableContext items={st.secoes.map(cid)} strategy={verticalListSortingStrategy}>
+              <div className="card card-flush lista-prod" style={{ overflow: 'visible' }}>
+                {st.secoes.length === 0 && <div style={{ padding: 16, fontSize: 13, color: 'var(--text-tertiary)' }}>Nenhuma seção ainda.</div>}
+                {st.secoes.map(s => (
+                  <SecaoArrastavel key={s} nome={s} n={(st.ids[s] || []).length} editando={editando === s}
+                    onEditar={() => setEditando(s)} onRenomear={v => { renomear(s, v); setEditando(null) }} onRemover={() => removerSecao(s)} />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+          {(st.ids[''] || []).length > 0 && (
+            <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', margin: '0 4px' }}>
+              {(st.ids['']).length} produto(s) sem seção — aparecem no fim do cardápio, sem título.
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input value={nova} onChange={e => setNova(e.target.value)} onKeyDown={e => e.key === 'Enter' && addSecao()} placeholder="Nova seção…"
+              style={{ flex: 1, padding: '10px 12px', borderRadius: 10, border: '1px solid #333', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 14 }} />
+            <button onClick={addSecao} style={{ padding: '0 16px', borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>+ Seção</button>
+          </div>
+        </>
+      ) : (
+        <DndContext sensors={sensors} collisionDetection={closestCorners}
+          onDragStart={({ active }) => setArrastando(active.id)} onDragOver={passarProduto} onDragEnd={soltarProduto} onDragCancel={() => setArrastando(null)}>
+          {ordemSecs.map(s => {
+            const ids = st.ids[s] || []
+            if (s === '' && !ids.length && !arrastando) return null
+            return (
+              <div key={s || SEM}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, margin: '2px 4px 6px' }}>
+                  {s || 'Sem seção'} <span style={{ fontWeight: 500, color: 'var(--text-tertiary)' }}>· {ids.length}</span>
+                </div>
+                <GrupoSoltavel secao={s} ids={ids}>
+                  {ids.length === 0 && <div style={{ padding: '12px 14px', fontSize: 12.5, color: 'var(--text-tertiary)' }}>Arraste produtos pra cá</div>}
+                  {ids.map(id => porId[id] && (
+                    <ProdutoArrastavel key={id} prod={porId[id]} secao={s} secoes={st.secoes} onMudarSecao={v => mudarSecao(id, v)} />
+                  ))}
+                </GrupoSoltavel>
+              </div>
+            )
+          })}
+          <DragOverlay dropAnimation={null}>
+            {ativo ? <LinhaOrganizar prod={ativo} flutuando /> : null}
+          </DragOverlay>
+        </DndContext>
+      )}
       {barra}
     </div>
   )
