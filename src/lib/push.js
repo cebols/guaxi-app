@@ -12,6 +12,23 @@ function b64ToBytes(b64) {
   return Uint8Array.from(raw, c => c.charCodeAt(0))
 }
 
+// Inscreve no serviço de push do navegador, com erro explicado em português
+async function inscrever(reg) {
+  const atual = await reg.pushManager.getSubscription()
+  if (atual) return atual
+  try {
+    return await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC_KEY) })
+  } catch (e) {
+    if (/push service|registration failed/i.test(e?.message || '') || e?.name === 'AbortError') {
+      throw new Error('O navegador deste aparelho recusou as notificações (serviço de push indisponível). ' +
+        'No Brave: ative "Usar serviços do Google para mensagens push" em brave://settings/privacy. ' +
+        'No Chrome/Edge: não use janela anônima e confira se as notificações estão permitidas pro site. ' +
+        'No celular costuma funcionar direto.')
+    }
+    throw e
+  }
+}
+
 async function registro() {
   // garante o service worker mesmo se o registro do main.jsx ainda não rodou
   const reg = await navigator.serviceWorker.getRegistration() || await navigator.serviceWorker.register('/sw.js')
@@ -36,8 +53,7 @@ export async function ativarLembrete(hora) {
   const perm = await Notification.requestPermission()
   if (perm !== 'granted') throw new Error('Permissão de notificação negada. Libere nas configurações do navegador/app.')
   const reg = await registro()
-  const sub = await reg.pushManager.getSubscription()
-    || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC_KEY) })
+  const sub = await inscrever(reg)
   const j = sub.toJSON()
   const { error } = await supabase.from('push_subscriptions').upsert({
     endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth,
@@ -55,8 +71,7 @@ export async function ativarAvisos() {
   const perm = await Notification.requestPermission()
   if (perm !== 'granted') throw new Error('Permissão de notificação negada. Libere nas configurações do navegador/app.')
   const reg = await registro()
-  const sub = await reg.pushManager.getSubscription()
-    || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID_PUBLIC_KEY) })
+  const sub = await inscrever(reg)
   const j = sub.toJSON()
   const { data: existe } = await supabase.from('push_subscriptions').select('id').eq('endpoint', j.endpoint).maybeSingle()
   const { error } = existe
