@@ -126,7 +126,7 @@ export default function Configuracoes() {
   const { data: encomendas }  = useData(getEncomendas)
   const { data: embalagens }  = useData(getEmbalagens)
 
-  const [deliveryCfg, setDeliveryCfg] = useState({ lojaCEP: '', lojaEndereco: '', freteGratis: 0, freteTiers: [], diasEntrega: [], lojaLat: null, lojaLng: null })
+  const [deliveryCfg, setDeliveryCfg] = useState({ lojaCEP: '', lojaEndereco: '', freteGratis: 0, freteTiers: [], diasEntrega: [], lojaLat: null, lojaLng: null, freteMargemPct: 10, freteMargemMin: 1 })
   useEffect(() => {
     loadUserConfig().then(cfg => {
       if (cfg?.delivery) setDeliveryCfg(d => ({ ...d, ...cfg.delivery }))
@@ -166,14 +166,17 @@ export default function Configuracoes() {
       .map(t => ({ ate: parseFloat(t.ate) || 0, valor: parseFloat(t.valor) || 0 }))
       .sort((a, b) => a.ate - b.ate)
     const coords = await geocodeCep(deliveryCfg.lojaCEP)
+    const existing = await loadUserConfig()
     const payload = {
+      ...(existing?.delivery || {}),   // preserva campos salvos em outras telas (nome/telefone da loja)
       lojaCEP: deliveryCfg.lojaCEP, lojaEndereco: deliveryCfg.lojaEndereco,
+      freteMargemPct: deliveryCfg.freteMargemPct === '' ? 10 : (parseFloat(deliveryCfg.freteMargemPct) || 0),
+      freteMargemMin: deliveryCfg.freteMargemMin === '' ? 1 : (parseFloat(deliveryCfg.freteMargemMin) || 0),
       freteGratis: parseFloat(deliveryCfg.freteGratis) || 0, freteTiers: tiers,
       diasEntrega: deliveryCfg.diasEntrega || [],
       lojaLat: coords?.lat ?? deliveryCfg.lojaLat ?? null,
       lojaLng: coords?.lng ?? deliveryCfg.lojaLng ?? null,
     }
-    const existing = await loadUserConfig()
     await saveUserConfig({ ...(existing || {}), delivery: payload })
     setDeliveryCfg(d => ({ ...d, freteTiers: tiers, lojaLat: payload.lojaLat, lojaLng: payload.lojaLng }))
     show(coords ? 'Delivery salvo!' : 'Delivery salvo (não consegui geocodar o CEP da loja)')
@@ -603,6 +606,24 @@ export default function Configuracoes() {
               onChange={e => setDel('freteGratis', e.target.value)}
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }}
             />
+            <label className="cfg-label">Margem sobre o frete (Lalamove)</label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+              <input type="number" min="0" value={deliveryCfg.freteMargemPct ?? 10} onChange={e => setDel('freteMargemPct', e.target.value)}
+                style={{ width: 70, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'center' }} />
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>% do custo, no mínimo R$</span>
+              <input type="number" min="0" step="0.5" value={deliveryCfg.freteMargemMin ?? 1} onChange={e => setDel('freteMargemMin', e.target.value)}
+                style={{ width: 70, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'center' }} />
+            </div>
+            {(() => {
+              const pct = parseFloat(deliveryCfg.freteMargemPct ?? 10) || 0, min = parseFloat(deliveryCfg.freteMargemMin ?? 1) || 0
+              const ex = c => Math.ceil((c + Math.max(min, c * pct / 100)) * 2) / 2
+              const f = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+              return (
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 14 }}>
+                  Ex.: Lalamove cobra R$ 9 → cliente paga R$ {f(ex(9))} · R$ 12 → R$ {f(ex(12))} · R$ 20 → R$ {f(ex(20))}. Arredonda pra R$ 0,50. Pedido só com itens robustos vai de moto; com frágil, carro.
+                </div>
+              )
+            })()}
             <label className="cfg-label">Dias de entrega</label>
             <div style={{ display: 'flex', gap: 5, marginBottom: 4 }}>
               {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((lbl, n) => {

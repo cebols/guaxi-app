@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { quoteTotal, stopOf, lalamoveConfigured, FRETE_MARGEM, pisoFrete } from './_lalamove.js'
+import { quoteTotal, stopOf, lalamoveConfigured, pisoFrete, precoFrete, veiculoPara } from './_lalamove.js'
 
 // Calcula o frete por dia (estimativa) para o formulário público. Roda
 // server-side com service-role: as coordenadas dos outros clientes NUNCA saem
@@ -7,15 +7,14 @@ import { quoteTotal, stopOf, lalamoveConfigured, FRETE_MARGEM, pisoFrete } from 
 //
 // Env vars (Vercel): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (+ as do Lalamove)
 //
-// Estimativa (teto) = max(piso_veiculo, ceil(min(marginal, solo) + MARGEM)).
+// Estimativa (teto) = max(piso_veiculo, precoFrete(min(marginal, solo))) — margem % c/ mínimo, arred. R$ 0,50.
 // O valor FINAL (mais barato) é recalculado no despacho (rateio blend 50/50).
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-// Veículo fixo por enquanto: tudo cotado como HATCHBACK (fragilidade em hold).
-const VEICULO_PADRAO = 'HATCHBACK'
-const MARGEM  = FRETE_MARGEM
+// Veículo pela fragilidade (moto pra robusto, hatch se tiver frágil) — o mesmo
+// critério do despacho, pra o preço cotado nunca ficar abaixo do custo real.
 const JANELA  = 14   // procura próximas datas dentro de 2 semanas
 
 const iso = (d) => d.toISOString().slice(0, 10)
@@ -73,22 +72,25 @@ export default async function handler(req, res) {
 
     // Custo individual (solo) — teto do preço: o cliente nunca paga mais do que
     // custaria entregar só pra ele, mesmo que o dia tenha pedidos distantes.
-    const solo = await quoteTotal([loja, cliente], VEICULO_PADRAO)
+    const veicCliente = veiculoPara([frag])
+    const solo = await quoteTotal([loja, cliente], veicCliente)
 
     const dias = []
     for (const d of datas) {
       const key = iso(d)
       const reservados = porDia[key] || []
-      const veiculo = VEICULO_PADRAO
+      const fragsDia = reservados.map(p => p.entrega_frag || 'robusto')
+      const veicDia  = veiculoPara(fragsDia)
+      const veiculo  = veiculoPara([...fragsDia, frag])   // se o cliente é frágil, a rota sobe pra carro
 
       const stopsExist = reservados.map((p, i) => stopOf(p.entrega_lat, p.entrega_lng, `Parada ${i + 1}`))
-      const base       = stopsExist.length === 0 ? 0 : await quoteTotal([loja, ...stopsExist], veiculo)
+      const base       = stopsExist.length === 0 ? 0 : await quoteTotal([loja, ...stopsExist], veicDia)
       const comCliente = await quoteTotal([loja, ...stopsExist, cliente], veiculo)
       const marginal   = comCliente - base
 
       // Paga o menor entre o marginal do compartilhado e o solo individual
       const custo = Math.min(marginal, solo)
-      const preco = gratis ? 0 : Math.max(pisoFrete(veiculo), Math.ceil(custo + MARGEM))
+      const preco = gratis ? 0 : Math.max(pisoFrete(veicCliente, delivery), precoFrete(custo, delivery))
       const compartilhado = reservados.length > 0 && marginal < solo  // agrupar de fato baratearia
 
       dias.push({ date: key, weekday: d.getDay(), pedidos: reservados.length, veiculo, preco, gratis, compartilhado })

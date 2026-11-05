@@ -27,10 +27,25 @@ const creds = (sandbox) => (sandbox ? SANDBOX : PROD)
 export const LALAMOVE_BASE = { LALAGO: 7.94, HATCHBACK: 9.13, CAR: 13.14 }
 // Margem por pedido sobre o custo.
 export const FRETE_MARGEM = Number(process.env.FRETE_MARGEM || 3)
-// Piso de frete por veículo = tarifa mínima + margem (nunca sai no prejuízo individual).
-export function pisoFrete(veiculo) {
+// Veículo pela fragilidade: tudo robusto vai de moto; qualquer frágil, carro hatch.
+export const VEICULO_ROBUSTO = 'LALAGO'
+export const VEICULO_FRAGIL  = 'HATCHBACK'
+export const veiculoPara = (frags) => (frags || []).some(f => f === 'fragil') ? VEICULO_FRAGIL : VEICULO_ROBUSTO
+
+// Preço do frete = custo real + margem (% do custo, com mínimo em R$), arredondado
+// pra cima em R$ 0,50. Nunca prejuízo, lucro pequeno. Ajustável em Configurações
+// (delivery.freteMargemPct / delivery.freteMargemMin).
+export function precoFrete(custo, cfg = {}) {
+  const pct = Number(cfg.freteMargemPct ?? 10)
+  const min = Number(cfg.freteMargemMin ?? 1)
+  const margem = Math.max(min, (Number(custo) || 0) * pct / 100)
+  return Math.ceil(((Number(custo) || 0) + margem) * 2) / 2
+}
+
+// Piso por veículo = tarifa mínima + margem (nunca sai no prejuízo individual).
+export function pisoFrete(veiculo, cfg = {}) {
   const base = LALAMOVE_BASE[veiculo] ?? LALAMOVE_BASE.CAR
-  return Math.ceil(base + FRETE_MARGEM)
+  return precoFrete(base, cfg)
 }
 
 export function lalamoveConfigured(sandbox = false) {

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal, FRETE_MARGEM, pisoFrete } from './_lalamove.js'
+import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal, pisoFrete, precoFrete } from './_lalamove.js'
 
 // Despacha um envio na Lalamove: cota → cria order → grava order_id/shareLink/status.
 // Ao despachar, REALOCA o frete de cada pedido para sua fração justa do custo real
@@ -12,7 +12,6 @@ import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal, FRETE_MARGEM
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 const SANDBOX      = process.env.LALAMOVE_DISPATCH_SANDBOX !== 'false'   // default: sandbox
-const MARGEM       = FRETE_MARGEM
 const BLEND        = 0.5   // 50% divisão igual + 50% proporcional à distância
 
 export default async function handler(req, res) {
@@ -85,7 +84,7 @@ export default async function handler(req, res) {
     const N = pedidos.length
     // Piso individual só faz sentido pra envio de 1 parada. No compartilhado a
     // soma do blend já cobre o custo + margem; aplicar piso por parada super-cobra.
-    const floor = N === 1 ? pisoFrete(envio.veiculo || 'CAR') : 0
+    const floor = N === 1 ? pisoFrete(envio.veiculo || 'CAR', delivery) : 0
     const ajustes = []
     for (let i = 0; i < N; i++) {
       // Blend 50/50: metade dividido igual, metade proporcional à distância.
@@ -93,7 +92,7 @@ export default async function handler(req, res) {
       const igual        = C / N
       const proporcional = C * (solos[i] / somaSolo)
       const share        = BLEND * igual + (1 - BLEND) * proporcional
-      let   fNovo   = Math.max(floor, Math.ceil(share + MARGEM))
+      let   fNovo   = Math.max(floor, precoFrete(share, delivery))
       const fAntigo = Number(pedidos[i].frete) || 0
       if (fAntigo > 0) fNovo = Math.min(fNovo, fAntigo)   // nunca aumenta o que já foi cotado
       await sb.from('encomendas').update({ frete: fNovo }).eq('id', pedidos[i].id)
