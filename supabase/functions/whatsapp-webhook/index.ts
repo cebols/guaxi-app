@@ -2,6 +2,27 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 import { parseMetaWebhook, sendMetaMessage } from './providers.ts'
 import { runAgent } from './agent.ts'
 
+// A Meta assina cada chamada (X-Hub-Signature-256 = HMAC-SHA256 do corpo com o App
+// Secret). Sem conferir, qualquer um que descubra esta URL manda mensagens falsas
+// pro agente. Configure META_APP_SECRET nos secrets da função (Meta → App → Basic).
+async function assinaturaValida(raw: string, header: string | null): Promise<boolean> {
+  const segredo = Deno.env.get('META_APP_SECRET')
+  if (!segredo) {
+    console.warn('META_APP_SECRET não configurado — webhook aceitando sem verificar assinatura')
+    return true
+  }
+  if (!header || !header.startsWith('sha256=')) return false
+  const enc = new TextEncoder()
+  const key = await crypto.subtle.importKey('raw', enc.encode(segredo), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(raw)))
+  const hex = Array.from(sig).map(b => b.toString(16).padStart(2, '0')).join('')
+  const recebido = header.slice(7).toLowerCase()
+  if (recebido.length !== hex.length) return false
+  let diff = 0
+  for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ recebido.charCodeAt(i)
+  return diff === 0
+}
+
 Deno.serve(async (req: Request) => {
   // Verificação do webhook pela Meta (GET com hub.challenge)
   if (req.method === 'GET') {
@@ -19,9 +40,14 @@ Deno.serve(async (req: Request) => {
     return new Response('Method not allowed', { status: 405 })
   }
 
+  const raw = await req.text()
+  if (!(await assinaturaValida(raw, req.headers.get('x-hub-signature-256')))) {
+    return new Response('Forbidden', { status: 403 })
+  }
+
   let payload: unknown
   try {
-    payload = await req.json()
+    payload = JSON.parse(raw)
   } catch {
     return new Response('Bad Request', { status: 400 })
   }

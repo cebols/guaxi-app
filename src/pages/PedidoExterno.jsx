@@ -413,7 +413,9 @@ export default function PedidoExterno() {
     setCalcFrete(true); setFrete(null); setFreteError(''); setFreteDias(null); setDiaSel(null)
     try {
       const c = await geocodeCep(clean)
-      const coord = { lat: c.lat, lng: c.lon }
+      // 5 casas (~1 m): o mesmo valor vai pro cálculo do frete e pro pedido (assinatura)
+      const r5 = (x) => Math.round(Number(x) * 1e5) / 1e5
+      const coord = { lat: r5(c.lat), lng: r5(c.lon) }
       setCoordCliente(coord)
       const r = await fetch('/api/frete-dias', {
         method: 'POST',
@@ -429,7 +431,7 @@ export default function PedidoExterno() {
       setFreteDias(j.dias)
       const best = [...j.dias].sort((a, b) => a.preco - b.preco)[0]
       setDiaSel(best.date)
-      setFrete({ valor: best.preco, dia: best.date, viaDias: true })
+      setFrete({ valor: best.preco, dia: best.date, viaDias: true, assinatura: best.assinatura || null })
       return true
     } catch {
       return false
@@ -440,7 +442,7 @@ export default function PedidoExterno() {
 
   const escolherDia = (card) => {
     setDiaSel(card.date)
-    setFrete({ valor: card.preco, dia: card.date, viaDias: true })
+    setFrete({ valor: card.preco, dia: card.date, viaDias: true, assinatura: card.assinatura || null })
   }
 
   async function geocodeCep(cep) {
@@ -520,7 +522,7 @@ export default function PedidoExterno() {
 
     const freteValor = form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0
     const entrega = form.tipoEntrega === 'Entrega'
-      ? { dataEntrega: diaSel, lat: coordCliente?.lat, lng: coordCliente?.lng, frag: fragCarrinho }
+      ? { dataEntrega: diaSel, lat: coordCliente?.lat, lng: coordCliente?.lng, frag: fragCarrinho, freteAssinatura: frete?.viaDias ? frete.assinatura : null }
       : {}
 
     setSubmitting(true)

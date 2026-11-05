@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { createClient } from '@supabase/supabase-js'
 import { quoteTotal, stopOf, lalamoveConfigured, pisoFrete, precoFrete, veiculoPara } from './_lalamove.js'
 
@@ -18,6 +19,15 @@ const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 const JANELA  = 14   // procura próximas datas dentro de 2 semanas
 
 const iso = (d) => d.toISOString().slice(0, 10)
+
+// Assinatura do frete: o banco (submit_pedido_externo) confere com o mesmo segredo
+// (CRON_SECRET aqui = guaxi_cron_secret no Vault). Sem ela o pedido entra com aviso.
+function assinar(userId, date, preco, lat, lng, frag) {
+  const segredo = process.env.CRON_SECRET
+  if (!segredo) return null
+  const msg = `${userId}|${date}|${Number(preco).toFixed(2)}|${Number(lat).toFixed(5)}|${Number(lng).toFixed(5)}|${frag}`
+  return crypto.createHmac('sha256', segredo).update(msg).digest('hex')
+}
 const ordSemana = (wd) => (wd + 6) % 7   // segunda=0 ... domingo=6
 
 export default async function handler(req, res) {
@@ -26,8 +36,13 @@ export default async function handler(req, res) {
   if (!SUPABASE_URL || !SERVICE_KEY)  { res.status(500).json({ error: 'Supabase service role não configurado' }); return }
 
   try {
-    const { userId, lat, lng, frag = 'robusto', total = 0 } = req.body || {}
-    if (!userId || lat == null || lng == null) {
+    const { userId, frag: fragIn = 'robusto', total: totalIn = 0 } = req.body || {}
+    const lat = Math.round(Number(req.body?.lat) * 1e5) / 1e5
+    const lng = Math.round(Number(req.body?.lng) * 1e5) / 1e5
+    const frag = fragIn === 'fragil' ? 'fragil' : 'robusto'
+    const total = Number(totalIn) || 0
+    if (!/^[0-9a-f-]{36}$/i.test(String(userId || '')) || !Number.isFinite(lat) || !Number.isFinite(lng)
+        || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
       res.status(400).json({ error: 'userId, lat e lng obrigatórios' }); return
     }
 
@@ -93,7 +108,8 @@ export default async function handler(req, res) {
       const preco = gratis ? 0 : Math.max(pisoFrete(veicCliente, delivery), precoFrete(custo, delivery))
       const compartilhado = reservados.length > 0 && marginal < solo  // agrupar de fato baratearia
 
-      dias.push({ date: key, weekday: d.getDay(), pedidos: reservados.length, veiculo, preco, gratis, compartilhado })
+      dias.push({ date: key, weekday: d.getDay(), pedidos: reservados.length, veiculo, preco, gratis, compartilhado,
+                  assinatura: assinar(userId, key, preco, lat, lng, frag) })
     }
 
     // Ordena por dia da semana: segunda → domingo
@@ -101,6 +117,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({ dias })
   } catch (e) {
-    res.status(500).json({ error: e.message })
+    console.error('frete-dias', e)
+    res.status(500).json({ error: 'Não foi possível calcular o frete agora' })
   }
 }

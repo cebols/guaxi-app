@@ -2332,12 +2332,15 @@ export async function getCardapioPublico(id) {
 // ── Pedido Externo (público, sem auth) ────────────────────────
 
 export async function getPublicProdutos(userId) {
-  const base = 'id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo, secao'
-  // Tenta com colunas novas; se ainda não existirem no banco, cai pro básico
-  let data, error
-  for (const cols of [`${base}, fragilidade, ativo, midias, ordem`, `${base}, fragilidade, ativo, midias`, `${base}, fragilidade, ativo`, `${base}, fragilidade`, base]) {
-    ;({ data, error } = await supabase.from('produtos').select(cols).eq('user_id', userId).order('nome'))
-    if (!error) break
+  // Função do banco que devolve só os campos públicos (sem custo, receita, fornecedor...)
+  let { data, error } = await supabase.rpc('cardapio_publico', { p_user_id: userId })
+  if (error && /cardapio_publico|PGRST202|Could not find the function/i.test(error.message || '')) {
+    // banco ainda sem a função (SQL não rodado): leitura antiga
+    const base = 'id, nome, descricao, preco_direta, estoque_atual, imagem_url, tipo, secao'
+    for (const cols of [`${base}, fragilidade, ativo, midias, ordem`, `${base}, fragilidade, ativo, midias`, `${base}, fragilidade, ativo`, `${base}, fragilidade`, base]) {
+      ;({ data, error } = await supabase.from('produtos').select(cols).eq('user_id', userId).order('nome'))
+      if (!error) break
+    }
   }
   if (error) throw error
   // Disponível = pronto no engatilho − reservado; a caminho = nas etapas anteriores.
@@ -2413,18 +2416,19 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
     p_itens:       itens,
     p_frete:       freteValor,
   }
-  // Tenta a versão nova (com dia/coords/fragilidade)
-  let { data, error } = await supabase.rpc('submit_pedido_externo', {
+  const comEntrega = {
     ...baseArgs,
     p_data_entrega: entrega.dataEntrega || null,
     p_lat:         entrega.lat ?? null,
     p_lng:         entrega.lng ?? null,
     p_frag:        entrega.frag || 'robusto',
-  })
-  // Fallback p/ a RPC antiga se a nova ainda não estiver no banco (schema cache)
-  if (error && /Could not find the function|PGRST202/i.test(error.message || '')) {
-    ;({ data, error } = await supabase.rpc('submit_pedido_externo', baseArgs))
   }
+  const naoAchou = (e) => e && /Could not find the function|PGRST202/i.test(e.message || '')
+  // Versão atual: frete assinado pelo servidor (o banco confere)
+  let { data, error } = await supabase.rpc('submit_pedido_externo', { ...comEntrega, p_frete_assinatura: entrega.freteAssinatura || null })
+  // Fallbacks p/ bancos que ainda não rodaram o SQL novo
+  if (naoAchou(error)) ({ data, error } = await supabase.rpc('submit_pedido_externo', comEntrega))
+  if (naoAchou(error)) ({ data, error } = await supabase.rpc('submit_pedido_externo', baseArgs))
   if (error) throw error
   return data
 }
@@ -2501,10 +2505,16 @@ export async function desfazerEnvio(envioId) {
   if (error) throw error
 }
 
+// As APIs da Lalamove exigem login: manda o token da sessão
+async function headersComLogin() {
+  const { data: { session } } = await supabase.auth.getSession()
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` }
+}
+
 export async function despacharEnvio(userId, envioId) {
   const r = await fetch('/api/lalamove-order', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, envioId }),
+    method: 'POST', headers: await headersComLogin(),
+    body: JSON.stringify({ envioId }),
   })
   const j = await r.json()
   if (!r.ok) throw new Error(j.error || 'Falha ao despachar')
@@ -2513,8 +2523,8 @@ export async function despacharEnvio(userId, envioId) {
 
 export async function atualizarStatusEnvio(userId, envioId) {
   const r = await fetch('/api/lalamove-status', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, envioId }),
+    method: 'POST', headers: await headersComLogin(),
+    body: JSON.stringify({ envioId }),
   })
   const j = await r.json()
   if (!r.ok) throw new Error(j.error || 'Falha ao atualizar status')
@@ -2524,8 +2534,8 @@ export async function atualizarStatusEnvio(userId, envioId) {
 // Cota o envio em todas as categorias de veículo (pro modal de despacho).
 export async function cotarEnvio(userId, envioId) {
   const r = await fetch('/api/lalamove-quotes', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, envioId }),
+    method: 'POST', headers: await headersComLogin(),
+    body: JSON.stringify({ envioId }),
   })
   const j = await r.json()
   if (!r.ok) throw new Error(j.error || 'Falha ao cotar')
@@ -2541,8 +2551,8 @@ export async function atualizarEnvio(envioId, fields) {
 // Cancela o envio na Lalamove e devolve os pedidos pra "A organizar".
 export async function cancelarEnvio(userId, envioId) {
   const r = await fetch('/api/lalamove-cancel', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ userId, envioId }),
+    method: 'POST', headers: await headersComLogin(),
+    body: JSON.stringify({ envioId }),
   })
   const j = await r.json()
   if (!r.ok) throw new Error(j.error || 'Falha ao cancelar')

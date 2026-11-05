@@ -11,7 +11,7 @@
 --   1. Extensões
 --   2. Tabelas
 --   3. Colunas adicionadas com o tempo (atualiza bancos antigos)
---   4. Segurança (RLS: cada usuário só vê os próprios dados)
+--   4. Segurança (RLS: cada usuário só vê os próprios dados; arquivos)
 --   5. Funções do app e do cardápio online
 --   6. Lembrete de fim do dia (push + agendamento)
 --   7. Ajustes de dados (migrações seguras, só agem uma vez)
@@ -24,6 +24,7 @@
 -- =============================================================================
 CREATE EXTENSION IF NOT EXISTS pg_cron;   -- agendamento (lembrete push)
 CREATE EXTENSION IF NOT EXISTS pg_net;    -- chamadas HTTP de dentro do banco
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;  -- assinatura do frete
 
 
 -- =============================================================================
@@ -539,8 +540,8 @@ CREATE POLICY "own_data" ON clientes             FOR ALL USING (user_id = auth.u
 CREATE POLICY "own_data" ON compras              FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 CREATE POLICY "own_data" ON vendas               FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
--- Cardápio online lê os produtos sem login
-CREATE POLICY "produtos public read" ON produtos FOR SELECT USING (true);
+-- (Não existe mais leitura pública da tabela produtos: o cardápio online usa a
+-- função cardapio_publico, que devolve só nome, foto, preço e descrição.)
 
 -- Demais tabelas
 DROP POLICY IF EXISTS "own_data" ON insumo_cost_history;
@@ -572,84 +573,185 @@ CREATE POLICY "cardapios public read" ON cardapios FOR SELECT USING (true);
 DROP POLICY IF EXISTS "cardapios owner write" ON cardapios;
 CREATE POLICY "cardapios owner write" ON cardapios FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
+-- Arquivos (bucket "Images"): qualquer um VÊ pelo link público da foto/vídeo, mas
+-- só quem está logado envia, e cada um só altera/apaga o que ele mesmo enviou.
+-- Troca as políticas antigas desse bucket pelas abaixo (outros buckets: intactos).
+DO $$
+DECLARE r record;
+BEGIN
+  IF to_regclass('storage.objects') IS NULL THEN RETURN; END IF;
+  FOR r IN SELECT policyname FROM pg_policies
+           WHERE schemaname = 'storage' AND tablename = 'objects'
+             AND (coalesce(qual, '') || ' ' || coalesce(with_check, '')) LIKE '%''Images''%'
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON storage.objects', r.policyname);
+  END LOOP;
+  EXECUTE $p$CREATE POLICY "guaxi images enviar" ON storage.objects FOR INSERT TO authenticated
+    WITH CHECK (bucket_id = 'Images')$p$;
+  EXECUTE $p$CREATE POLICY "guaxi images ver" ON storage.objects FOR SELECT TO authenticated
+    USING (bucket_id = 'Images' AND owner_id = auth.uid()::text)$p$;
+  EXECUTE $p$CREATE POLICY "guaxi images alterar" ON storage.objects FOR UPDATE TO authenticated
+    USING (bucket_id = 'Images' AND owner_id = auth.uid()::text)$p$;
+  EXECUTE $p$CREATE POLICY "guaxi images apagar" ON storage.objects FOR DELETE TO authenticated
+    USING (bucket_id = 'Images' AND owner_id = auth.uid()::text)$p$;
+EXCEPTION WHEN others THEN
+  RAISE NOTICE 'Arquivos: políticas do bucket Images não alteradas (%)', SQLERRM;
+END $$;
+
 
 -- =============================================================================
 -- 5. FUNÇÕES DO APP E DO CARDÁPIO ONLINE
 -- =============================================================================
 
--- Cliente (sem login) manda o pedido. Não mexe no estoque: o pedido só reserva
--- e o app baixa ao virar Entregue.
+-- Cardápio online: só o que o cliente precisa ver (nada de custo, receita,
+-- fornecedor, margem...). Só produtos no cardápio, com preço e que não são combo.
+CREATE OR REPLACE FUNCTION public.cardapio_publico(p_user_id uuid)
+RETURNS TABLE(id bigint, nome text, descricao text, preco_direta numeric, estoque_atual numeric,
+              imagem_url text, midias jsonb, tipo text, secao text, ordem int, fragilidade text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT p.id, p.nome, p.descricao, p.preco_direta, p.estoque_atual, p.imagem_url, p.midias,
+         p.tipo, p.secao, p.ordem, p.fragilidade
+  FROM produtos p
+  WHERE p.user_id = p_user_id AND p.ativo
+    AND coalesce(p.tipo, 'produto') <> 'combo' AND p.preco_direta > 0
+  ORDER BY p.nome
+$$;
+
+-- Cliente (sem login) manda o pedido. Preço e nome de cada item vêm do cadastro
+-- (o cliente não consegue mudar preço). O frete só vale se veio assinado pelo
+-- cálculo do servidor (/api/frete-dias); senão o pedido entra com aviso pra conferir.
+-- Não mexe no estoque: o pedido só reserva e o app baixa ao virar Entregue.
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric);
+DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text);
 CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
-  p_user_id      uuid,
-  p_cliente      text,
-  p_contato      text,
-  p_tipo_entrega text,
-  p_endereco     text,
-  p_obs          text,
-  p_itens        jsonb,
-  p_frete        numeric default 0,
-  p_data_entrega date default null,
-  p_lat          numeric default null,
-  p_lng          numeric default null,
-  p_frag         text default 'robusto'
+  p_user_id          uuid,
+  p_cliente          text,
+  p_contato          text,
+  p_tipo_entrega     text,
+  p_endereco         text,
+  p_obs              text,
+  p_itens            jsonb,
+  p_frete            numeric default 0,
+  p_data_entrega     date default null,
+  p_lat              numeric default null,
+  p_lng              numeric default null,
+  p_frag             text default 'robusto',
+  p_frete_assinatura text default null
 ) RETURNS text
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
 DECLARE
   v_id       text;
   v_last_id  text;
   v_next_num int := 1;
   v_total    numeric := 0;
   v_item     jsonb;
+  v_itens    jsonb := '[]'::jsonb;
+  v_qtd      numeric;
+  v_prod     record;
+  v_frag     text := 'robusto';
+  v_entrega  boolean := p_tipo_entrega = 'Entrega';
+  v_frete    numeric := 0;
+  v_ok       boolean := true;
+  v_segredo  text;
+  v_gratis   numeric;
+  v_obs      text := left(coalesce(p_obs, ''), 1000);
 BEGIN
+  IF coalesce(trim(p_cliente), '') = '' OR coalesce(trim(p_contato), '') = '' THEN
+    RAISE EXCEPTION 'Informe nome e WhatsApp';
+  END IF;
+
+  -- Itens: confere cada produto e usa o preço do cadastro
+  FOR v_item IN SELECT * FROM jsonb_array_elements(coalesce(p_itens, '[]'::jsonb)) LOOP
+    v_qtd := nullif(v_item->>'quantidade', '')::numeric;
+    IF v_qtd IS NULL OR v_qtd <= 0 OR v_qtd > 100 OR v_qtd <> trunc(v_qtd) THEN
+      RAISE EXCEPTION 'Quantidade inválida';
+    END IF;
+    SELECT p.id, p.nome, p.preco_direta, p.fragilidade INTO v_prod
+      FROM produtos p
+     WHERE p.id = nullif(v_item->>'produto_id', '')::bigint AND p.user_id = p_user_id
+       AND p.ativo AND coalesce(p.tipo, 'produto') <> 'combo' AND p.preco_direta > 0;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Um dos itens não está mais disponível. Recarregue a página.'; END IF;
+    IF v_prod.fragilidade = 'fragil' THEN v_frag := 'fragil'; END IF;
+    v_itens := v_itens || jsonb_build_object('produto_id', v_prod.id, 'produto_nome', v_prod.nome,
+                                             'quantidade', v_qtd, 'preco_unit', v_prod.preco_direta);
+    v_total := v_total + v_prod.preco_direta * v_qtd;
+  END LOOP;
+  IF jsonb_array_length(v_itens) = 0 THEN RAISE EXCEPTION 'Pedido vazio'; END IF;
+
+  -- Frete: só confia no valor assinado pelo servidor
+  IF v_entrega THEN
+    v_frete := greatest(0, least(coalesce(p_frete, 0), 1000));
+    BEGIN
+      SELECT decrypted_secret INTO v_segredo FROM vault.decrypted_secrets WHERE name = 'guaxi_cron_secret' LIMIT 1;
+    EXCEPTION WHEN others THEN v_segredo := NULL;
+    END;
+    v_ok := v_segredo IS NOT NULL AND p_frete_assinatura IS NOT NULL
+      AND p_data_entrega IS NOT NULL AND p_lat IS NOT NULL AND p_lng IS NOT NULL
+      AND encode(hmac(p_user_id::text || '|' || p_data_entrega::text || '|' || round(v_frete, 2)::text || '|'
+                      || round(p_lat, 5)::text || '|' || round(p_lng, 5)::text || '|' || v_frag,
+                      v_segredo, 'sha256'), 'hex') = p_frete_assinatura;
+    -- frete grátis só se o pedido de verdade passou do valor mínimo
+    IF v_ok AND v_frete = 0 THEN
+      SELECT nullif(config->'delivery'->>'freteGratis', '')::numeric INTO v_gratis FROM user_config WHERE user_id = p_user_id;
+      v_ok := coalesce(v_gratis, 0) > 0 AND v_total >= v_gratis;
+    END IF;
+    IF NOT v_ok THEN
+      v_obs := '⚠ Frete informado pelo cliente (não confirmado pelo app) — conferir antes de cobrar.'
+               || CASE WHEN v_obs <> '' THEN E'\n' || v_obs ELSE '' END;
+    END IF;
+  END IF;
+
   SELECT id INTO v_last_id FROM encomendas WHERE user_id = p_user_id ORDER BY created_at DESC LIMIT 1;
   IF v_last_id IS NOT NULL THEN
     v_next_num := COALESCE((regexp_match(v_last_id, 'PED-(\d+)'))[1]::int, 0) + 1;
   END IF;
   v_id := 'PED-' || lpad(v_next_num::text, 3, '0');
 
-  FOR v_item IN SELECT * FROM jsonb_array_elements(p_itens) LOOP
-    v_total := v_total + (v_item->>'preco_unit')::numeric * (v_item->>'quantidade')::numeric;
-  END LOOP;
-
   INSERT INTO encomendas
     (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto,
      data_entrega, entrega_lat, entrega_lng, entrega_frag)
   VALUES
-    (v_id, p_user_id, p_cliente, p_contato, 'FormExterno', p_tipo_entrega, p_endereco, p_obs,
-     v_total + COALESCE(p_frete, 0), COALESCE(p_frete, 0), 'Pendente', 'Aguardando',
-     p_data_entrega, p_lat, p_lng, COALESCE(p_frag, 'robusto'));
+    (v_id, p_user_id, left(trim(p_cliente), 100), left(trim(p_contato), 40), 'FormExterno',
+     CASE WHEN v_entrega THEN 'Entrega' ELSE 'Retirada' END, left(coalesce(p_endereco, ''), 300), v_obs,
+     v_total + v_frete, v_frete, 'Pendente', 'Aguardando',
+     p_data_entrega, p_lat, p_lng, v_frag);
 
   INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id, produto_id)
   SELECT v_id, elem->>'produto_nome', (elem->>'quantidade')::numeric, (elem->>'preco_unit')::numeric,
          p_user_id, (elem->>'produto_id')::bigint
-    FROM jsonb_array_elements(p_itens) AS elem;
+    FROM jsonb_array_elements(v_itens) AS elem;
 
   RETURN v_id;
 END;
 $$;
-GRANT EXECUTE ON FUNCTION public.submit_pedido_externo TO anon;
 
--- Config pública da loja: entrega + ordem das seções do cardápio
+-- Config pública da loja: só o que o cardápio usa (dias de entrega, frete grátis,
+-- faixas de frete, CEP da loja) + ordem das seções. Endereço, coordenadas e
+-- margens NÃO saem daqui.
 CREATE OR REPLACE FUNCTION public.get_delivery_config(p_user_id uuid)
-RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT jsonb_build_object(
-    'delivery',    COALESCE(config->'delivery', '{}'::jsonb),
+    'delivery', jsonb_strip_nulls(jsonb_build_object(
+      'diasEntrega', config->'delivery'->'diasEntrega',
+      'freteGratis', config->'delivery'->'freteGratis',
+      'freteTiers',  config->'delivery'->'freteTiers',
+      'lojaCEP',     config->'delivery'->'lojaCEP'
+    )),
     'secoesOrdem', COALESCE(config->'secoesOrdem', '[]'::jsonb)
   )
   FROM user_config WHERE user_id = p_user_id
 $$;
-GRANT EXECUTE ON FUNCTION public.get_delivery_config TO anon;
 
--- Apaga pedido. Não mexe no estoque (aberto só reserva; o entregue já baixou).
+-- Apaga pedido. Só o dono (pela sessão; o p_user_id enviado é ignorado).
+-- Não mexe no estoque (aberto só reserva; o entregue já baixou).
 CREATE OR REPLACE FUNCTION public.delete_pedido(p_id text, p_user_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-  DELETE FROM encomendas WHERE id = p_id AND user_id = p_user_id;
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Faça login'; END IF;
+  DELETE FROM encomendas WHERE id = p_id AND user_id = auth.uid();
 END;
 $$;
-GRANT EXECUTE ON FUNCTION public.delete_pedido TO authenticated;
 
 -- Disponível pra venda = pronto nas etapas vendáveis − reservado (pedidos abertos até amanhã).
 -- a_caminho = nas etapas anteriores ("volta em breve" no cardápio).
@@ -666,6 +768,8 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
         WHEN 'choux'  THEN ARRAY['cascas', 'reassadas'] WHEN 'direto' THEN ARRAY['freezer'] END AS etapas
     FROM produtos p
     WHERE p.user_id = p_user_id AND coalesce(p.ativo, true)
+      -- visitante só vê os produtos do cardápio online; o dono vê todos os ativos
+      AND (auth.uid() = p_user_id OR (coalesce(p.tipo, 'produto') <> 'combo' AND p.preco_direta > 0))
   ), pronto AS (
     SELECT e.id,
       CASE WHEN e.etapas IS NULL THEN coalesce(e.estoque_atual, 0)
@@ -684,7 +788,6 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   )
   SELECT pr.id, greatest(0, pr.qtd - coalesce(r.qtd, 0)), pr.caminho FROM pronto pr LEFT JOIN reservado r ON r.id = pr.id
 $$;
-GRANT EXECUTE ON FUNCTION public.produtos_disponiveis TO anon, authenticated;
 
 -- "Avise-me": cliente (sem login) registra interesse; ignora repetido do mesmo
 -- telefone ainda não avisado.
@@ -696,7 +799,24 @@ BEGIN
   IF EXISTS (SELECT 1 FROM interesses WHERE produto_id = p_produto_id AND telefone = p_telefone AND avisado_em IS NULL) THEN RETURN; END IF;
   INSERT INTO interesses (user_id, produto_id, nome, telefone) VALUES (p_user_id, p_produto_id, left(p_nome, 80), left(p_telefone, 30));
 END $$;
-GRANT EXECUTE ON FUNCTION public.registrar_interesse TO anon, authenticated;
+
+-- Quem pode chamar o quê. Funções SECURITY DEFINER passam por cima das regras de
+-- acesso, então visitante (sem login) só chama as do cardápio online.
+DO $$
+DECLARE f record;
+BEGIN
+  FOR f IN SELECT p.oid::regprocedure AS sig FROM pg_proc p
+           WHERE p.pronamespace = 'public'::regnamespace AND p.prosecdef
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon', f.sig);
+  END LOOP;
+END $$;
+GRANT EXECUTE ON FUNCTION public.cardapio_publico(uuid)        TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_delivery_config(uuid)     TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.produtos_disponiveis(uuid)    TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.registrar_interesse(uuid, bigint, text, text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.delete_pedido(text, uuid)     TO authenticated;
 
 
 -- =============================================================================

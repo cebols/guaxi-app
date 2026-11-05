@@ -1,10 +1,11 @@
 import { createClient } from '@supabase/supabase-js'
 import { lalamove, lalamoveConfigured, stopOf } from './_lalamove.js'
+import { usuarioLogado } from './_auth.js'
 
 // Cota um envio em VÁRIAS categorias de veículo (pros parâmetros reais do envio:
 // loja + paradas). Usado no modal de despacho pra você escolher a categoria.
 //
-// Body: { userId, envioId }  →  { quotes: [{ veiculo, total, currency } | { veiculo, erro }] }
+// Body: { envioId } — exige login (Authorization: Bearer <token do Supabase>)  →  { quotes: [{ veiculo, total, currency } | { veiculo, erro }] }
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -17,10 +18,12 @@ export default async function handler(req, res) {
   if (!SUPABASE_URL || !SERVICE_KEY) { res.status(500).json({ error: 'Supabase service role não configurado' }); return }
 
   try {
-    const { userId, envioId } = req.body || {}
-    if (!userId || !envioId) { res.status(400).json({ error: 'userId e envioId obrigatórios' }); return }
-
     const sb = createClient(SUPABASE_URL, SERVICE_KEY)
+    const user = await usuarioLogado(req, sb)
+    if (!user) { res.status(401).json({ error: 'Sessão expirada — entre de novo no app' }); return }
+    const userId = user.id
+    const { envioId } = req.body || {}
+    if (!envioId) { res.status(400).json({ error: 'envioId obrigatório' }); return }
     const { data: envio } = await sb.from('envios').select('id, user_id').eq('id', envioId).eq('user_id', userId).single()
     if (!envio) { res.status(404).json({ error: 'Envio não encontrado' }); return }
 

@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal, pisoFrete, precoFrete } from './_lalamove.js'
+import { usuarioLogado } from './_auth.js'
 
 // Despacha um envio na Lalamove: cota → cria order → grava order_id/shareLink/status.
 // Ao despachar, REALOCA o frete de cada pedido para sua fração justa do custo real
@@ -7,7 +8,7 @@ import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal, pisoFrete, p
 // Despacho usa SANDBOX por padrão (não chama motorista real). Defina
 // LALAMOVE_DISPATCH_SANDBOX=false só quando for pra valer.
 //
-// Body: { userId, envioId }
+// Body: { envioId } — exige login (Authorization: Bearer <token do Supabase>)
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -20,10 +21,12 @@ export default async function handler(req, res) {
   if (!SUPABASE_URL || !SERVICE_KEY) { res.status(500).json({ error: 'Supabase service role não configurado' }); return }
 
   try {
-    const { userId, envioId } = req.body || {}
-    if (!userId || !envioId) { res.status(400).json({ error: 'userId e envioId obrigatórios' }); return }
-
     const sb = createClient(SUPABASE_URL, SERVICE_KEY)
+    const user = await usuarioLogado(req, sb)
+    if (!user) { res.status(401).json({ error: 'Sessão expirada — entre de novo no app' }); return }
+    const userId = user.id
+    const { envioId } = req.body || {}
+    if (!envioId) { res.status(400).json({ error: 'envioId obrigatório' }); return }
 
     const { data: envio } = await sb.from('envios').select('*').eq('id', envioId).eq('user_id', userId).single()
     if (!envio) { res.status(404).json({ error: 'Envio não encontrado' }); return }
