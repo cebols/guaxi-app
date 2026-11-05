@@ -624,6 +624,7 @@ $$;
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text);
+DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text);
 CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_user_id          uuid,
   p_cliente          text,
@@ -637,7 +638,8 @@ CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_lat              numeric default null,
   p_lng              numeric default null,
   p_frag             text default 'robusto',
-  p_frete_assinatura text default null
+  p_frete_assinatura text default null,
+  p_canal            text default 'FormExterno'   -- 'FormExterno' (cardápio online) | 'WhatsApp' (agente)
 ) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
 DECLARE
@@ -712,7 +714,8 @@ BEGIN
     (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto,
      data_entrega, entrega_lat, entrega_lng, entrega_frag)
   VALUES
-    (v_id, p_user_id, left(trim(p_cliente), 100), left(trim(p_contato), 40), 'FormExterno',
+    (v_id, p_user_id, left(trim(p_cliente), 100), left(trim(p_contato), 40),
+     CASE WHEN p_canal = 'WhatsApp' THEN 'WhatsApp' ELSE 'FormExterno' END,
      CASE WHEN v_entrega THEN 'Entrega' ELSE 'Retirada' END, left(coalesce(p_endereco, ''), 300), v_obs,
      v_total + v_frete, v_frete, 'Pendente', 'Aguardando',
      p_data_entrega, p_lat, p_lng, v_frag);
@@ -811,12 +814,13 @@ BEGIN
     EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon', f.sig);
   END LOOP;
 END $$;
-GRANT EXECUTE ON FUNCTION public.cardapio_publico(uuid)        TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.get_delivery_config(uuid)     TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.produtos_disponiveis(uuid)    TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.registrar_interesse(uuid, bigint, text, text) TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text) TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.delete_pedido(text, uuid)     TO authenticated;
+-- service_role = o agente do WhatsApp (Edge Function)
+GRANT EXECUTE ON FUNCTION public.cardapio_publico(uuid)        TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_delivery_config(uuid)     TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.produtos_disponiveis(uuid)    TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.registrar_interesse(uuid, bigint, text, text) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.delete_pedido(text, uuid)     TO authenticated, service_role;
 
 
 -- =============================================================================
