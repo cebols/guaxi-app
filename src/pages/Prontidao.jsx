@@ -339,12 +339,13 @@ const GRUPOS = [
   { key: 'forno',     icon: '🔥', nome: 'Forno',     cor: '#fb923c', match: t => t.tipo === 'mover' && (t.verbo === 'Assar' || t.verbo === 'Reassar') },
   { key: 'degelo',    icon: '💧', nome: 'Degelo',    cor: '#2dd4bf', match: t => t.tipo === 'mover' && t.verbo === 'Tirar pro degelo' },
   { key: 'rechear',   icon: '🧁', nome: 'Rechear',   cor: '#4ade80', match: t => t.tipo === 'mover' && t.verbo === 'Rechear' },
+  { key: 'congelar',  icon: '❄', nome: 'Voltar pro freezer', cor: '#60a5fa', match: t => t.tipo === 'mover' && t.verbo === 'Congelar de volta' },
   { key: 'mover',     icon: '➡️', nome: 'Mover',     cor: '#94a3b8', match: t => t.tipo === 'mover' },
   { key: 'produzir',  icon: '🧾', nome: 'Produzir',  cor: '#14b8a6', match: t => t.tipo === 'produzir' },
   { key: 'avisar',    icon: '🔔', nome: 'Avisar',    cor: '#60a5fa', match: t => t.tipo === 'avisar' },
   { key: 'descartar', icon: '🗑', nome: 'Descartar', cor: '#f87171', match: t => t.tipo === 'vencidos' },
 ]
-const FEITO = { Embalar: 'Embalei', Assar: 'Assei', Reassar: 'Reassei', 'Tirar pro degelo': 'Tirei', Rechear: 'Recheei', Mover: 'Movi' }
+const FEITO = { Embalar: 'Embalei', Assar: 'Assei', Reassar: 'Reassei', 'Tirar pro degelo': 'Tirei', Rechear: 'Recheei', Mover: 'Movi', 'Congelar de volta': 'Congelei' }
 const grupoDe = (t) => (GRUPOS.find(g => g.key !== 'mover' && g.key !== 'descartar' && g.match(t)) || GRUPOS.find(g => g.match(t)))?.key
 
 function QuadroAcoes({ tarefas, analises, agora, grupoSel, setGrupoSel, onExecutar, onPlanejarTudo }) {
@@ -406,7 +407,8 @@ function QuadroAcoes({ tarefas, analises, agora, grupoSel, setGrupoSel, onExecut
 function LinhaAcao({ t, cor, primeira, a, agora, onExecutar }) {
   const etapas = a?.etapas || []
   const src = etapas.find(e => e.key === (t.de || t.etapa))
-  const max = t.tipo === 'mover' ? Math.max(0, (src?.prontos || 0) + (src?.pendentes || 0)) : t.n
+  const volta = t.verbo === 'Congelar de volta'
+  const max = volta ? Math.max(t.n, (src?.qtd || 0)) : t.tipo === 'mover' ? Math.max(0, (src?.prontos || 0) + (src?.pendentes || 0)) : t.n
   const [qtd, setQtd] = useState(t.n || 1)
   const [ocupado, setOcupado] = useState(false)
   // Embalar com dois destinos (ex: freezer e degelo): parte já vai pro engatilho
@@ -422,6 +424,7 @@ function LinhaAcao({ t, cor, primeira, a, agora, onExecutar }) {
   if (t.tipo === 'avisar') sub = `voltou — ${fmtN(t.n)} pessoa(s) pediram pra ser avisadas`
   else if (t.tipo === 'vencidos') sub = `${fmtN(t.n)} vencido(s) em ${src?.nome?.toLowerCase() || t.etapa}`
   else if (t.tipo === 'produzir') sub = `faltam ${fmtN(t.n)} — abre o planejamento com a fornada`
+  else if (volta) sub = `${fmtN(t.n)} ${src?.nome?.toLowerCase() || t.de} de ontem · voltam pra ${(etapas.find(e => e.key === t.para)?.nome || t.para).toLowerCase()}`
   else if (t.de === 'embalar') {
     const embs = (t.prod.embalagens || []).map(e => e.nome).filter(Boolean)
     sub = `${fmtN(max)} sem embalagem${embs.length ? ` · ${embs.join(', ')}` : ''}`
@@ -592,7 +595,8 @@ function MoverSheet({ prod, de, para, n: nSug, lotes, agora, onClose, onDone }) 
   const a = analisarProduto(prod, lotes, agora)
   const src = a.etapas.find(e => e.key === de)
   const dst = a.etapas.find(e => e.key === para)
-  const max = Math.max(0, (src?.qtd || 0) - (src?.vencidos || 0))
+  // sobra que volta pro freezer (choux reassado) pode mover mesmo vencida
+  const max = Math.max(0, (src?.qtd || 0) - (src?.voltaPara === para ? 0 : (src?.vencidos || 0)))
   const [n, setN] = useState(String(Math.min(nSug || 1, max || 1)))
   const [salvando, setSalvando] = useState(false)
   const num = parseFloat(n) || 0

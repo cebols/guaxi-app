@@ -2005,6 +2005,7 @@ async function reverterAplicado(item, checks) {
   if (item.snapshot.creditoNaMontagem) {
     const m = item.snapshot.montado
     if (m?.qtd > 0 && item.snapshot.credito?.id) await movimentarEstoqueProduto(item.snapshot.credito.id, -m.qtd, m.etapa ? { etapa: m.etapa } : 'estorno')
+    for (const [rid, q] of Object.entries(m?.separados || {})) if (q > 0) await ajustarEstoqueReceita(Number(rid), -q)
   } else if (item.snapshot.creditoAplicadoNaCriacao || itemCompleto(item, checkSet)) {
     await aplicarCreditoItem(item, -1)
   }
@@ -2028,7 +2029,9 @@ export async function deleteProducaoItem(itemId) {
 
 // ── Montagem: o produto entra no estoque (e na 1ª etapa do Prontidão) quando é montado
 // etapa: em que etapa do Prontidão o produto montado entra (padrão: a primeira)
-export async function marcarMontado(itemId, qtd, etapa = null) {
+// separados: { receitaId: qtd } — preparo que não foi pro produto (ex: recheio do
+// choux, que é feito na hora) e volta pro estoque de preparos.
+export async function marcarMontado(itemId, qtd, etapa = null, separados = {}) {
   const { data: item, error } = await supabase.from('producao_itens').select('id, snapshot, produto_id, producoes(checks)').eq('id', itemId).single()
   if (error) throw error
   let snap = item.snapshot || {}
@@ -2052,8 +2055,14 @@ export async function marcarMontado(itemId, qtd, etapa = null) {
   } else if (qtd - antes) {
     await movimentarEstoqueProduto(prodId, qtd - antes, etapa ? { etapa } : (qtd > antes ? 'entrada' : 'estorno'))
   }
+  const sepAntes = snap.montado?.separados || {}
+  const sepNovo = separados || {}
+  for (const rid of new Set([...Object.keys(sepAntes), ...Object.keys(sepNovo)])) {
+    const d = (Number(sepNovo[rid]) || 0) - (Number(sepAntes[rid]) || 0)
+    if (Math.abs(d) > 1e-9) await ajustarEstoqueReceita(Number(rid), d)
+  }
   const { error: e2 } = await supabase.from('producao_itens')
-    .update({ snapshot: { ...snap, montado: { qtd, etapa, em: new Date().toISOString() } } }).eq('id', itemId)
+    .update({ snapshot: { ...snap, montado: { qtd, etapa, em: new Date().toISOString(), separados: sepNovo } } }).eq('id', itemId)
   if (e2) throw e2
 }
 
@@ -2063,6 +2072,7 @@ export async function desmarcarMontado(itemId) {
   const snap = item.snapshot || {}
   const antes = snap.montado?.qtd || 0
   if (antes) await movimentarEstoqueProduto(snap.credito?.id || item.produto_id, -antes, snap.montado?.etapa ? { etapa: snap.montado.etapa } : 'estorno')
+  for (const [rid, q] of Object.entries(snap.montado?.separados || {})) if (q > 0) await ajustarEstoqueReceita(Number(rid), -q)
   const { error: e2 } = await supabase.from('producao_itens').update({ snapshot: { ...snap, montado: null } }).eq('id', itemId)
   if (e2) throw e2
 }

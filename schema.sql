@@ -706,8 +706,9 @@ SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS estoque_baixado boolean NOT NULL DEFAULT false;
 -- (na migração: UPDATE encomendas SET estoque_baixado = true WHERE status = 'Entregue';)
 
--- Disponível pra venda nova = pronto no engatilho − reservado (pedidos abertos até amanhã).
--- Engatilho por fluxo espelha src/lib/prontidao.js (FLUXOS) — manter em sincronia.
+-- Disponível pra venda nova = pronto nas etapas vendáveis − reservado (pedidos abertos até amanhã).
+-- Etapas vendáveis por fluxo espelham src/lib/prontidao.js (FLUXOS) — manter em sincronia.
+-- Choux: assadas 90% também contam (reassar leva 15 min e recheia na hora).
 DROP FUNCTION IF EXISTS public.produtos_disponiveis(uuid);
 CREATE OR REPLACE FUNCTION public.produtos_disponiveis(p_user_id uuid)
 RETURNS TABLE(produto_id bigint, disponivel numeric, a_caminho numeric)
@@ -715,17 +716,17 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   WITH eng AS (
     SELECT p.id, p.estoque_atual,
       CASE p.prontidao->>'fluxo'
-        WHEN 'degelo' THEN 'degelo' WHEN 'assado' THEN 'degelo'
-        WHEN 'choux'  THEN 'vitrine' WHEN 'direto' THEN 'freezer' END AS etapa
+        WHEN 'degelo' THEN ARRAY['degelo'] WHEN 'assado' THEN ARRAY['degelo']
+        WHEN 'choux'  THEN ARRAY['cascas', 'reassadas'] WHEN 'direto' THEN ARRAY['freezer'] END AS etapas
     FROM produtos p
     WHERE p.user_id = p_user_id AND coalesce(p.ativo, true)
   ), pronto AS (
     SELECT e.id,
-      CASE WHEN e.etapa IS NULL THEN coalesce(e.estoque_atual, 0)
-           ELSE coalesce((SELECT sum(l.qtd) FROM prontidao_lotes l WHERE l.produto_id = e.id AND l.etapa = e.etapa), 0)
+      CASE WHEN e.etapas IS NULL THEN coalesce(e.estoque_atual, 0)
+           ELSE coalesce((SELECT sum(l.qtd) FROM prontidao_lotes l WHERE l.produto_id = e.id AND l.etapa = ANY(e.etapas)), 0)
       END AS qtd,
-      CASE WHEN e.etapa IS NULL THEN 0
-           ELSE coalesce((SELECT sum(l.qtd) FROM prontidao_lotes l WHERE l.produto_id = e.id AND l.etapa <> e.etapa), 0)
+      CASE WHEN e.etapas IS NULL THEN 0
+           ELSE coalesce((SELECT sum(l.qtd) FROM prontidao_lotes l WHERE l.produto_id = e.id AND NOT (l.etapa = ANY(e.etapas))), 0)
       END AS caminho
     FROM eng e
   ), reservado AS (
@@ -738,6 +739,15 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT pr.id, greatest(0, pr.qtd - coalesce(r.qtd, 0)), pr.caminho FROM pronto pr LEFT JOIN reservado r ON r.id = pr.id
 $$;
 GRANT EXECUTE ON FUNCTION public.produtos_disponiveis TO anon, authenticated;
+
+-- Migração (nov/2026): choux virou massa crua → assadas 90% → reassadas (recheia na hora).
+-- "Vitrine" não existe mais; "cascas" passou a ser "Assadas 90%".
+-- UPDATE prontidao_lotes SET etapa = 'reassadas' WHERE etapa = 'vitrine';
+-- UPDATE produtos SET prontidao = jsonb_set(prontidao, '{etapas}',
+--     (coalesce(prontidao->'etapas', '{}'::jsonb) - 'vitrine')
+--     || jsonb_build_object('reassadas', jsonb_build_object('meta', 3), 'cascas', jsonb_build_object('meta', 10)))
+--   || jsonb_build_object('noPedido', 'bater o recheio e rechear na hora')
+-- WHERE prontidao->>'fluxo' = 'choux';
 
 -- ── Cardápio online: várias fotos/vídeos por produto ──────────────────────────
 -- midias = [{ tipo: 'imagem'|'video', url, poster? }]; imagem_url segue como a capa.

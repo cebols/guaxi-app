@@ -46,15 +46,17 @@ export const FLUXOS = {
     ],
     verbos: { 'cru>assado': 'Assar', 'assado>degelo': 'Tirar pro degelo' },
   },
+  // Choux: recheia na hora (bate o recheio e recheia por pedido). A sobra
+  // reassada do dia volta pro freezer em vez de ir pro lixo.
   choux: {
-    nome: 'Casca → reassada → vitrine',
-    exemplo: 'choux',
+    nome: 'Massa crua → assada 90% → reassada',
+    exemplo: 'choux (recheia na hora)',
     etapas: [
-      { key: 'cascas',    nome: 'Cascas',    local: 'freezer' },
-      { key: 'reassadas', nome: 'Reassadas', local: 'ambiente', tempoH: 0.25, validadeH: 8 },
-      { key: 'vitrine',   nome: 'Vitrine',   local: 'pronto',   tempoH: 0,    validadeH: 4 },
+      { key: 'cru',       nome: 'Massa crua',  local: 'freezer', validadeH: 4320 },
+      { key: 'cascas',    nome: 'Assadas 90%', local: 'freezer', validadeH: 4320 },
+      { key: 'reassadas', nome: 'Reassadas',   local: 'ambiente', tempoH: 0.25, validadeH: 12, voltaPara: 'cascas' },
     ],
-    verbos: { 'cascas>reassadas': 'Reassar', 'reassadas>vitrine': 'Rechear' },
+    verbos: { 'cru>cascas': 'Assar', 'cascas>reassadas': 'Reassar' },
   },
 }
 
@@ -74,7 +76,7 @@ export function metaPadrao(prod) {
 export function sugerirConfig(prod) {
   const n = (prod?.nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   const meta = metaPadrao(prod)
-  if (/choux|chou\b/.test(n)) return { fluxo: 'choux', embalar: false, etapas: { reassadas: { meta: 6 }, vitrine: { meta: 3 } } }
+  if (/choux|chou\b/.test(n)) return { fluxo: 'choux', embalar: false, noPedido: 'bater o recheio e rechear na hora', etapas: { cascas: { meta: 10 }, reassadas: { meta: 3 } } }
   if (/cookie/.test(n))       return { fluxo: 'assado', embalar: true, etapas: { degelo: { meta } } }
   if (/cheesecake/.test(n))   return { fluxo: 'direto', embalar: false, noPedido: 'micro-ondas fraco 1 min + geleia' }
   if (/bombo|bombom/.test(n)) return { fluxo: 'direto', embalar: true, noPedido: 'sai fechado, degela no trajeto' }
@@ -178,9 +180,11 @@ export function analisarProduto(prod, lotes, agora = Date.now(), reservado = 0) 
       else movs.push({ tipo: 'mover', de: 'embalar', para: det[iEmb + 1].key, n: semEmb, verbo: 'Embalar' })
     }
   }
-  // Ordem do trabalho: descartar vencidos → mover (do freezer pra frente) → produzir
+  // Ordem do trabalho: descartar vencidos (ou devolver pro freezer) → mover → produzir
   const sugestoes = [
-    ...det.filter(e => e.vencidos > 0).map(e => ({ tipo: 'vencidos', etapa: e.key, n: e.vencidos })),
+    ...det.filter(e => e.vencidos > 0).map(e => e.voltaPara && keys.has(e.voltaPara)
+      ? { tipo: 'mover', de: e.key, para: e.voltaPara, n: e.vencidos, verbo: 'Congelar de volta' }
+      : { tipo: 'vencidos', etapa: e.key, n: e.vencidos }),
     ...movs.reverse(),
   ]
   if (falta > 0 || abaixoMin) {

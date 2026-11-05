@@ -332,6 +332,7 @@ export default function ProducaoTodo() {
       const doEstoque = !idsAProduzir.has(Number(rr.receitaId))
       return {
         receitaId: Number(rr.receitaId), nome: rr.nome, porUn, unidade: rr.unidade || rr.unidadeGera || 'un',
+        unidadeEstoque: (receitas || []).find(r => r.id === Number(rr.receitaId))?.unidadeGera || null,
         total: porUn * (item.quantidade || 0), doEstoque, pronta: doEstoque || feita(rr.receitaId),
       }
     })
@@ -699,6 +700,18 @@ function MontarSheet({ alvo, onClose, onDone }) {
   const [salvando, setSalvando] = useState(false)
   const faltam = comps.filter(c => !c.pronta)
   const n = parseFloat(qtd) || 0
+  const choux = p.prontidao?.fluxo === 'choux'
+  // Preparo guardado à parte (recheio feito na hora): volta pro estoque de preparos
+  const separaveis = comps.filter(c => c.unidadeEstoque && c.unidade === c.unidadeEstoque && c.total > 0)
+  const chaveSep = `montagem_separados_${p.id}`
+  const [sep, setSep] = useState(() => {
+    if (montado?.separados) return new Set(Object.keys(montado.separados).map(Number))
+    try { const s = JSON.parse(localStorage.getItem(chaveSep) || 'null'); if (Array.isArray(s)) return new Set(s) } catch { /* sem memória */ }
+    // choux recheia na hora: sugere guardar recheio/creme/ganache à parte
+    if (p.prontidao?.fluxo === 'choux') return new Set(separaveis.filter(c => /ganache|creme|recheio|montee|montée|diplomata|cremeux|curd/i.test(c.nome)).map(c => c.receitaId))
+    return new Set()
+  })
+  const separados = Object.fromEntries(separaveis.filter(c => sep.has(c.receitaId)).map(c => [c.receitaId, c.total]))
   const btn = { width: 54, height: 54, borderRadius: 14, border: '1px solid #333', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 26, cursor: 'pointer' }
 
   async function rodar(fn, info) {
@@ -707,13 +720,13 @@ function MontarSheet({ alvo, onClose, onDone }) {
   }
 
   return (
-    <Folha title={`Montar · ${p.nome}`} onClose={onClose}>
+    <Folha title={`${choux ? 'Cascas' : 'Montar'} · ${p.nome}`} onClose={onClose}>
       {faltam.length > 0 && !montado && (
         <div style={{ fontSize: 13, color: '#f59e0b', background: 'rgba(245,158,11,.08)', borderRadius: 8, padding: '8px 10px', marginBottom: 10 }}>
           Ainda não marcado como pronto: {faltam.map(c => c.nome).join(', ')}
         </div>
       )}
-      <div style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center' }}>Quantos você montou?</div>
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center' }}>{choux ? 'Quantas cascas saíram?' : 'Quantos você montou?'}</div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, margin: '8px 0 6px' }}>
         <button style={btn} onClick={() => setQtd(v => String(Math.max(0, (parseFloat(v) || 0) - 1)))}>−</button>
         <input type="text" inputMode="numeric" value={qtd} onChange={e => setQtd(e.target.value.replace(/[^\d.]/g, ''))} onFocus={e => e.target.select()}
@@ -740,8 +753,29 @@ function MontarSheet({ alvo, onClose, onDone }) {
           </div>
         </>
       )}
-      <button className="btn-primary" disabled={salvando || !(n > 0)} onClick={() => rodar(() => { try { if (etapa) localStorage.setItem(chaveMem, etapa) } catch {} return marcarMontado(item.id, n, etapas.length ? etapa : null) }, { nome: p.nome, qtd: n, etapa: etapas.length ? nomeEtapa(p, etapa) : null, fluxo: etapas.length > 0 })}>
-        {salvando ? 'Salvando...' : montado ? `Corrigir para ${n}` : `Montado · ${n}`}
+      {separaveis.length > 0 && (
+        <>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Guardar à parte</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6 }}>Não vai no produto agora (ex: recheio feito na hora) — volta pro estoque de preparos.</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+            {separaveis.map(c => {
+              const on = sep.has(c.receitaId)
+              return (
+                <button key={c.receitaId} onClick={() => setSep(s => { const x = new Set(s); x.has(c.receitaId) ? x.delete(c.receitaId) : x.add(c.receitaId); return x })}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left',
+                    border: `1.5px solid ${on ? 'var(--teal)' : '#333'}`, background: on ? 'rgba(34,184,134,.1)' : 'transparent', color: 'var(--text-primary)' }}>
+                  <span style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 800,
+                    border: `2px solid ${on ? 'var(--teal)' : '#555'}`, background: on ? 'var(--teal)' : 'transparent', color: '#fff' }}>{on ? '✓' : ''}</span>
+                  <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{c.nome}</span>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{fmtQtd(c.total)} {c.unidade}</span>
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
+      <button className="btn-primary" disabled={salvando || !(n > 0)} onClick={() => rodar(() => { try { if (etapa) localStorage.setItem(chaveMem, etapa); localStorage.setItem(chaveSep, JSON.stringify([...sep])) } catch {} return marcarMontado(item.id, n, etapas.length ? etapa : null, separados) }, { nome: p.nome, qtd: n, etapa: etapas.length ? nomeEtapa(p, etapa) : null, fluxo: etapas.length > 0 })}>
+        {salvando ? 'Salvando...' : montado ? `Corrigir para ${n}` : `${choux ? 'Prontas' : 'Montado'} · ${n}`}
       </button>
       {montado && (
         <button disabled={salvando} onClick={() => rodar(() => desmarcarMontado(item.id))} style={{ width: '100%', marginTop: 8, padding: 11, borderRadius: 10, border: '1px solid #7f1d1d', background: 'transparent', color: '#f87171', fontWeight: 600, cursor: 'pointer' }}>
