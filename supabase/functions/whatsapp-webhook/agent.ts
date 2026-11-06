@@ -272,6 +272,23 @@ async function executeTool(name: string, input: Record<string, unknown>, ctx: Ct
 
 // ── Histórico ─────────────────────────────────────────────────────────────────
 
+// Mensagens que o sistema manda sozinho (recibo, código Pix, Pix recebido, rastreio, Pix vencido).
+// Ficam gravadas como da GuaxiMina, mas ela não escreveu: sem a marca, ela acha que inventou
+// e "corrige" (já mandou cliente não pagar um Pix certo).
+const AUTOMATICAS = [
+  /Recebi seu pedido \*PED-\d+\*/,
+  /^Recebi seu Pix do pedido/,
+  /saiu pra entrega 🛵/,
+  /O Pix do pedido \*PED-\d+\* venceu/,
+]
+function paraModelo(role: string, conteudo: string): string {
+  if (role === 'humano') return `[Guaxí (pessoa)]: ${conteudo}`
+  if (role !== 'assistant') return conteudo
+  if (/^000201\d/.test(conteudo.trim())) return '[automático: código Pix copia e cola oficial deste pedido, gerado pelo Mercado Pago. Está certo.]'
+  if (AUTOMATICAS.some(re => re.test(conteudo))) return `[automático: mensagem oficial do sistema da Guaxí, com os dados certos do pedido]\n${conteudo}`
+  return conteudo
+}
+
 // Últimas mensagens desta conversa, em ordem; começa com o cliente e junta
 // mensagens seguidas do mesmo lado.
 async function loadHistory(sb: SupabaseClient, telefone: string): Promise<Anthropic.MessageParam[]> {
@@ -283,7 +300,7 @@ async function loadHistory(sb: SupabaseClient, telefone: string): Promise<Anthro
   for (const r of [...(data || [])].reverse() as { role: 'user' | 'assistant' | 'humano'; conteudo: string }[]) {
     // mensagens que você mandou pelo app contam como da Guaxí
     const role: 'user' | 'assistant' = r.role === 'user' ? 'user' : 'assistant'
-    const conteudo = r.role === 'humano' ? `[Guaxí (pessoa)]: ${r.conteudo}` : r.conteudo
+    const conteudo = paraModelo(r.role, r.conteudo)
     if (!msgs.length && role !== 'user') continue
     const ult = msgs[msgs.length - 1]
     if (ult && ult.role === role) ult.content = `${ult.content}\n${conteudo}`
@@ -343,7 +360,9 @@ O QUE VOCÊ FAZ
 REGRAS
 - NUNCA invente produto, sabor, textura, aroma, origem ou preço. Descreva só o que está na descrição do CARDÁPIO AO VIVO. Sem descrição cadastrada, admita e ofereça chamar alguém da Guaxí pra contar mais.
 - Não prometa desconto.
-- Pagamento é por fora (PIX); nunca peça dados de cartão.
+- Pagamento é por PIX; nunca peça dados de cartão. Você não gera nem digita código Pix: quem manda o código do pedido é o sistema.
+- MENSAGENS AUTOMÁTICAS: no histórico, mensagens marcadas com [automático] foram enviadas pelo sistema da Guaxí, não por você: recibo do pedido, código Pix copia e cola, "Recebi seu Pix", link de rastreio, aviso de Pix vencido. Elas são oficiais e estão certas. Nunca diga que estão erradas, nunca peça pro cliente não pagar, não "corrija" valores, horários ou prazos delas. Se o cliente tiver dúvida sobre o pedido ou o pagamento, use consultar_pedido. Nunca escreva a marca [automático] nas suas respostas.
+- Itens de um pedido já feito estão reservados pra ele: o CARDÁPIO AO VIVO já desconta esse pedido, então é normal o item aparecer esgotado depois. Nunca diga ao cliente que um item do pedido dele está esgotado ou indisponível.
 - Nunca fale sobre pedidos ou dados de outros clientes.
 - Pode informar alérgenos só se estiverem na descrição; não dê conselho médico.
 - Não prometa o que você não controla: horário exato do motorista, ou disponibilidade diferente do CARDÁPIO AO VIVO.
