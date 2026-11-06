@@ -220,6 +220,7 @@ export default function Home() {
   const analisePor = useMemo(() => Object.fromEntries(analises.map(x => [x.prod.id, x.a])), [analises])
   const tarefas = useMemo(() => montarTarefas(analises, interessadosPor), [analises, interessadosPor])
   const prontosPraVender = analises.filter(x => x.a.vendaveis > 0).length
+  const unidadesProntas = analises.reduce((s, x) => s + (x.a.vendaveis || 0), 0)
 
   async function fazerTarefa(t) {
     const a = analisePor[t.prod.id]
@@ -367,7 +368,7 @@ export default function Home() {
             <Numero valor={atendimentos ? esperando.length : '—'} rotulo={esperando.length === 1 ? 'cliente esperando você' : 'clientes esperando você'}
               urgente={esperando.length > 0} onClick={() => navigate('/atendimento')} />
             <Numero valor={encomendas ? abertosJanela : '—'} rotulo="pedidos hoje e amanhã" onClick={() => navigate('/pedidos')} />
-            <Numero valor={produtos ? prontosPraVender : '—'} rotulo={prontosPraVender === 1 ? 'produto pronto pra vender' : 'produtos prontos pra vender'} onClick={() => navigate('/prontidao')} />
+            <Numero valor={produtos ? prontosPraVender : '—'} rotulo={`${prontosPraVender === 1 ? 'produto' : 'produtos'} à venda · ${fmtN(unidadesProntas)} un`} onClick={() => navigate('/prontidao')} />
             <Numero valor={encomendas ? `R$ ${Math.round(vendidoSemana).toLocaleString('pt-BR')}` : '—'} rotulo="vendido nesta semana" onClick={() => navigate('/pedidos')} />
           </div>
 
