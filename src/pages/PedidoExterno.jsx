@@ -876,6 +876,18 @@ export default function PedidoExterno() {
     if (!ok) calcularFrete(cep)
   }
 
+  // Mudou o carrinho no checkout com o frete já calculado: calcula de novo (frete grátis e
+  // carro/moto dependem do total e dos itens)
+  const chaveCarrinho = `${total}|${fragCarrinho}`
+  const ultimaChave = useRef(chaveCarrinho)
+  useEffect(() => {
+    if (ultimaChave.current === chaveCarrinho) return
+    ultimaChave.current = chaveCarrinho
+    if (step !== 'checkout' || form.tipoEntrega !== 'Entrega' || !(freteDias || frete) || !carrinhoItens.length) return
+    const t = setTimeout(() => { calcularFreteDias(form.cep).then(ok => { if (!ok) calcularFrete(form.cep) }) }, 600)
+    return () => clearTimeout(t)
+  }, [chaveCarrinho]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Cards de frete por dia — custo marginal real calculado server-side (/api/frete-dias)
   async function calcularFreteDias(cepCliente) {
     const clean = cepCliente.replace(/\D/g, '')
@@ -1175,17 +1187,39 @@ export default function PedidoExterno() {
           <div style={{ marginBottom: 24 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#5B6878', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Seu pedido</div>
             <div style={{ background: '#FFFFFF', borderRadius: 12, overflow: 'hidden' }}>
-              {carrinhoItens.map((it, i) => (
-                <div key={it.produto.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '11px 14px',
-                  borderBottom: i < carrinhoItens.length - 1 ? '1px solid #EBCDD5' : 'none',
-                  fontSize: 13,
-                }}>
-                  <span>{it.produto.nome} <span style={{ color: '#5B6878' }}>×{it.qtd}</span></span>
-                  <span style={{ fontWeight: 600 }}>{fmtR((it.produto.precoDireta || 0) * it.qtd)}</span>
-                </div>
-              ))}
+              {carrinhoItens.map((it, i) => {
+                const max = it.produto.estoqueAtual > 0 ? it.produto.estoqueAtual : 99
+                const tirar = () => {
+                  const resto = carrinhoItens.filter(x => x.produto.id !== it.produto.id)
+                  setCarrinho(c => { const n = { ...c }; delete n[it.produto.id]; return n })
+                  if (!resto.length) setStep('catalog')   // carrinho vazio: volta pro cardápio
+                }
+                const passo = { width: 34, height: 34, border: 'none', background: 'none', color: C.azul, fontSize: 18, fontWeight: 800, cursor: 'pointer', fontFamily: FONTE }
+                return (
+                  <div key={it.produto.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px 10px 14px',
+                    borderBottom: i < carrinhoItens.length - 1 ? '1px solid #EBCDD5' : 'none',
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, lineHeight: 1.25 }}>{it.produto.nome}</div>
+                      <div style={{ fontSize: 13, color: '#5B6878', marginTop: 2 }}>{fmtR((it.produto.precoDireta || 0) * it.qtd)}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', background: C.azulClaro, borderRadius: 99, flexShrink: 0 }}>
+                      <button aria-label={it.qtd > 1 ? `Tirar um ${it.produto.nome}` : `Tirar ${it.produto.nome} do carrinho`} style={passo}
+                        onClick={() => it.qtd > 1 ? removeItem(it.produto) : tirar()}>−</button>
+                      <span style={{ minWidth: 18, textAlign: 'center', fontWeight: 800, color: C.azul, fontSize: 14 }}>{it.qtd}</span>
+                      <button aria-label={`Mais um ${it.produto.nome}`} style={{ ...passo, opacity: it.qtd >= max ? 0.35 : 1 }} disabled={it.qtd >= max}
+                        onClick={() => addItem(it.produto)}>+</button>
+                    </div>
+                    <button onClick={tirar} aria-label={`Tirar ${it.produto.nome} do carrinho`} title="Tirar do carrinho" style={{
+                      width: 36, height: 36, flexShrink: 0, borderRadius: 10, border: 'none', background: 'transparent', color: '#9AA3AE', cursor: 'pointer',
+                      display: 'grid', placeItems: 'center',
+                    }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12M9 7V4h6v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    </button>
+                  </div>
+                )
+              })}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 4px', fontWeight: 700, fontSize: 16 }}>
               <span>Total</span>

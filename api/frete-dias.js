@@ -17,6 +17,7 @@ const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
 // Veículo pela fragilidade (moto pra robusto, hatch se tiver frágil) — o mesmo
 // critério do despacho, pra o preço cotado nunca ficar abaixo do custo real.
 const JANELA  = 14   // procura próximas datas dentro de 2 semanas
+const OPCOES  = 6    // quantos dias de entrega o cliente vê (a partir de amanhã)
 
 const iso = (d) => d.toISOString().slice(0, 10)
 
@@ -30,7 +31,6 @@ function assinar(userId, date, preco, lat, lng, frag, periodo = null) {
   return crypto.createHmac('sha256', segredo).update(msg).digest('hex')
 }
 const PERIODOS = ['manha', 'tarde', 'noite']
-const ordSemana = (wd) => (wd + 6) % 7   // segunda=0 ... domingo=6
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
@@ -60,14 +60,14 @@ export default async function handler(req, res) {
     if (!lojaLat || !lojaLng)      { res.status(400).json({ error: 'Loja sem coordenadas (salve o CEP da loja em Configurações)' }); return }
     if (diasSemana.length === 0)   { res.status(200).json({ dias: [] }); return }
 
-    // Próxima ocorrência de cada dia da semana configurado (uma por weekday)
-    const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+    // Só agendamento: a partir de amanhã, os próximos dias de entrega em ordem de data.
+    // "Hoje" é o dia em Brasília (o servidor roda em UTC).
+    const agoraBR = new Date(Date.now() - 3 * 3600e3)
+    const hojeUTC = Date.UTC(agoraBR.getUTCFullYear(), agoraBR.getUTCMonth(), agoraBR.getUTCDate())
     const datas = []
-    const vistos = new Set()
-    for (let i = 0; i < JANELA && vistos.size < diasSemana.length; i++) {
-      const d = new Date(hoje); d.setDate(hoje.getDate() + i)
-      const wd = d.getDay()
-      if (diasSemana.includes(wd) && !vistos.has(wd)) { vistos.add(wd); datas.push(d) }
+    for (let i = 1; i <= JANELA && datas.length < OPCOES; i++) {
+      const d = new Date(hojeUTC + i * 864e5)
+      if (diasSemana.includes(d.getUTCDay())) datas.push(d)
     }
     if (datas.length === 0) { res.status(200).json({ dias: [] }); return }
 
@@ -128,13 +128,10 @@ export default async function handler(req, res) {
       }
       // Resumo do dia (agente do WhatsApp / pedido sem período): o período mais barato
       const melhor = [...periodos].sort((a, b) => a.preco - b.preco || b.pedidos - a.pedidos)[0]
-      dias.push({ date: key, weekday: d.getDay(), pedidos: reservados.length, veiculo: veicCliente, preco: melhor.preco, gratis,
+      dias.push({ date: key, weekday: d.getUTCDay(), pedidos: reservados.length, veiculo: veicCliente, preco: melhor.preco, gratis,
                   compartilhado: periodos.some(p => p.compartilhado), periodos,
                   assinatura: assinar(userId, key, melhor.preco, lat, lng, frag) })
     }
-
-    // Ordena por dia da semana: segunda → domingo
-    dias.sort((a, b) => ordSemana(a.weekday) - ordSemana(b.weekday))
 
     res.status(200).json({ dias, precoSolo })
   } catch (e) {
