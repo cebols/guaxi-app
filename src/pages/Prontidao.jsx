@@ -1,9 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
 import {
-  getProdutos, getEncomendas, reconciliarBaixasPedidos, reservasPorProduto, getInteresses, marcarInteressesAvisados,
+  getProdutos, getEncomendas, reconciliarBaixasPedidos, reservasPorProduto, getInteresses,
   getProntidaoLotes, moverProntidao, desfazerMovimento, embalarProduto, desfazerEmbalar,
   corrigirEtapaProntidao, baixaProntidao, descartarVencidosProntidao, setProdutoProntidao,
   marcarEtapaPronta, desfazerEtapaPronta,
@@ -52,8 +51,6 @@ export default function Prontidao() {
   const { data: produtos, loading: loadProd, reload: reloadProd } = useData(getProdutos)
   const { data: encomendas, reload: reloadEnc } = useData(getEncomendas)
   const { data: interesses, reload: reloadInt } = useData(getInteresses)
-  const { user } = useAuth()
-  const [verInteresses, setVerInteresses] = useState(null) // produto
   const [lotes, setLotes]           = useState(null)
   const [erroTabela, setErroTabela] = useState(null)
   const [agora, setAgora]           = useState(Date.now())
@@ -112,7 +109,7 @@ export default function Prontidao() {
   // Quadro de ações: executa com um toque (com Desfazer)
   async function executar(t, qtd, destinos) {
     try {
-      if (t.tipo === 'avisar') { setVerInteresses(t.prod); return }
+      if (t.tipo === 'avisar') { navigate(`/interessados?produto=${t.prod.id}`); return }
       if (t.tipo === 'aguardando') {
         const info = await marcarEtapaPronta(t.prod.id, t.etapa, t.tempoH)
         await recarregar()
@@ -241,7 +238,7 @@ export default function Prontidao() {
             )}
 
             {verCards && visiveis.map(({ prod, a }) => (
-              <CardProduto key={prod.id} prod={prod} a={a} interessados={interessadosPor[prod.id]?.length || 0} onInteressados={() => setVerInteresses(prod)}
+              <CardProduto key={prod.id} prod={prod} a={a} interessados={interessadosPor[prod.id]?.length || 0} onInteressados={() => navigate(`/interessados?produto=${prod.id}`)}
                 onMover={(de, para, n) => setMover({ prod, de, para, n })}
                 onEtapa={(etapaKey) => setEtapaAberta({ prod, etapaKey })}
                 onConfig={() => setConfig(prod)}
@@ -311,12 +308,6 @@ export default function Prontidao() {
       {etapaAberta && (
         <EtapaSheet {...etapaAberta} lotes={lotes || []} agora={agora} onClose={() => setEtapaAberta(null)}
           onDone={async (msg) => { setEtapaAberta(null); await recarregar(); setAviso({ msg }) }} />
-      )}
-      {verInteresses && (
-        <InteressesSheet prod={verInteresses} lista={interessadosPor[verInteresses.id] || []} lojaId={user?.id}
-          disponivel={(analises.find(x => x.prod.id === verInteresses.id)?.a.vendaveis || 0) > 0}
-          onClose={() => setVerInteresses(null)}
-          onAvisados={async (ids) => { await marcarInteressesAvisados(ids); await reloadInt() }} />
       )}
       {config && (
         <ConfigSheet prod={config} onClose={() => setConfig(null)}
@@ -941,42 +932,6 @@ function LembreteSheet({ onClose }) {
           {msg && <div style={{ fontSize: 13, marginTop: 12, color: msg.erro ? '#f87171' : '#4ade80' }}>{msg.t}</div>}
         </>
       )}
-    </Sheet>
-  )
-}
-
-// ── Quem pediu pra ser avisado quando o produto voltar ────────────────────────
-function InteressesSheet({ prod, lista, lojaId, disponivel, onClose, onAvisados }) {
-  const [feitos, setFeitos] = useState({})
-  const link = `${window.location.origin}/pedido/${lojaId}?produto=${prod.id}`
-  const wa = (i) => {
-    const d = (i.telefone || '').replace(/\D/g, '')
-    const nome = (i.nome || '').split(' ')[0]
-    const msg = `Oi${nome ? ' ' + nome : ''}! O ${prod.nome} voltou 💙 Dá pra pedir por aqui: ${link}`
-    return `https://wa.me/${d.startsWith('55') ? d : '55' + d}?text=${encodeURIComponent(msg)}`
-  }
-  async function avisar(i) {
-    window.open(wa(i), '_blank')
-    setFeitos(f => ({ ...f, [i.id]: true }))
-    await onAvisados([i.id]).catch(() => {})
-  }
-  return (
-    <Sheet title={`Querem ${prod.nome}`} onClose={onClose}>
-      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12 }}>
-        {disponivel ? 'Já tem pronto pra vender — avisa cada um com a mensagem e o link do cardápio.' : 'Ainda não tem pronto. Esses pedidos ajudam a decidir o que produzir; avise quando voltar.'}
-      </div>
-      {lista.length === 0 && <div className="empty"><span>Ninguém esperando</span></div>}
-      {lista.map(i => (
-        <div key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: '1px solid #333', opacity: feitos[i.id] ? 0.5 : 1 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 700 }}>{i.nome || 'Sem nome'}</div>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{i.telefone} · desde {new Date(i.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}</div>
-          </div>
-          <button onClick={() => avisar(i)} disabled={feitos[i.id]} style={{ padding: '9px 12px', borderRadius: 9, border: 'none', background: feitos[i.id] ? '#333' : '#25d366', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
-            {feitos[i.id] ? 'Avisado ✓' : 'WhatsApp'}
-          </button>
-        </div>
-      ))}
     </Sheet>
   )
 }

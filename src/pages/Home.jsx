@@ -226,7 +226,7 @@ export default function Home() {
     const a = analisePor[t.prod.id]
     try {
       if (t.tipo === 'produzir') { navigate('/mise-en-place', { state: { adicionar: [{ produtoId: t.prod.id, n: t.n }] } }); return }
-      if (t.tipo === 'avisar') { navigate('/prontidao'); return }
+      if (t.tipo === 'avisar') { navigate(`/interessados?produto=${t.prod.id}`); return }
       if (t.tipo === 'aguardando') {
         const info = await marcarEtapaPronta(t.prod.id, t.etapa, t.tempoH)
         await recarregarProntidao()

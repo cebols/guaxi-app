@@ -832,11 +832,20 @@ $$;
 -- telefone ainda não avisado.
 CREATE OR REPLACE FUNCTION public.registrar_interesse(p_user_id uuid, p_produto_id bigint, p_nome text, p_telefone text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_prod text;
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM produtos WHERE id = p_produto_id AND user_id = p_user_id) THEN RAISE EXCEPTION 'produto inválido'; END IF;
+  SELECT nome INTO v_prod FROM produtos WHERE id = p_produto_id AND user_id = p_user_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'produto inválido'; END IF;
   IF coalesce(trim(p_telefone), '') = '' THEN RAISE EXCEPTION 'telefone obrigatório'; END IF;
   IF EXISTS (SELECT 1 FROM interesses WHERE produto_id = p_produto_id AND telefone = p_telefone AND avisado_em IS NULL) THEN RETURN; END IF;
   INSERT INTO interesses (user_id, produto_id, nome, telefone) VALUES (p_user_id, p_produto_id, left(p_nome, 80), left(p_telefone, 30));
+  -- Aviso no celular da dona (página Interessados). Se o push falhar, o cadastro vale do mesmo jeito.
+  BEGIN
+    PERFORM avisar_dono(p_user_id, '🔔 Avise-me: ' || v_prod,
+      coalesce(nullif(trim(p_nome), ''), 'Alguém') || ' quer ser avisado(a) quando voltar.',
+      '/interessados?produto=' || p_produto_id, 'interesse-' || p_produto_id);
+  EXCEPTION WHEN others THEN NULL;
+  END;
 END $$;
 
 -- Quem pode chamar o quê. Funções SECURITY DEFINER passam por cima das regras de

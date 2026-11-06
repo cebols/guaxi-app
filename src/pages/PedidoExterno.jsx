@@ -369,7 +369,7 @@ function InfoLoja({ endereco, cep }) {
   const acao = { flexShrink: 0, fontSize: 12, fontWeight: 800, color: C.azul, whiteSpace: 'nowrap' }
   return (
     <div style={{ maxWidth: 420, margin: '12px auto 0', background: '#FFFFFF', borderRadius: 14, border: '1px solid rgba(24,93,156,.14)', boxShadow: '0 4px 12px rgba(14,60,104,.06)', overflow: 'hidden' }}>
-      <a href={`https://wa.me/${WHATS_GUAXI}`} target="_blank" rel="noopener noreferrer" style={linha}>
+      <a href={`https://wa.me/${WHATS_GUAXI}?text=${encodeURIComponent('Oi! Vim pelo cardápio da Guaxí e queria uma ajuda com um pedido 🙂')}`} target="_blank" rel="noopener noreferrer" style={linha}>
         <span style={icone} aria-hidden="true">💬</span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: C.tinta2 }}>WhatsApp</span>

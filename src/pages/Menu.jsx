@@ -14,6 +14,10 @@ const SECTIONS = [
         icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M16 8.6a6.3 6.3 0 01-6.8 6.3 6.5 6.5 0 01-2.8-.7L2 15.5l1.4-3.8A6.3 6.3 0 1116 8.6z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/></svg>,
       },
       {
+        label: 'Interessados', path: '/interessados',
+        icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 01-3.4 0"/></svg>,
+      },
+      {
         label: 'Envios', path: '/envios',
         icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M1 12V5h10v7M11 8h3.5L17 11v1h-6" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/><circle cx="5" cy="13" r="1.6" stroke="currentColor" strokeWidth="1.4"/><circle cx="13" cy="13" r="1.6" stroke="currentColor" strokeWidth="1.4"/></svg>,
       },

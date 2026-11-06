@@ -24,6 +24,7 @@ const ProducaoTodo      = lazy(() => import('./pages/ProducaoTodo'))
 const ProducaoHistorico = lazy(() => import('./pages/ProducaoHistorico'))
 const Prontidao         = lazy(() => import('./pages/Prontidao'))
 const Atendimento       = lazy(() => import('./pages/Atendimento'))
+const Interessados      = lazy(() => import('./pages/Interessados'))
 const CardapioPublico = lazy(() => import('./pages/CardapioPublico'))
 const PedidoExterno   = lazy(() => import('./pages/PedidoExterno'))
 const Menu            = lazy(() => import('./pages/Menu'))
@@ -37,6 +38,7 @@ const NAV_BOTTOM = [
   { path: '/',        label: 'Início',   icon: HomeIcon },
   { path: '/pedidos', label: 'Pedidos',  icon: PedidosIcon },
   { path: '/atendimento', label: 'Atendimento', icon: AtendimentoIcon },
+  { path: '/interessados', label: 'Interessados', icon: SinoIcon },
   { path: '/envios',  label: 'Envios',   icon: EnviosIcon },
   { path: '/fichas',  label: 'Receitas', icon: FichasIcon },
   { path: '/vendas',  label: 'Vendas',   icon: VendasIcon },
@@ -294,6 +296,7 @@ export default function App() {
             <Route path="/producao/:id"            element={<ProducaoTodo />} />
             <Route path="/prontidao"               element={<Prontidao />} />
             <Route path="/atendimento"             element={<Atendimento />} />
+            <Route path="/interessados"            element={<Interessados />} />
             <Route path="/configuracoes"       element={<Configuracoes />} />
             <Route path="/perfil"              element={<Perfil />} />
             <Route path="/menu"                element={<Menu />} />
@@ -422,6 +425,12 @@ function AtendimentoIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 11.5a8.4 8.4 0 01-9 8.4 8.6 8.6 0 01-3.8-.9L3 21l1.9-5.1A8.4 8.4 0 1121 11.5z"/>
     <path d="M8 11h.01M12 11h.01M16 11h.01"/>
+  </svg>
+}
+function SinoIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+    <path d="M13.7 21a2 2 0 01-3.4 0"/>
   </svg>
 }
 function ProntidaoIcon() {

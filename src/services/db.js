@@ -2439,6 +2439,24 @@ export async function marcarInteressesAvisados(ids) {
   if (error) throw error
 }
 
+// Página Interessados: quem está esperando + quem foi avisado nos últimos 30 dias
+export async function getInteressesLista() {
+  const desde = new Date(Date.now() - 30 * 864e5).toISOString()
+  const { data, error } = await supabase.from('interesses').select('id, produto_id, nome, telefone, created_at, avisado_em')
+    .or(`avisado_em.is.null,avisado_em.gte.${desde}`).order('created_at')
+  if (error) return []
+  return (data || []).map(i => ({ id: i.id, produtoId: Number(i.produto_id), nome: i.nome || '', telefone: i.telefone, createdAt: i.created_at, avisadoEm: i.avisado_em }))
+}
+export async function desmarcarInteressesAvisados(ids) {
+  if (!ids?.length) return
+  const { error } = await supabase.from('interesses').update({ avisado_em: null }).in('id', ids)
+  if (error) throw error
+}
+export async function apagarInteresse(id) {
+  const { error } = await supabase.from('interesses').delete().eq('id', id)
+  if (error) throw error
+}
+
 export async function getPublicDeliveryConfig(userId) {
   try {
     const { data, error } = await supabase.rpc('get_delivery_config', { p_user_id: userId })
