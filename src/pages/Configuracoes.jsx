@@ -598,7 +598,7 @@ export default function Configuracoes() {
               placeholder="Rua..., número, cidade"
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
             />
-            <label className="cfg-label">Chave Pix (vai nas mensagens pro cliente)</label>
+            <label className="cfg-label">Chave Pix (gera o Pix copia e cola com o valor de cada pedido)</label>
             <input
               type="text"
               value={deliveryCfg.pix || ''}

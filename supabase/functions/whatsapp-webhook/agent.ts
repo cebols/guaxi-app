@@ -375,7 +375,7 @@ export async function runAgent(
   telefone: string,
   userMessage: string,
   nomeContato?: string,
-): Promise<string | null> {
+): Promise<string | string[] | null> {
   const contato = await registrarContato(supabase, telefone, nomeContato)
   await saveMessage(supabase, telefone, 'user', userMessage)
   if (contato.botPausado) {
@@ -389,9 +389,9 @@ export async function runAgent(
       await marcarPrecisaHumano(supabase, telefone, `Confirmar pedido ${recibo.pedidoId} (feito com outro número)`)
       await avisarDono(supabase, `🧾 ${contato.nome || telefone} quer confirmar o ${recibo.pedidoId}`, 'O pedido foi feito com outro número de WhatsApp', telefone)
     }
-    await saveMessage(supabase, telefone, 'assistant', recibo.resposta)
+    for (const m of [recibo.resposta, ...recibo.extras]) await saveMessage(supabase, telefone, 'assistant', m)
     await tocarConversa(supabase, telefone)
-    return recibo.resposta
+    return recibo.extras.length ? [recibo.resposta, ...recibo.extras] : recibo.resposta
   }
 
   // Pediu gente de verdade (ou reclamação): vem pra você na hora, sem passar pelo bot

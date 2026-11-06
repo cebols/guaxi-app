@@ -4,6 +4,7 @@
 // passar pelo modelo (resposta fixa e confiável) e só pro número do pedido.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { OWNER_USER_ID } from './cardapio.ts'
+import { pixCopiaECola } from './pix.ts'
 
 const COD = /\bPED[-\s]?#?(\d{1,6})\b/i
 const soDigitos = (s: string) => String(s || '').replace(/\D/g, '')
@@ -15,14 +16,15 @@ const dia = (s: string) => {
   return `${DIAS[d.getDay()]}, ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-export interface Recibo { resposta: string; outroNumero: boolean; pedidoId: string }
+// extras: mensagens que vão logo depois (o Pix copia e cola sozinho, pra copiar com um toque)
+export interface Recibo { resposta: string; outroNumero: boolean; pedidoId: string; extras: string[] }
 
 export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto: string): Promise<Recibo | null> {
   const m = String(texto || '').match(COD)
   if (!m) return null
   const pedidoId = `PED-${m[1].padStart(3, '0')}`
   const { data: p } = await sb.from('encomendas')
-    .select('id, cliente, contato, data_entrega, periodo, tipo_entrega, endereco, valor, frete, pgto, status, encomenda_itens(produto, quantidade, preco_unit)')
+    .select('id, cliente, contato, data_entrega, periodo, tipo_entrega, endereco, valor, sinal, frete, pgto, status, encomenda_itens(produto, quantidade, preco_unit)')
     .eq('user_id', OWNER_USER_ID).eq('id', pedidoId).maybeSingle()
   if (!p) return null   // código que não existe: segue a conversa normal
 
@@ -30,7 +32,7 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
   if (fim.length < 8 || !soDigitos(String(p.contato || '')).endsWith(fim)) {
     // Pedido feito com outro número: não mostra nada dele aqui, chama a Guaxí
     return {
-      pedidoId, outroNumero: true,
+      pedidoId, outroNumero: true, extras: [],
       resposta: `Oii! Eu sou a GuaxiMina, a guaxinim virtual da Guaxí 🦝 Vi que o pedido *${pedidoId}* foi feito com outro número de WhatsApp, então uma pessoa da Guaxí já vai confirmar tudo com você por aqui 💛`,
     }
   }
@@ -52,6 +54,8 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
   const pago = p.pgto === 'Pago'
   const { data: cfg } = await sb.from('user_config').select('config').eq('user_id', OWNER_USER_ID).maybeSingle()
   const pix = String(((cfg?.config as Record<string, Record<string, unknown>> | undefined)?.delivery?.pix) || '').trim()
+  const falta = Math.max(0, (Number(p.valor) || 0) - (Number(p.sinal) || 0))
+  const codigo = !pago && pix && falta > 0 ? pixCopiaECola({ chave: pix, valor: falta, txid: pedidoId }) : ''
 
   const resposta = [
     `Oii${nome ? `, ${nome}` : ''}! Aqui é a GuaxiMina, a guaxinim virtual da Guaxí 🦝`,
@@ -63,10 +67,12 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
     '',
     quando,
     '',
-    pago ? 'Pagamento: confirmado ✅' : pix ? `Pagamento por Pix — chave: *${pix}*` : 'Pagamento: Pix — a Guaxí te manda a chave por aqui.',
+    pago ? 'Pagamento: confirmado ✅'
+      : codigo ? `Pagamento por Pix — *${fmtR(falta)}*. Te mando o código *Pix copia e cola* aqui embaixo 👇 É só copiar e colar no app do seu banco (o valor já vem certinho).`
+      : pix ? `Pagamento por Pix — chave: *${pix}*` : 'Pagamento: Pix — a Guaxí te manda a chave por aqui.',
     entrega ? 'Quando o motorista sair daqui, a gente te manda o link pra acompanhar 🛵' : null,
     'Qualquer dúvida, é só me chamar aqui mesmo 💛',
   ].filter(l => l !== null).join('\n')
 
-  return { pedidoId, outroNumero: false, resposta }
+  return { pedidoId, outroNumero: false, resposta, extras: codigo ? [codigo] : [] }
 }

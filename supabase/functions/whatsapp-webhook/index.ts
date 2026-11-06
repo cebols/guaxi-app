@@ -85,7 +85,8 @@ Deno.serve(async (req: Request) => {
   EdgeRuntime.waitUntil((async () => {
     try {
       const reply = await runAgent(supabase, msg.from, msg.body, msg.pushName)
-      if (reply) await sendMetaMessage(msg.from, reply, { phoneNumberId, accessToken })
+      // Às vezes são duas mensagens (ex.: recibo + Pix copia e cola), na ordem
+      for (const r of (Array.isArray(reply) ? reply : reply ? [reply] : [])) await sendMetaMessage(msg.from, r, { phoneNumberId, accessToken })
     } catch (err) {
       console.error('Agent error:', err)
       try {

@@ -478,6 +478,9 @@ ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS rastreio_auto       boolean NOT 
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS rastreio_enviado_em timestamptz;
 -- Envios: uma rota da Lalamove por dia + período
 ALTER TABLE envios ADD COLUMN IF NOT EXISTS periodo text;
+-- Segredo do aparelho do cliente (cardápio): com ele o cliente vê os próprios pedidos sem login
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS chave_cliente text;
+CREATE INDEX IF NOT EXISTS encomendas_chave_cliente ON encomendas(chave_cliente) WHERE chave_cliente IS NOT NULL;
 
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS produto_id bigint references produtos(id) on delete set null;
@@ -657,6 +660,7 @@ DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, tex
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text);
+DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text);
 CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_user_id          uuid,
   p_cliente          text,
@@ -672,7 +676,8 @@ CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_frag             text default 'robusto',
   p_frete_assinatura text default null,
   p_canal            text default 'FormExterno',  -- 'FormExterno' (cardápio online) | 'WhatsApp' (agente)
-  p_periodo          text default null            -- manha | tarde | noite (null = a combinar)
+  p_periodo          text default null,           -- manha | tarde | noite (null = a combinar)
+  p_chave            text default null            -- segredo gerado no aparelho do cliente: deixa ele ver o pedido no cardápio
 ) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
 DECLARE
@@ -747,13 +752,14 @@ BEGIN
 
   INSERT INTO encomendas
     (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto,
-     data_entrega, entrega_lat, entrega_lng, entrega_frag, periodo)
+     data_entrega, entrega_lat, entrega_lng, entrega_frag, periodo, chave_cliente)
   VALUES
     (v_id, p_user_id, left(trim(p_cliente), 100), left(trim(p_contato), 40),
      CASE WHEN p_canal = 'WhatsApp' THEN 'WhatsApp' ELSE 'FormExterno' END,
      CASE WHEN v_entrega THEN 'Entrega' ELSE 'Retirada' END, left(coalesce(p_endereco, ''), 300), v_obs,
      v_total + v_frete, v_frete, 'Pendente', 'Aguardando',
-     p_data_entrega, p_lat, p_lng, v_frag, v_periodo);
+     p_data_entrega, p_lat, p_lng, v_frag, v_periodo,
+     CASE WHEN length(p_chave) BETWEEN 20 AND 64 THEN p_chave END);
 
   INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id, produto_id)
   SELECT v_id, elem->>'produto_nome', (elem->>'quantidade')::numeric, (elem->>'preco_unit')::numeric,
@@ -764,9 +770,28 @@ BEGIN
 END;
 $$;
 
+-- Pedidos do cliente no cardápio (sem login): só quem tem o segredo guardado no
+-- aparelho em que fez o pedido. Devolve o mínimo pra mostrar o andamento.
+CREATE OR REPLACE FUNCTION public.pedidos_do_cliente(p_chaves text[])
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT coalesce(jsonb_agg(x ORDER BY x->>'criado' DESC), '[]'::jsonb) FROM (
+    SELECT jsonb_build_object(
+      'id', e.id, 'status', e.status, 'pgto', e.pgto, 'valor', e.valor, 'sinal', e.sinal,
+      'data', e.data_entrega, 'periodo', e.periodo, 'tipo', e.tipo_entrega, 'criado', e.created_at,
+      'itens', (SELECT coalesce(jsonb_agg(jsonb_build_object('produto', i.produto, 'qtd', i.quantidade) ORDER BY i.id), '[]'::jsonb)
+                  FROM encomenda_itens i WHERE i.encomenda_id = e.id AND i.produto NOT LIKE '↳%'),
+      'envio', v.status,
+      'rastreio', CASE WHEN v.status IN ('ON_GOING', 'PICKED_UP') THEN v.share_link END
+    ) AS x
+    FROM encomendas e LEFT JOIN envios v ON v.id = e.envio_id
+    WHERE e.chave_cliente = ANY (p_chaves[1:10]) AND length(e.chave_cliente) >= 20
+      AND e.created_at > now() - interval '60 days'
+  ) t
+$$;
+
 -- Config pública da loja: só o que o cardápio usa (dias de entrega, frete grátis,
--- faixas de frete, CEP da loja) + ordem das seções. Endereço, coordenadas e
--- margens NÃO saem daqui.
+-- faixas de frete, CEP e endereço da loja pra retirada, chave Pix) + ordem das
+-- seções. Coordenadas, margens e custos NÃO saem daqui.
 CREATE OR REPLACE FUNCTION public.get_delivery_config(p_user_id uuid)
 RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT jsonb_build_object(
@@ -775,7 +800,8 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
       'freteGratis', config->'delivery'->'freteGratis',
       'freteTiers',  config->'delivery'->'freteTiers',
       'lojaCEP',     config->'delivery'->'lojaCEP',
-      'lojaEndereco', NULLIF(btrim(config->'delivery'->>'lojaEndereco', E' \t\r\n'), '')  -- mostrado no topo do cardápio (retirada)
+      'lojaEndereco', NULLIF(btrim(config->'delivery'->>'lojaEndereco', E' \t\r\n'), ''),  -- mostrado no topo do cardápio (retirada)
+      'pix',          NULLIF(btrim(config->'delivery'->>'pix'), '')                       -- gera o Pix copia e cola do pedido
     )),
     'secoesOrdem', COALESCE(config->'secoesOrdem', '[]'::jsonb)
   )
@@ -864,7 +890,8 @@ GRANT EXECUTE ON FUNCTION public.cardapio_publico(uuid)        TO anon, authenti
 GRANT EXECUTE ON FUNCTION public.get_delivery_config(uuid)     TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.produtos_disponiveis(uuid)    TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.registrar_interesse(uuid, bigint, text, text) TO anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text, text) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.pedidos_do_cliente(text[])   TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.delete_pedido(text, uuid)     TO authenticated, service_role;
 
 

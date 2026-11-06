@@ -2492,12 +2492,23 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
   const naoAchou = (e) => e && /Could not find the function|PGRST202/i.test(e.message || '')
   // Versão atual: frete assinado pelo servidor (o banco confere)
   const assinado = { ...comEntrega, p_frete_assinatura: entrega.freteAssinatura || null }
-  let { data, error } = await supabase.rpc('submit_pedido_externo', entrega.periodo ? { ...assinado, p_periodo: entrega.periodo } : assinado)
+  const comPeriodo = entrega.periodo ? { ...assinado, p_periodo: entrega.periodo } : assinado
+  // p_chave: segredo do aparelho do cliente (deixa ele acompanhar o pedido no cardápio)
+  let { data, error } = await supabase.rpc('submit_pedido_externo', entrega.chave ? { ...comPeriodo, p_chave: entrega.chave } : comPeriodo)
   // Fallbacks p/ bancos que ainda não rodaram o SQL novo
+  if (naoAchou(error) && entrega.chave) ({ data, error } = await supabase.rpc('submit_pedido_externo', comPeriodo))
   if (naoAchou(error) && entrega.periodo) ({ data, error } = await supabase.rpc('submit_pedido_externo', assinado))
   if (naoAchou(error)) ({ data, error } = await supabase.rpc('submit_pedido_externo', comEntrega))
   if (naoAchou(error)) ({ data, error } = await supabase.rpc('submit_pedido_externo', baseArgs))
   if (error) throw error
+  return data
+}
+
+// Pedidos feitos neste aparelho (cardápio, sem login): pelo segredo guardado em cada pedido
+export async function getPedidosDoCliente(chaves) {
+  if (!chaves?.length) return []
+  const { data, error } = await supabase.rpc('pedidos_do_cliente', { p_chaves: chaves.slice(0, 10) })
+  if (error || !Array.isArray(data)) return []
   return data
 }
 

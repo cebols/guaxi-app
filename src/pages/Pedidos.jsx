@@ -9,6 +9,7 @@ import {
   reconciliarBaixasPedidos, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
   atualizarPedido, loadUserConfig,
 } from '../services/db'
+import { pixCopiaECola } from '../lib/pix'
 
 // ── Pedidos: lista agrupada por dia e período + detalhe com mensagens ────────
 // Código de cores: cinza = normal · âmbar = precisa de você · verde = ação.
@@ -119,10 +120,12 @@ function modelosDe(p, pix) {
   const quando = quandoTexto(p)
   const entrega = p.tipoEntrega === 'Entrega'
   const falta = faltaPagar(p)
-  const pixTxt = pix ? ` A chave Pix é ${pix}.` : ''
+  // Pix copia e cola com o valor que falta: vai numa mensagem separada (o cliente copia com um toque)
+  const codigo = pix && falta > 0 ? pixCopiaECola({ chave: pix, valor: falta, txid: p.id }) : ''
+  const pixTxt = codigo ? ' Te mando o Pix copia e cola logo abaixo 👇' : pix ? ` A chave Pix é ${pix}.` : ''
   const link = p.envio?.shareLink
   const m = []
-  m.push({ key: 'confirmar', label: falta > 0 ? 'Confirmar + Pix' : 'Confirmar',
+  m.push({ key: 'confirmar', label: falta > 0 ? 'Confirmar + Pix' : 'Confirmar', extra: falta > 0 ? codigo : '',
     texto: `${oi} Seu pedido ${p.id} tá confirmado${quando ? ` pra ${entrega ? '' : 'retirada '}${quando}` : ''}.${falta > 0 ? ` O total é ${fmtR(falta)}.${pixTxt}` : ''} Qualquer coisa é só chamar aqui!` })
   if (entrega && p.dataEntrega) m.push({ key: 'periodo', label: 'Combinar período',
     texto: `${oi} Sobre o pedido ${p.id} pra ${diaLongo(p.dataEntrega)}: qual período fica melhor pra receber — manhã (9–12h), tarde (12–18h) ou noite (18–22h)?` })
@@ -133,8 +136,9 @@ function modelosDe(p, pix) {
   if (entrega) m.push({ key: 'saiu', label: 'Saiu pra entrega',
     texto: `${oi} Seu pedido ${p.id} saiu pra entrega 🛵${link ? ` Dá pra acompanhar por aqui: ${link}` : ''}` })
   else m.push({ key: 'pronto', label: 'Pronto pra retirar', texto: `${oi} Seu pedido ${p.id} tá pronto pra retirada 💛` })
-  if (falta > 0) m.push({ key: 'cobrar', label: 'Cobrar',
-    texto: `${oi} Passando pra lembrar do pagamento do pedido ${p.id} (${fmtR(falta)}).${pix ? ` Chave Pix: ${pix}` : ' Posso te mandar o Pix?'}` })
+  if (falta > 0) m.push({ key: 'cobrar', label: 'Cobrar', extra: codigo,
+    texto: `${oi} Passando pra lembrar do pagamento do pedido ${p.id} (${fmtR(falta)}).${codigo ? ' Segue o Pix copia e cola logo abaixo 👇 (o valor já vem certinho)' : pix ? ` Chave Pix: ${pix}` : ' Posso te mandar o Pix?'}` })
+  if (codigo) m.push({ key: 'pix', label: 'Só o código Pix', texto: codigo })
   m.push({ key: 'avaliar', label: 'Pedir avaliação', texto: `${oi} Espero que tenha curtido o pedido ${p.id}! Se puder, manda uma foto ou conta o que achou 💛` })
   return m
 }
@@ -272,16 +276,23 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
 
   async function enviarMsg() {
     if (!texto.trim()) return
+    const extra = modelos.find(m => m.key === modelo)?.extra || ''   // o Pix copia e cola, em mensagem separada
     if (janela) {
       setEnviando(true)
-      try { await enviarWhatsApp(contato.telefone, texto.trim(), { pausar: false }); avisar({ msg: 'Enviado pelo WhatsApp da Guaxí' }) }
+      try {
+        await enviarWhatsApp(contato.telefone, texto.trim(), { pausar: false })
+        if (extra) await enviarWhatsApp(contato.telefone, extra, { pausar: false })
+        avisar({ msg: extra ? 'Enviado pela Guaxí, com o Pix copia e cola' : 'Enviado pelo WhatsApp da Guaxí' })
+      }
       catch (e) { avisar({ msg: 'Erro: ' + e.message }) }
       finally { setEnviando(false) }
       return
     }
     const link = waLink(p.contato, texto.trim())
-    if (link) window.open(link, '_blank')
-    else avisar({ msg: 'Esse pedido não tem telefone' })
+    if (!link) { avisar({ msg: 'Esse pedido não tem telefone' }); return }
+    window.open(link, '_blank')
+    // No seu WhatsApp vai uma mensagem por vez: já deixa o código Pix pronto pra mandar em seguida
+    if (extra) { setModelo('pix'); avisar({ msg: 'Agora toque de novo pra mandar só o código Pix' }) }
   }
 
   const proximosDias = Array.from({ length: 8 }, (_, i) => { const d = hoje0(); d.setDate(d.getDate() + i); return d })

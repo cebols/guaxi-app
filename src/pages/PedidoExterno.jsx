@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig, registrarInteresse } from '../services/db'
+import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig, registrarInteresse, getPedidosDoCliente } from '../services/db'
+import { pixCopiaECola } from '../lib/pix'
 
 const fmtR = (v) =>
   Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -89,6 +90,119 @@ function useFontesMarca() {
 const CHAVE_CLIENTE = 'guaxi_cliente'
 export const lerCliente = () => { try { return JSON.parse(localStorage.getItem(CHAVE_CLIENTE) || '{}') } catch { return {} } }
 export const salvarCliente = (d) => { try { localStorage.setItem(CHAVE_CLIENTE, JSON.stringify({ ...lerCliente(), ...d })) } catch {} }
+
+// Pedidos feitos neste aparelho: cada um com um segredo aleatório (só quem tem vê o pedido)
+const CHAVE_PEDIDOS = 'guaxi_pedidos'
+const lerPedidosSalvos = () => {
+  try {
+    const l = JSON.parse(localStorage.getItem(CHAVE_PEDIDOS) || '[]')
+    return Array.isArray(l) ? l.filter(x => x?.chave && Date.now() - (x.em || 0) < 60 * 864e5) : []
+  } catch { return [] }
+}
+const guardarPedido = (id, chave) => { try { localStorage.setItem(CHAVE_PEDIDOS, JSON.stringify([{ id, chave, em: Date.now() }, ...lerPedidosSalvos()].slice(0, 10))) } catch {} }
+const novaChave = () => {
+  try { if (crypto.randomUUID) return crypto.randomUUID() } catch {}
+  const b = new Uint8Array(16); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
+}
+
+// Botão "Copiar Pix copia e cola" (o valor já vai dentro do código)
+function PixCopiar({ codigo, valor }) {
+  const [ok, setOk] = useState(false)
+  if (!codigo) return null
+  async function copiar() {
+    try { await navigator.clipboard.writeText(codigo) } catch {
+      const t = document.createElement('textarea')
+      t.value = codigo; t.setAttribute('readonly', ''); t.style.cssText = 'position:fixed;opacity:0'
+      document.body.appendChild(t); t.select()
+      try { document.execCommand('copy') } catch { /* sem como copiar */ }
+      t.remove()
+    }
+    setOk(true); setTimeout(() => setOk(false), 3000)
+  }
+  return (
+    <button onClick={copiar} style={{
+      width: '100%', minHeight: 46, borderRadius: 12, border: `1.5px solid ${ok ? '#1F9D6B' : C.azul}`, cursor: 'pointer', fontFamily: FONTE,
+      background: ok ? '#E7F7EF' : C.azul, color: ok ? '#136B48' : '#fff', fontWeight: 800, fontSize: 14.5, padding: '8px 12px',
+      transition: 'background .2s, color .2s',
+    }}>
+      {ok ? 'Copiado! Agora cola no app do seu banco ✓' : `Copiar Pix copia e cola · ${fmtR(valor)}`}
+    </button>
+  )
+}
+
+// "Seu pedido" no topo do cardápio: andamento, rastreio e Pix — sem login
+const PASSOS_ENTREGA = ['Recebido', 'Pronto', 'A caminho', 'Entregue']
+const PASSOS_RETIRADA = ['Recebido', 'Pronto', 'Retirado']
+function SeusPedidos({ pedidos, pix, produtos, onPedirDeNovo }) {
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
+  const ativos = pedidos.filter(p => !['Entregue', 'Cancelado'].includes(p.status))
+  const recente = pedidos.find(p => p.status === 'Entregue' && (p.data ? new Date(p.data + 'T12:00:00') >= new Date(hoje.getTime() - 3 * 864e5) : Date.now() - new Date(p.criado).getTime() < 5 * 864e5))
+  if (!ativos.length && !recente) return null
+  const resumo = (p) => (p.itens || []).map(i => `${Number(i.qtd)}× ${i.produto}`).join(', ')
+  const quando = (p) => {
+    if (!p.data) return p.tipo === 'Entrega' ? 'Entrega · a gente combina o dia' : 'Retirada · a gente combina o dia'
+    const per = PERIODOS_PE[p.periodo]
+    return `${p.tipo === 'Entrega' ? 'Entrega' : 'Retirada'} ${diaLongoPE(p.data).toLowerCase()}${per ? ` · ${per.nome.toLowerCase()} (${per.faixa})` : ''}`
+  }
+  const card = { background: '#FFFFFF', borderRadius: 16, border: `1px solid ${C.linha}`, boxShadow: '0 6px 16px rgba(14,60,104,.07)', padding: '14px 14px 12px' }
+  return (
+    <div style={{ padding: '14px 12px 2px', display: 'flex', flexDirection: 'column', gap: 10, maxWidth: 560, margin: '0 auto' }}>
+      {ativos.map(p => {
+        const passos = p.tipo === 'Entrega' ? PASSOS_ENTREGA : PASSOS_RETIRADA
+        const etapa = p.rastreio || ['ON_GOING', 'PICKED_UP'].includes(p.envio) ? 2 : p.status === 'Pronto' ? 1 : 0
+        const falta = Math.max(0, (Number(p.valor) || 0) - (Number(p.sinal) || 0))
+        const codigo = p.pgto !== 'Pago' && falta > 0 && pix ? pixCopiaECola({ chave: pix, valor: falta, txid: p.id }) : ''
+        return (
+          <section key={p.id} aria-label={`Seu pedido ${p.id}`} style={card}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.06em', color: C.tinta2 }}>SEU PEDIDO</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: C.azul, background: C.azulClaro, padding: '3px 9px', borderRadius: 99 }}>{p.id}</span>
+              <b style={{ marginLeft: 'auto', fontSize: 15 }}>{fmtR(p.valor)}</b>
+            </div>
+            <div style={{ fontSize: 13, color: C.tinta2, marginTop: 6, lineHeight: 1.35 }}>{resumo(p)}</div>
+            {/* andamento */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 12 }} aria-label={`Andamento: ${passos[etapa]}`}>
+              {passos.map((nome, i) => (
+                <div key={nome} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  <i style={{ height: 5, borderRadius: 3, background: i <= etapa ? C.azul : '#EADFE3' }} />
+                  <span style={{ fontSize: 11, fontWeight: i === etapa ? 800 : 600, color: i <= etapa ? C.azulEsc : '#9AA3AE' }}>{nome}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: C.tinta, marginTop: 10 }}>
+              {etapa === 2 ? '🛵 Saiu pra entrega!' : etapa === 1 && p.tipo !== 'Entrega' ? '🎉 Pronto pra retirar' : `${p.tipo === 'Entrega' ? '🛵' : '🏠'} ${quando(p)}`}
+            </div>
+            {p.rastreio && (
+              <a href={p.rastreio} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 46, marginTop: 10, borderRadius: 12, background: C.azul, color: '#fff', fontWeight: 800, fontSize: 14.5, textDecoration: 'none' }}>
+                Acompanhar o motorista ›
+              </a>
+            )}
+            {p.pgto === 'Pago' ? (
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1F9D6B', marginTop: 8 }}>Pagamento confirmado ✓</div>
+            ) : falta > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 13, color: C.tinta2, marginBottom: 6 }}>Falta pagar <b style={{ color: C.tinta }}>{fmtR(falta)}</b>{codigo ? ' — é só copiar e colar no app do banco:' : ''}</div>
+                <PixCopiar codigo={codigo} valor={falta} />
+              </div>
+            )}
+          </section>
+        )
+      })}
+      {!ativos.length && recente && (
+        <section aria-label="Seu último pedido" style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, padding: '11px 12px' }}>
+          <span style={{ width: 34, height: 34, borderRadius: '50%', background: '#E7F7EF', color: '#1F9D6B', display: 'grid', placeItems: 'center', fontWeight: 800, flexShrink: 0 }}>✓</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>{recente.id} entregue 💛</div>
+            <div style={{ fontSize: 12.5, color: C.tinta2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{resumo(recente)}</div>
+          </div>
+          {(recente.itens || []).some(i => produtos.some(x => x.nome === i.produto && !x.esgotado)) && (
+            <button onClick={() => onPedirDeNovo(recente)} style={{ flexShrink: 0, minHeight: 40, padding: '0 12px', borderRadius: 99, border: `1.5px solid ${C.azul}`, background: 'transparent', color: C.azul, fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: FONTE }}>Pedir de novo</button>
+          )}
+        </section>
+      )}
+    </div>
+  )
+}
 
 const fmtTel = (v) => {
   const d = v.replace(/\D/g, '').slice(0, 11)
@@ -464,6 +578,7 @@ export default function PedidoExterno() {
   const [secoesOrdem, setSecoesOrdem] = useState([])
   const [secaoAtiva, setSecaoAtiva]   = useState(null)
   const [aberto, setAberto]           = useState(null) // produto com a página aberta
+  const [meusPedidos, setMeusPedidos] = useState([])   // pedidos feitos neste aparelho
   useFontesMarca()
   useRolarAoDigitar()
   // Endereço da última compra: ao ir pro checkout com Entrega, já preenche o CEP e calcula o frete
@@ -477,6 +592,13 @@ export default function PedidoExterno() {
   const deliveryCfgRef = useRef(null)
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // Pedidos deste aparelho (volta pro cardápio → atualiza o andamento)
+  useEffect(() => {
+    if (step !== 'catalog') return
+    const salvos = lerPedidosSalvos()
+    if (salvos.length) getPedidosDoCliente(salvos.map(x => x.chave)).then(setMeusPedidos).catch(() => {})
+  }, [step])
 
   useEffect(() => {
     if (!userId) return
@@ -765,14 +887,16 @@ export default function PedidoExterno() {
     if (form.tipoEntrega === 'Entrega' && freteDias && freteDias.some(d => d.periodos?.length) && !perSel) { alert('Escolha o período da entrega (manhã, tarde ou noite)'); return }
 
     const freteValor = form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0
+    const chave = novaChave()
     const entrega = form.tipoEntrega === 'Entrega'
-      ? { dataEntrega: diaSel, periodo: perSel || null, lat: coordCliente?.lat, lng: coordCliente?.lng, frag: fragCarrinho, freteAssinatura: frete?.viaDias ? frete.assinatura : null }
-      : {}
+      ? { dataEntrega: diaSel, periodo: perSel || null, lat: coordCliente?.lat, lng: coordCliente?.lng, frag: fragCarrinho, freteAssinatura: frete?.viaDias ? frete.assinatura : null, chave }
+      : { chave }
 
     setSubmitting(true)
     try {
       const id = await submitPedidoExterno(userId, { ...form, endereco }, carrinhoItens, freteValor, entrega)
       salvarCliente({ nome: form.nome, telefone: form.telefone, tipoEntrega: form.tipoEntrega, cep: form.cep, numero: form.numero, complemento: form.complemento })
+      if (id) guardarPedido(id, chave)
       setPedidoId(id)
       setStep('confirm')
     } catch (e) {
@@ -818,6 +942,7 @@ export default function PedidoExterno() {
     const linkWa = `https://wa.me/${WHATS_GUAXI}?text=${encodeURIComponent(msgWa)}`
     const CONFETES = ['#185D9C', '#F4A3B5', '#F6C453', '#7FB8E8', '#FFFFFF', '#0E3C68', '#F4A3B5', '#F6C453', '#7FB8E8', '#185D9C', '#FFFFFF', '#F4A3B5']
     const linha = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, fontSize: 14, padding: '7px 0' }
+    const codigoPix = deliveryCfg?.pix ? pixCopiaECola({ chave: deliveryCfg.pix, valor: total + freteValor, txid: pedidoId }) : ''
     return (
       <div style={{ ...shell, background: C.creme }}>
         <style>{RECIBO_CSS}</style>
@@ -881,9 +1006,10 @@ export default function PedidoExterno() {
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <span style={{ fontSize: 18 }}>💸</span>
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <b>Pagamento por Pix</b>
-                  <div style={{ color: C.tinta2, fontSize: 13, marginTop: 1 }}>a chave vai pelo WhatsApp</div>
+                  <div style={{ color: C.tinta2, fontSize: 13, marginTop: 1 }}>{codigoPix ? 'Copie o código e cole no app do seu banco — o valor já vem certinho.' : 'a chave vai pelo WhatsApp'}</div>
+                  {codigoPix && <div style={{ marginTop: 10 }}><PixCopiar codigo={codigoPix} valor={total + freteValor} /></div>}
                 </div>
               </div>
             </div>
@@ -900,7 +1026,7 @@ export default function PedidoExterno() {
               Confirmar no WhatsApp
             </a>
             <div style={{ fontSize: 13, color: C.tinta2, marginTop: 10, lineHeight: 1.45 }}>
-              A <b style={{ color: C.azul }}>GuaxiMina</b> te manda o recibo por lá e tira qualquer dúvida&nbsp;🦝
+              A <b style={{ color: C.azul }}>GuaxiMina</b> te manda o recibo por lá e tira qualquer dúvida&nbsp;🦝{codigoPix ? <><br />Pagou? Manda o comprovante por lá também.</> : null}
             </div>
             <button onClick={() => { setStep('catalog'); setCarrinho({}); window.scrollTo(0, 0) }} style={{
               marginTop: 18, background: 'none', border: 'none', color: C.azul, fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: FONTE, padding: 8,
@@ -1195,6 +1321,13 @@ export default function PedidoExterno() {
         </div>
         <InfoLoja endereco={enderecoLoja} cep={deliveryCfg?.lojaCEP} />
       </div>
+
+      <SeusPedidos pedidos={meusPedidos} pix={deliveryCfg?.pix} produtos={produtos}
+        onPedirDeNovo={(p) => {
+          const novo = {}
+          for (const i of p.itens || []) { const x = produtos.find(y => y.nome === i.produto && !y.esgotado); if (x) novo[x.id] = Math.min((novo[x.id] || 0) + Number(i.qtd || 1), x.estoqueAtual > 0 ? x.estoqueAtual : 99) }
+          setCarrinho(novo)
+        }} />
 
       {/* Seções */}
       {secoes.length > 1 && (
