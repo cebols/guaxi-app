@@ -241,6 +241,48 @@ function ProdutoSheet({ produto, qtdNoCarrinho, onClose, onConfirmar, userId }) 
 }
 
 // ── Field helpers ─────────────────────────────────────────────
+// Enquanto busca o CEP / calcula o frete: motinho indo até a casa + cards "fantasma"
+const ANIM_CSS = `
+  @keyframes gx-moto { 0% { left: -8%; opacity: 0 } 12% { opacity: 1 } 80% { left: 78%; opacity: 1 } 100% { left: 84%; opacity: 0 } }
+  @keyframes gx-estrada { to { background-position: -24px 0 } }
+  @keyframes gx-brilho { 0% { background-position: 100% 0 } 100% { background-position: -100% 0 } }
+  @keyframes gx-gira { to { transform: rotate(360deg) } }
+  @keyframes gx-surge { from { opacity: 0; transform: translateY(3px) } to { opacity: 1; transform: none } }
+  @media (prefers-reduced-motion: reduce) { .gx-anim { animation: none !important } }
+`
+function CalculandoFrete({ etapa }) {
+  const msgs = etapa === 'cep'
+    ? ['Buscando seu endereço…']
+    : ['Localizando seu endereço…', 'Calculando a rota até você…', 'Vendo os melhores dias de entrega…']
+  const [i, setI] = useState(0)
+  useEffect(() => {
+    setI(0)
+    if (msgs.length < 2) return
+    const t = setInterval(() => setI(x => Math.min(x + 1, msgs.length - 1)), 1600)
+    return () => clearInterval(t)
+  }, [etapa]) // eslint-disable-line react-hooks/exhaustive-deps
+  const fantasma = {
+    flex: '1 1 30%', minWidth: 100, height: 74, borderRadius: 10,
+    background: `linear-gradient(90deg, #F7EEF0 25%, #FFFFFF 50%, #F7EEF0 75%)`, backgroundSize: '200% 100%',
+    animation: 'gx-brilho 1.3s linear infinite',
+  }
+  return (
+    <div role="status" aria-live="polite" style={{ marginBottom: 14, padding: '14px 14px 12px', borderRadius: 12, background: '#FFFFFF', border: `1px solid ${C.linha}` }}>
+      <div key={i} style={{ fontSize: 13.5, fontWeight: 700, color: C.azulEsc, animation: 'gx-surge .3s ease' }} className="gx-anim">{msgs[i]}</div>
+      <div style={{ position: 'relative', height: 30, margin: '6px 0 4px', overflow: 'hidden' }}>
+        <div className="gx-anim" style={{ position: 'absolute', left: 0, right: 26, bottom: 5, height: 2, opacity: .35, backgroundImage: `linear-gradient(to right, ${C.azul} 50%, transparent 50%)`, backgroundSize: '24px 2px', animation: 'gx-estrada .6s linear infinite' }} />
+        <span className="gx-anim" style={{ position: 'absolute', bottom: 5, fontSize: 22, lineHeight: 1, transform: 'scaleX(-1)', animation: 'gx-moto 2.4s ease-in-out infinite' }}>🛵</span>
+        <span style={{ position: 'absolute', right: 0, bottom: 4, fontSize: 19, lineHeight: 1 }}>🏠</span>
+      </div>
+      {etapa !== 'cep' && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+          {[0, 1, 2].map(k => <div key={k} className="gx-anim" style={{ ...fantasma, animationDelay: `${k * 0.15}s` }} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Field({ label, children }) {
   return (
     <div style={{ marginBottom: 14 }}>
@@ -279,7 +321,7 @@ export default function PedidoExterno() {
   const [form, setForm] = useState(() => {
     const c = lerCliente()
     return {
-      nome: c.nome || '', telefone: c.telefone || '', tipoEntrega: c.tipoEntrega || 'Retirada',
+      nome: c.nome || '', telefone: c.telefone || '', tipoEntrega: 'Entrega',
       cep: '', ruaBairro: '', cidade: '', numero: c.numero || '', complemento: c.complemento || '', obs: '',
       cepSalvo: c.cep || '',
     }
@@ -372,6 +414,63 @@ export default function PedidoExterno() {
     if (semSecao.length > 0) groups.push({ secao: null, items: semSecao })
     return groups
   }, [produtos, secoesOrdem])
+
+  // Barra de seções: marca a seção que está na tela enquanto rola, mantém o chip
+  // ativo à vista e mostra que dá pra arrastar pro lado quando não cabe tudo.
+  const barraRef = useRef(null)
+  const travaSpy = useRef(0)       // depois de tocar num chip, espera a rolagem suave
+  const jaMostrouDica = useRef(false)
+  const [setas, setSetas] = useState({ esq: false, dir: false })
+  const nomesSecoes = produtosPorSecao.filter(g => g.secao).map(g => g.secao)
+  const chaveSecoes = nomesSecoes.join('|')
+  const atualizarSetas = () => {
+    const b = barraRef.current
+    if (!b) return
+    const esq = b.scrollLeft > 4, dir = b.scrollLeft + b.clientWidth < b.scrollWidth - 4
+    setSetas(s => (s.esq === esq && s.dir === dir ? s : { esq, dir }))
+  }
+  useEffect(() => {
+    if (step !== 'catalog' || nomesSecoes.length < 2) return
+    let raf = 0
+    const medir = () => {
+      raf = 0
+      if (Date.now() < travaSpy.current) return
+      const topoBarra = (barraRef.current?.parentElement?.offsetHeight || 54) + 24
+      const noFim = window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4
+      let atual = nomesSecoes[0]
+      if (noFim) atual = nomesSecoes[nomesSecoes.length - 1]
+      else for (const s of nomesSecoes) {
+        const el = document.getElementById(`secao-${s}`)
+        if (el && el.getBoundingClientRect().top <= topoBarra) atual = s
+      }
+      setSecaoAtiva(a => (a === atual ? a : atual))
+    }
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(medir) }
+    const onResize = () => { onScroll(); atualizarSetas() }
+    medir(); atualizarSetas()
+    // Dica: se as categorias não cabem, dá uma "espiadinha" pro lado uma vez
+    const dica = setTimeout(() => {
+      const b = barraRef.current
+      if (!b || jaMostrouDica.current || b.scrollWidth <= b.clientWidth + 4 || b.scrollLeft > 0) return
+      jaMostrouDica.current = true
+      b.scrollTo({ left: 64, behavior: 'smooth' })
+      setTimeout(() => b.scrollTo({ left: 0, behavior: 'smooth' }), 700)
+    }, 900)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    window.addEventListener('resize', onResize)
+    return () => {
+      clearTimeout(dica)
+      window.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onResize)
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [step, chaveSecoes]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const b = barraRef.current
+    if (!b || !secaoAtiva) return
+    const chip = [...b.querySelectorAll('[data-secao]')].find(el => el.dataset.secao === secaoAtiva)
+    if (!chip) return
+    b.scrollTo({ left: Math.max(0, chip.offsetLeft - (b.clientWidth - chip.offsetWidth) / 2), behavior: 'smooth' })
+  }, [secaoAtiva])
 
   const addItem = (prod) => {
     if (prod.esgotado) return
@@ -621,6 +720,7 @@ export default function PedidoExterno() {
   if (step === 'checkout') {
     return (
       <div style={shell}>
+        <style>{ANIM_CSS}</style>
         {/* Header */}
         <div style={{ position: 'sticky', top: 0, background: '#FFFFFF', borderBottom: '1px solid #EBCDD5', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, zIndex: 10 }}>
           <button onClick={() => setStep('catalog')} style={{ background: 'none', border: 'none', color: '#5B6878', fontSize: 22, cursor: 'pointer', padding: 0, lineHeight: 1 }}>←</button>
@@ -674,7 +774,7 @@ export default function PedidoExterno() {
           {/* Entrega/Retirada toggle */}
           <Field label="Tipo de entrega">
             <div style={{ display: 'flex', gap: 8 }}>
-              {['Retirada', 'Entrega'].map(opt => (
+              {['Entrega', 'Retirada'].map(opt => (
                 <button
                   key={opt}
                   onClick={() => setF('tipoEntrega', opt)}
@@ -705,7 +805,7 @@ export default function PedidoExterno() {
                     style={{ paddingRight: 40 }}
                   />
                   {loadingCep && (
-                    <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', color: '#5B6878', fontSize: 13 }}>...</div>
+                    <span aria-hidden="true" className="gx-anim" style={{ position: 'absolute', right: 14, top: '50%', width: 16, height: 16, marginTop: -8, borderRadius: '50%', border: `2px solid ${C.azulClaro}`, borderTopColor: C.azul, animation: 'gx-gira .7s linear infinite' }} />
                   )}
                 </div>
                 {cepError && <div style={{ fontSize: 12, color: '#c0392b', marginTop: 4 }}>{cepError}</div>}
@@ -719,17 +819,15 @@ export default function PedidoExterno() {
               )}
 
               {/* Frete */}
-              {calculandoFrete && (
-                <div style={{ fontSize: 13, color: '#5B6878', marginBottom: 12 }}>Calculando frete...</div>
-              )}
-              {freteError && !calculandoFrete && (
+              {(calculandoFrete || loadingCep) && <CalculandoFrete etapa={loadingCep ? 'cep' : 'frete'} />}
+              {freteError && !calculandoFrete && !loadingCep && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                   <span style={{ fontSize: 12, color: '#c0392b' }}>{freteError}</span>
                   <button onClick={() => calcularFrete(form.cep)} style={{ fontSize: 12, color: '#185D9C', background: 'none', border: 'none', cursor: 'pointer' }}>🔄 Tentar novamente</button>
                 </div>
               )}
               {/* Cards de frete por dia — escolha o dia, mais cheio = mais barato */}
-              {freteDias && !calculandoFrete && (() => {
+              {freteDias && !calculandoFrete && !loadingCep && (() => {
                 const precos = freteDias.map(d => d.preco)
                 const minP = Math.min(...precos), maxP = Math.max(...precos)
                 const temVariacao = minP < maxP
@@ -778,7 +876,7 @@ export default function PedidoExterno() {
                 </div>
                 )
               })()}
-              {frete !== null && !frete.viaDias && !calculandoFrete && (
+              {frete !== null && !frete.viaDias && !calculandoFrete && !loadingCep && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', background: '#FFFFFF', borderRadius: 10, padding: '10px 14px', marginBottom: 14, fontSize: 13 }}>
                   <div>
                     <div style={{ fontWeight: 600, color: '#1D2B3A' }}>Frete ({frete.distKm.toFixed(1)} km)</div>
@@ -842,6 +940,7 @@ export default function PedidoExterno() {
   const secoes = produtosPorSecao.filter(g => g.secao).map(g => g.secao)
   const scrollToSecao = (secao) => {
     const el = document.getElementById(`secao-${secao}`)
+    travaSpy.current = Date.now() + 900
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
     setSecaoAtiva(secao)
   }
@@ -866,13 +965,32 @@ export default function PedidoExterno() {
 
       {/* Seções */}
       {secoes.length > 1 && (
-        <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.creme, borderBottom: `1px solid ${C.linha}`, overflowX: 'auto', display: 'flex', gap: 6, padding: '10px 14px', scrollbarWidth: 'none' }}>
-          {secoes.map(sec => (
-            <button key={sec} onClick={() => scrollToSecao(sec)} style={{
-              flexShrink: 0, padding: '6px 13px', borderRadius: 99, fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: FONTE,
-              background: secaoAtiva === sec ? C.azul : 'transparent', color: secaoAtiva === sec ? '#fff' : C.tinta2,
-            }}>{sec}</button>
-          ))}
+        <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.creme, borderBottom: `1px solid ${C.linha}` }}>
+          <nav ref={barraRef} onScroll={atualizarSetas} aria-label="Categorias" style={{ position: 'relative', overflowX: 'auto', display: 'flex', gap: 6, padding: '9px 14px', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+            {secoes.map(sec => {
+              const on = secaoAtiva === sec
+              return (
+                <button key={sec} data-secao={sec} aria-current={on ? 'true' : undefined} onClick={() => scrollToSecao(sec)} style={{
+                  flexShrink: 0, minHeight: 36, padding: '0 14px', borderRadius: 99, fontSize: 13.5, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: FONTE,
+                  border: `1px solid ${on ? C.azul : C.linha}`, background: on ? C.azul : '#FFFFFF', color: on ? '#fff' : C.tinta2,
+                  transition: 'background .2s, color .2s, border-color .2s',
+                }}>{sec}</button>
+              )
+            })}
+            <span aria-hidden="true" style={{ flexShrink: 0, width: setas.dir ? 26 : 0 }} />
+          </nav>
+          {setas.esq && (
+            <div aria-hidden="true" style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 30, pointerEvents: 'none', background: `linear-gradient(to right, ${C.creme}, rgba(255,249,247,0))` }} />
+          )}
+          {setas.dir && (
+            <button aria-label="Ver mais categorias" onClick={() => { const b = barraRef.current; if (b) b.scrollBy({ left: b.clientWidth * 0.6, behavior: 'smooth' }) }} style={{
+              position: 'absolute', right: 0, top: 0, bottom: 0, width: 52, border: 'none', cursor: 'pointer', padding: '0 10px 0 0',
+              display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+              background: `linear-gradient(to left, ${C.creme} 50%, rgba(255,249,247,0))`,
+            }}>
+              <span style={{ width: 26, height: 26, borderRadius: '50%', background: '#FFFFFF', border: `1px solid ${C.linha}`, boxShadow: '0 2px 6px rgba(14,60,104,.12)', color: C.azul, display: 'grid', placeItems: 'center', fontSize: 17, fontWeight: 700, lineHeight: 1 }}>›</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -881,7 +999,7 @@ export default function PedidoExterno() {
       ) : (
         <div style={{ padding: '4px 12px 120px' }}>
           {produtosPorSecao.map(({ secao, items }) => (
-            <div key={secao || '__sem_secao'} id={secao ? `secao-${secao}` : undefined} style={{ scrollMarginTop: 56 }}>
+            <div key={secao || '__sem_secao'} id={secao ? `secao-${secao}` : undefined} style={{ scrollMarginTop: 58 }}>
               {secao && <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 22, color: C.azulEsc, padding: '14px 4px 8px' }}>{secao}</div>}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginBottom: 8 }}>
                 {[...items].sort((x, y) => ((x.esgotado ? 1 : 0) - (y.esgotado ? 1 : 0)) || ((x.ordem ?? 1e9) - (y.ordem ?? 1e9))).map(prod => (
