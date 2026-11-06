@@ -27,6 +27,7 @@ const STATUS = {
 const EM_ROTA = ['ASSIGNING_DRIVER', 'ON_GOING', 'PICKED_UP']
 const CANAL = { FormExterno: '🌐 cardápio', WhatsApp: '💬 WhatsApp', iFood: 'iFood', '99Food': '99Food', Presencial: 'balcão' }
 
+const PERIODO_NOME = { manha: 'manhã · 9–12h', tarde: 'tarde · 12–18h', noite: 'noite · 18–22h' }
 function diaLabel(s) {
   if (!s) return '—'
   const d = new Date(s + 'T12:00:00')
@@ -84,7 +85,7 @@ function Parada({ n, p, envio, contato, detalhe, onConversa, onPedido, onAvisar,
   )
 }
 
-function EnvioCard({ dia, status, veiculo, peds, envio, contatos, aberto, onToggle, acoes, onConversa, onPedido, onAvisar, avisando }) {
+function EnvioCard({ periodo, dia, status, veiculo, peds, envio, contatos, aberto, onToggle, acoes, onConversa, onPedido, onAvisar, avisando }) {
   const v = VEIC[veiculo]
   const custo = Number(envio?.precoTotal) || 0
   const frete = fTotal(peds)
@@ -93,7 +94,7 @@ function EnvioCard({ dia, status, veiculo, peds, envio, contatos, aberto, onTogg
     <div style={{ background: '#1a1a1a', border: `1px solid ${aberto ? '#3a3a3a' : '#2a2a2a'}`, borderRadius: 14, marginBottom: 12, overflow: 'hidden' }}>
       <div onClick={onToggle} style={{ padding: '12px 13px 10px', cursor: 'pointer' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <strong style={{ fontSize: 16, flex: 1 }}>{diaLabel(dia)}</strong>
+          <strong style={{ fontSize: 16, flex: 1 }}>{diaLabel(dia)}{periodo !== undefined && <span style={{ fontWeight: 600, fontSize: 13, color: periodo ? '#b8b8b8' : '#f5b544' }}> · {PERIODO_NOME[periodo] || 'período a combinar'}</span>}</strong>
           <StatusPill status={status} />
         </div>
         <div style={{ fontSize: 12, color: '#8a8a8a', marginTop: 4 }}>
@@ -155,7 +156,7 @@ export default function Envios() {
   }
 
   const porDia = {}
-  for (const p of (pendentes || [])) (porDia[p.dataEntrega] ||= []).push(p)
+  for (const p of (pendentes || [])) (porDia[`${p.dataEntrega}|${p.periodo || ''}`] ||= []).push(p)
   const fila   = (envios || []).filter(e => e.status === 'FILA')
   const emRota = (envios || []).filter(e => EM_ROTA.includes(e.status))
   // Finalizados: entregues, ou envios que falharam mas ainda têm pedidos pra reabrir.
@@ -219,7 +220,7 @@ export default function Envios() {
         <button onClick={() => run('gerar', gerarEnvios, (ids) => ids.length ? `${ids.length} envio(s) criado(s)` : 'Nada para agrupar')}
           disabled={busy === 'gerar' || !(pendentes || []).length}
           style={{ ...btn('#22b886'), opacity: (pendentes || []).length ? 1 : 0.5 }}>
-          {busy === 'gerar' ? 'Agrupando…' : '⚡ Gerar envios do dia'}
+          {busy === 'gerar' ? 'Agrupando…' : '⚡ Gerar envios'}
         </button>
       </div>
       {(l1 || l2) && <div style={{ color: '#666' }}>Carregando…</div>}
@@ -230,9 +231,10 @@ export default function Envios() {
         <div style={col}>
           <div style={colTitle}>A organizar · {(pendentes || []).length}</div>
           {Object.keys(porDia).length === 0 && <div style={{ color: '#555', fontSize: 13 }}>Sem pedidos soltos.</div>}
-          {Object.entries(porDia).map(([dia, peds]) => (
-            <EnvioCard key={dia} dia={dia} status="ORGANIZAR" peds={peds} aberto={open('d:' + dia)} onToggle={() => toggle('d:' + dia)} {...comum} />
-          ))}
+          {Object.entries(porDia).sort(([a], [b]) => a.localeCompare(b)).map(([chave, peds]) => {
+            const [dia, periodo] = chave.split('|')
+            return <EnvioCard key={chave} dia={dia} periodo={periodo || null} status="ORGANIZAR" peds={peds} aberto={open('d:' + chave)} onToggle={() => toggle('d:' + chave)} {...comum} />
+          })}
         </div>
 
         {/* NA FILA */}
@@ -240,7 +242,7 @@ export default function Envios() {
           <div style={colTitle}>Na fila · {fila.length}</div>
           {fila.length === 0 && <div style={{ color: '#555', fontSize: 13 }}>Vazio.</div>}
           {fila.map(e => (
-            <EnvioCard key={e.id} dia={e.dataEntrega} status={e.status} veiculo={e.veiculo} peds={e.pedidos} envio={e}
+            <EnvioCard key={e.id} dia={e.dataEntrega} periodo={e.periodo} status={e.status} veiculo={e.veiculo} peds={e.pedidos} envio={e}
               aberto={open('e:' + e.id)} onToggle={() => toggle('e:' + e.id)} {...comum}
               acoes={<>
                 <button onClick={() => abrirDespacho(e)} style={btn('#22b886')}>🚀 Despachar</button>
@@ -254,7 +256,7 @@ export default function Envios() {
           <div style={colTitle}>Em rota · {emRota.length}</div>
           {emRota.length === 0 && <div style={{ color: '#555', fontSize: 13 }}>Vazio.</div>}
           {emRota.map(e => (
-            <EnvioCard key={e.id} dia={e.dataEntrega} status={e.status} veiculo={e.veiculo} peds={e.pedidos} envio={e}
+            <EnvioCard key={e.id} dia={e.dataEntrega} periodo={e.periodo} status={e.status} veiculo={e.veiculo} peds={e.pedidos} envio={e}
               aberto={open('e:' + e.id)} onToggle={() => toggle('e:' + e.id)} {...comum}
               acoes={<>
                 {e.shareLink && <button onClick={() => setMapaAberto(mapaAberto === e.id ? null : e.id)} style={btn(mapaAberto === e.id ? '#22b886' : '#1f3b33', mapaAberto === e.id ? '#000' : '#9ff0cf')}>🗺️ {mapaAberto === e.id ? 'Fechar mapa' : 'Mapa'}</button>}
@@ -269,7 +271,7 @@ export default function Envios() {
           <div style={colTitle}>Finalizados · {finais.length}</div>
           {finais.length === 0 && <div style={{ color: '#555', fontSize: 13 }}>Vazio.</div>}
           {finais.map(e => (
-            <EnvioCard key={e.id} dia={e.dataEntrega} status={e.status} veiculo={e.veiculo} peds={e.pedidos} envio={e}
+            <EnvioCard key={e.id} dia={e.dataEntrega} periodo={e.periodo} status={e.status} veiculo={e.veiculo} peds={e.pedidos} envio={e}
               aberto={open('e:' + e.id)} onToggle={() => toggle('e:' + e.id)} {...comum}
               acoes={e.pedidos.length > 0 && e.status !== 'COMPLETED' && (
                 <button onClick={() => run('r' + e.id, () => desfazerEnvio(e.id), 'Pedidos devolvidos para A organizar')} disabled={busy === 'r' + e.id} style={btn('#262626', '#ccc')}>{busy === 'r' + e.id ? '…' : '↩︎ Reabrir pedidos'}</button>
@@ -284,7 +286,7 @@ export default function Envios() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', flexWrap: 'wrap', borderBottom: '1px solid #262626' }}>
             <span style={{ fontSize: 18 }}>🗺️</span>
             <div style={{ flex: 1, minWidth: 160 }}>
-              <div style={{ fontWeight: 800, fontSize: 14.5 }}>Rastreio · {diaLabel(mapEnvio.dataEntrega)}</div>
+              <div style={{ fontWeight: 800, fontSize: 14.5 }}>Rastreio · {diaLabel(mapEnvio.dataEntrega)}{mapEnvio.periodo ? ` · ${PERIODO_NOME[mapEnvio.periodo]}` : ''}</div>
               <div style={{ fontSize: 12, color: '#8a8a8a', marginTop: 2 }}>
                 {mapEnvio.pedidos.map(p => p.cliente.split(' ')[0]).join(', ')}{mapEnvio.driverNome ? ` · 🧑‍✈️ ${mapEnvio.driverNome}` : ''}
               </div>
@@ -301,7 +303,7 @@ export default function Envios() {
       {disp && (
         <div onClick={() => !disp.confirming && setDisp(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
           <div onClick={ev => ev.stopPropagation()} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 16, padding: 18, width: 420, maxWidth: '100%' }}>
-            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 2 }}>Despachar · {diaLabel(disp.envio.dataEntrega)}</div>
+            <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 2 }}>Despachar · {diaLabel(disp.envio.dataEntrega)}{disp.envio.periodo ? ` · ${PERIODO_NOME[disp.envio.periodo]}` : ''}</div>
             <div style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>{disp.envio.pedidos.length} parada(s){disp.sandbox ? ' · sandbox' : ''}</div>
 
             {disp.loading && <div style={{ color: '#888', padding: '20px 0', textAlign: 'center' }}>Cotando categorias…</div>}

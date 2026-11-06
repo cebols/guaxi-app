@@ -283,6 +283,23 @@ function CalculandoFrete({ etapa }) {
   )
 }
 
+// Períodos de entrega (iguais aos do app)
+const PERIODOS_PE = { manha: { nome: 'Manhã', faixa: '9–12h' }, tarde: { nome: 'Tarde', faixa: '12–18h' }, noite: { nome: 'Noite', faixa: '18–22h' } }
+const SEM_LONGO_PE = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+function diaLongoPE(ymd) {
+  const d = new Date(ymd + 'T12:00:00')
+  return `${SEM_LONGO_PE[d.getDay()]}, ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+// A rota que já sai (dia + período com outras entregas e frete mais barato)
+function rotaEmDestaque(dias) {
+  let melhor = null
+  for (const dia of dias || []) for (const per of dia.periodos || []) {
+    if (!per.compartilhado) continue
+    if (!melhor || per.preco < melhor.per.preco || (per.preco === melhor.per.preco && per.pedidos > melhor.per.pedidos)) melhor = { dia, per }
+  }
+  return melhor
+}
+
 // Número do WhatsApp da Guaxí (o mesmo do agente GuaxiMina)
 const WHATS_GUAXI = '5521998718459'
 const RECIBO_CSS = `
@@ -352,6 +369,8 @@ export default function PedidoExterno() {
   const [calculandoFrete, setCalcFrete] = useState(false)
   const [freteDias, setFreteDias]   = useState(null)   // cards de frete por dia
   const [diaSel, setDiaSel]         = useState(null)   // data escolhida (YYYY-MM-DD)
+  const [perSel, setPerSel]         = useState(null)   // manha | tarde | noite
+  const [precoSolo, setPrecoSolo]   = useState(null)   // frete de uma entrega sozinha (pra mostrar a economia)
   const [coordCliente, setCoordCliente] = useState(null)
   const [deliveryCfg, setDeliveryCfg] = useState(null)
   const [secoesOrdem, setSecoesOrdem] = useState([])
@@ -528,7 +547,7 @@ export default function PedidoExterno() {
   async function calcularFreteDias(cepCliente) {
     const clean = cepCliente.replace(/\D/g, '')
     if (clean.length !== 8 || carrinhoItens.length === 0) return false
-    setCalcFrete(true); setFrete(null); setFreteError(''); setFreteDias(null); setDiaSel(null)
+    setCalcFrete(true); setFrete(null); setFreteError(''); setFreteDias(null); setDiaSel(null); setPerSel(null)
     try {
       const c = await geocodeCep(clean)
       // 5 casas (~1 m): o mesmo valor vai pro cálculo do frete e pro pedido (assinatura)
@@ -547,9 +566,17 @@ export default function PedidoExterno() {
         return false
       }
       setFreteDias(j.dias)
-      const best = [...j.dias].sort((a, b) => a.preco - b.preco)[0]
-      setDiaSel(best.date)
-      setFrete({ valor: best.preco, dia: best.date, viaDias: true, assinatura: best.assinatura || null })
+      setPrecoSolo(typeof j.precoSolo === 'number' ? j.precoSolo : null)
+      // Já começa na rota que já existe (mais barata); sem rota, no dia mais barato e o cliente escolhe o período
+      const dest = rotaEmDestaque(j.dias)
+      if (dest) {
+        setDiaSel(dest.dia.date); setPerSel(dest.per.periodo)
+        setFrete({ valor: dest.per.preco, dia: dest.dia.date, periodo: dest.per.periodo, viaDias: true, assinatura: dest.per.assinatura || null })
+      } else {
+        const best = [...j.dias].sort((a, b) => a.preco - b.preco)[0]
+        setDiaSel(best.date); setPerSel(null)
+        setFrete({ valor: best.preco, dia: best.date, periodo: null, viaDias: true, assinatura: null })
+      }
       return true
     } catch {
       return false
@@ -558,9 +585,18 @@ export default function PedidoExterno() {
     }
   }
 
-  const escolherDia = (card) => {
+  const escolherPeriodo = (card, periodo) => {
+    const per = (card.periodos || []).find(x => x.periodo === periodo)
     setDiaSel(card.date)
-    setFrete({ valor: card.preco, dia: card.date, viaDias: true, assinatura: card.assinatura || null })
+    if (!per) { setPerSel(null); setFrete({ valor: card.preco, dia: card.date, periodo: null, viaDias: true, assinatura: card.assinatura || null }); return }
+    setPerSel(periodo)
+    setFrete({ valor: per.preco, dia: card.date, periodo, viaDias: true, assinatura: per.assinatura || null })
+  }
+  const escolherDia = (card) => {
+    // mantém o período escolhido se o dia novo também tem; senão o cliente escolhe de novo
+    if (perSel && (card.periodos || []).some(x => x.periodo === perSel)) { escolherPeriodo(card, perSel); return }
+    setDiaSel(card.date); setPerSel(null)
+    setFrete({ valor: card.preco, dia: card.date, periodo: null, viaDias: true, assinatura: (card.periodos || []).length ? null : (card.assinatura || null) })
   }
 
   async function geocodeCep(cep) {
@@ -637,10 +673,11 @@ export default function PedidoExterno() {
       : ''
 
     if (form.tipoEntrega === 'Entrega' && freteDias && !diaSel) { alert('Escolha o dia de entrega'); return }
+    if (form.tipoEntrega === 'Entrega' && freteDias && freteDias.some(d => d.periodos?.length) && !perSel) { alert('Escolha o período da entrega (manhã, tarde ou noite)'); return }
 
     const freteValor = form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0
     const entrega = form.tipoEntrega === 'Entrega'
-      ? { dataEntrega: diaSel, lat: coordCliente?.lat, lng: coordCliente?.lng, frag: fragCarrinho, freteAssinatura: frete?.viaDias ? frete.assinatura : null }
+      ? { dataEntrega: diaSel, periodo: perSel || null, lat: coordCliente?.lat, lng: coordCliente?.lng, frag: fragCarrinho, freteAssinatura: frete?.viaDias ? frete.assinatura : null }
       : {}
 
     setSubmitting(true)
@@ -747,7 +784,7 @@ export default function PedidoExterno() {
               <div style={{ display: 'flex', gap: 10 }}>
                 <span style={{ fontSize: 18 }}>{ehEntrega ? '🛵' : '🏠'}</span>
                 <div>
-                  <b>{ehEntrega ? (dia ? `Entrega ${diaLabel(dia)}` : 'Entrega') : 'Retirada'}</b>
+                  <b>{ehEntrega ? (dia ? `Entrega ${diaLabel(dia)}${perSel ? ` · ${PERIODOS_PE[perSel].nome.toLowerCase()} (${PERIODOS_PE[perSel].faixa})` : ''}` : 'Entrega') : 'Retirada'}</b>
                   <div style={{ color: C.tinta2, fontSize: 13, marginTop: 1 }}>
                     {ehEntrega ? (enderecoTxt || 'no endereço informado') : 'a gente combina o dia e o horário pelo WhatsApp'}
                   </div>
@@ -895,52 +932,88 @@ export default function PedidoExterno() {
                   <button onClick={() => calcularFrete(form.cep)} style={{ fontSize: 12, color: '#185D9C', background: 'none', border: 'none', cursor: 'pointer' }}>🔄 Tentar novamente</button>
                 </div>
               )}
-              {/* Cards de frete por dia — escolha o dia, mais cheio = mais barato */}
+              {/* Dia e período: destaque pra rota que já sai (mais barata), depois os outros dias */}
               {freteDias && !calculandoFrete && !loadingCep && (() => {
-                const precos = freteDias.map(d => d.preco)
-                const minP = Math.min(...precos), maxP = Math.max(...precos)
-                const temVariacao = minP < maxP
-                // melhor dia = mais barato; empate → o que já tem mais pedidos
-                const melhor = temVariacao
-                  ? [...freteDias].filter(d => d.preco === minP).sort((a, b) => b.pedidos - a.pedidos)[0]
-                  : null
+                const dest = rotaEmDestaque(freteDias)
+                const diaAtual = freteDias.find(d => d.date === diaSel)
+                const destSel = dest && diaSel === dest.dia.date && perSel === dest.per.periodo
+                const temPeriodos = freteDias.some(d => d.periodos?.length)
+                const fmtP = v => (v === 0 ? 'Grátis' : fmtR(v))
                 return (
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, color: '#5B6878', marginBottom: 10 }}>Escolha o dia da entrega:</div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 24, color: C.azulEsc, lineHeight: 1.1 }}>Quando você quer receber?</div>
+                  {dest && (
+                    <button type="button" onClick={() => escolherPeriodo(dest.dia, dest.per.periodo)} style={{
+                      textAlign: 'left', padding: 16, borderRadius: 16, cursor: 'pointer', fontFamily: FONTE, color: C.tinta,
+                      border: `2px solid ${destSel ? C.azul : '#B9CDE2'}`, background: '#FFFFFF',
+                      boxShadow: destSel ? '0 0 0 4px rgba(24,93,156,.12), 0 8px 20px rgba(24,93,156,.16)' : '0 4px 12px rgba(24,93,156,.08)',
+                      display: 'flex', flexDirection: 'column', gap: 6,
+                    }}>
+                      <span style={{ alignSelf: 'flex-start', fontSize: 11, fontWeight: 800, letterSpacing: '.04em', color: '#FFFFFF', background: C.azul, padding: '3px 9px', borderRadius: 99 }}>JÁ TEM ENTREGA SAINDO</span>
+                      <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 18, fontWeight: 800, flex: 1, minWidth: 170 }}>{diaLongoPE(dest.dia.date)} · {PERIODOS_PE[dest.per.periodo].nome.toLowerCase()}</span>
+                        {precoSolo != null && precoSolo > dest.per.preco && <span style={{ fontSize: 13, color: C.tinta2, textDecoration: 'line-through' }}>{fmtR(precoSolo)}</span>}
+                        <span style={{ fontSize: 20, fontWeight: 800, color: C.azul }}>{fmtP(dest.per.preco)}</span>
+                      </span>
+                      <span style={{ fontSize: 13.5, color: C.tinta2, lineHeight: 1.4 }}>
+                        Seu pedido vai junto com {dest.per.pedidos === 1 ? 'outra entrega' : `outras ${dest.per.pedidos} entregas`} da região. Prefere receber nesse dia e pagar menos?
+                      </span>
+                      {destSel && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: C.azul }}>
+                          <span style={{ width: 18, height: 18, borderRadius: '50%', background: C.azul, display: 'grid', placeItems: 'center' }}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12l5 5 9-10" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                          </span>
+                          Escolhido · entre {PERIODOS_PE[dest.per.periodo].faixa.replace('–', 'h e ')}
+                        </span>
+                      )}
+                    </button>
+                  )}
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: C.tinta2, paddingTop: dest ? 4 : 0 }}>{dest ? 'Ou escolha outro dia' : 'Escolha o dia'}</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
                     {freteDias.map(card => {
-                      const sel = diaSel === card.date
-                      const isMelhor = melhor && card.date === melhor.date
-                      const isMin = temVariacao && card.preco === minP && !isMelhor
+                      const sel = diaSel === card.date && !destSel
+                      const precos = (card.periodos || []).map(x => x.preco)
+                      const varia = precos.length > 1 && Math.min(...precos) < Math.max(...precos)
                       return (
-                        <div key={card.date} onClick={() => escolherDia(card)} style={{
-                          flex: '1 1 30%', minWidth: 100, cursor: 'pointer',
-                          background: isMelhor ? 'rgba(24,93,156,0.12)' : (sel ? 'rgba(24,93,156,0.08)' : '#FFFFFF'),
-                          border: `${isMelhor ? 2 : 1.5}px solid ${isMelhor ? '#185D9C' : (sel ? '#185D9C' : '#EBCDD5')}`,
-                          borderRadius: 10, padding: '10px 12px', position: 'relative',
-                          transform: isMelhor ? 'scale(1.03)' : 'none',
-                          boxShadow: isMelhor ? '0 0 0 3px rgba(24,93,156,0.15), 0 4px 14px rgba(24,93,156,0.2)' : 'none',
-                          transition: 'all .15s ease',
+                        <button type="button" key={card.date} onClick={() => escolherDia(card)} style={{
+                          padding: '10px 6px', borderRadius: 12, cursor: 'pointer', fontFamily: FONTE, color: C.tinta,
+                          border: `${sel ? 2 : 1.5}px solid ${sel ? C.azul : C.linha}`, background: sel ? 'rgba(24,93,156,.06)' : '#FFFFFF',
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minHeight: 72,
                         }}>
-                          {isMelhor && (
-                            <div style={{ position: 'absolute', top: -9, right: 8, background: '#185D9C', color: '#fff', fontSize: 9.5, fontWeight: 800, padding: '2px 7px', borderRadius: 7 }}>⭐ melhor dia</div>
-                          )}
-                          {isMin && (
-                            <div style={{ position: 'absolute', top: -8, right: 8, background: '#E3EDF7', color: '#185D9C', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6 }}>+ barato</div>
-                          )}
-                          <div style={{ fontWeight: 700, fontSize: 13, color: '#1D2B3A' }}>{diaLabel(card.date)}</div>
-                          <div style={{ fontSize: 11, color: isMelhor ? '#185D9C' : '#777', margin: '2px 0 6px', fontWeight: isMelhor ? 600 : 400 }}>
-                            {card.pedidos > 0 ? `junte-se a ${card.pedidos} pedido${card.pedidos > 1 ? 's' : ''}` : 'primeiro do dia'}
-                          </div>
-                          <div style={{ fontWeight: 700, fontSize: isMelhor ? 17 : 15, color: card.preco === 0 ? '#185D9C' : (isMelhor || sel ? '#185D9C' : '#1D2B3A') }}>
-                            {card.preco === 0 ? 'Grátis' : fmtR(card.preco)}
-                          </div>
-                        </div>
+                          <span style={{ fontSize: 13.5, fontWeight: 700 }}>{diaLabel(card.date)}</span>
+                          <span style={{ fontSize: 11.5, color: C.tinta2 }}>{card.pedidos > 0 ? `${card.pedidos} ${card.pedidos === 1 ? 'entrega' : 'entregas'}` : 'primeiro do dia'}</span>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: sel ? C.azul : C.tinta }}>{varia ? `a partir de ${fmtP(card.preco)}` : fmtP(card.preco)}</span>
+                        </button>
                       )
                     })}
                   </div>
-                  <div style={{ fontSize: 11, color: '#5B6878', marginTop: 8, lineHeight: 1.4 }}>
-                    💡 Frete estimado — pode <strong style={{ color: '#185D9C' }}>abaixar</strong> se mais pedidos forem no mesmo dia. Avisamos o valor final antes da entrega.
+                  {diaAtual && temPeriodos && (
+                    <>
+                      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: C.tinta2, paddingTop: 6 }}>
+                        Período {diaAtual.date ? `· ${diaLabel(diaAtual.date)}` : ''}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
+                        {(diaAtual.periodos || []).map(per => {
+                          const sel = perSel === per.periodo
+                          const info = PERIODOS_PE[per.periodo]
+                          return (
+                            <button type="button" key={per.periodo} onClick={() => escolherPeriodo(diaAtual, per.periodo)} style={{
+                              minHeight: 66, borderRadius: 12, cursor: 'pointer', fontFamily: FONTE,
+                              border: `${sel ? 2 : 1.5}px solid ${sel ? C.azul : C.linha}`, background: sel ? 'rgba(24,93,156,.08)' : '#FFFFFF',
+                              color: sel ? C.azul : C.tinta, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2,
+                            }}>
+                              <span style={{ fontSize: 14, fontWeight: sel ? 800 : 700 }}>{info.nome}</span>
+                              <span style={{ fontSize: 12, color: sel ? C.azul : C.tinta2 }}>{info.faixa}</span>
+                              <span style={{ fontSize: 11.5, fontWeight: 800, color: sel ? C.azul : C.tinta2 }}>{fmtP(per.preco)}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {!perSel && <div style={{ fontSize: 12.5, fontWeight: 700, color: '#B45309' }}>Escolha um período pra continuar</div>}
+                    </>
+                  )}
+                  <div style={{ fontSize: 12, color: C.tinta2, lineHeight: 1.45 }}>
+                    O horário certinho a gente combina com você pelo WhatsApp. O frete pode <strong style={{ color: C.azul }}>abaixar</strong> se mais gente pedir pro mesmo dia e período.
                   </div>
                 </div>
                 )

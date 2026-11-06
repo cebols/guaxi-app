@@ -1,232 +1,522 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { useLocation, useNavigate as useRRNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
 import NovoPedidoForm from '../components/NovoPedidoForm'
-import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, updateStatusEncomenda, updateEncomendaItens, deletePedido, reconciliarBaixasPedidos, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp } from '../services/db'
+import {
+  getProdutos, getEncomendas, getClientes, updateStatusEncomenda, updateEncomendaItens, deletePedido,
+  reconciliarBaixasPedidos, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
+  atualizarPedido, loadUserConfig,
+} from '../services/db'
 
-const STATUS_OPTS = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
-const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
-const PIPE_STEPS  = ['Pendente', 'Pronto', 'Entregue']
+// ── Pedidos: lista agrupada por dia e período + detalhe com mensagens ────────
+// Código de cores: cinza = normal · âmbar = precisa de você · verde = ação.
 
-// Urgency/temporal filters (row 1)
-const FILTROS_URGENCIA = [
-  { key: 'todos',     label: 'Todos',        match: () => true },
-  { key: 'atrasados', label: '🔴 Atrasados', match: p => {
-      if (['Entregue','Cancelado'].includes(p.status)) return false
-      if (!p.dataEntrega) return false
-      const t = new Date(); t.setHours(0,0,0,0)
-      return new Date(p.dataEntrega + 'T00:00:00') < t
-    }},
-  { key: 'hoje',      label: '🟠 Hoje',      match: p => {
-      if (!p.dataEntrega) return false
-      const t = new Date(); t.setHours(0,0,0,0)
-      return new Date(p.dataEntrega + 'T00:00:00').getTime() === t.getTime() && p.status !== 'Cancelado'
-    }},
-  { key: 'amanha',    label: '🟡 Amanhã',    match: p => {
-      if (!p.dataEntrega) return false
-      const t = new Date(); t.setHours(0,0,0,0); t.setDate(t.getDate()+1)
-      return new Date(p.dataEntrega + 'T00:00:00').getTime() === t.getTime() && p.status !== 'Cancelado'
-    }},
-  { key: 'areceber',  label: '💰 A receber', match: p => p.status !== 'Cancelado' && p.pgto !== 'Pago' },
+const AMBAR = '#f5b544'
+export const PERIODOS = [
+  { v: 'manha', nome: 'Manhã', faixa: '9–12h' },
+  { v: 'tarde', nome: 'Tarde', faixa: '12–18h' },
+  { v: 'noite', nome: 'Noite', faixa: '18–22h' },
 ]
-// Status filters (row 2)
-const STATUS_FILTROS = ['Pendente', 'Pronto', 'Entregue']
+const periodoDe = v => PERIODOS.find(p => p.v === v) || null
+const ORDEM_PERIODO = { manha: 0, tarde: 1, noite: 2 }
+const CANAL_NOME = { FormExterno: 'Cardápio', WhatsApp: 'WhatsApp', Instagram: 'Instagram', iFood: 'iFood', Presencial: 'Presencial' }
+const ENVIO_STATUS = {
+  FILA: 'na fila', ASSIGNING_DRIVER: 'buscando motorista', ON_GOING: 'motorista indo buscar',
+  PICKED_UP: 'saiu pra entrega', COMPLETED: 'entregue', CANCELED: 'cancelado', EXPIRED: 'expirado', REJECTED: 'rejeitado',
+}
+const EM_ROTA = ['ASSIGNING_DRIVER', 'ON_GOING', 'PICKED_UP']
 
-const WA_TEMPLATES = [
-  { icon: '✅', label: 'Pedido pronto',    msg: 'Oi {nome}! Seu pedido {id} tá pronto pra retirada. ❤️' },
-  { icon: '🛵', label: 'Saiu pra entrega', msg: 'Oi {nome}! Saiu pra entrega o pedido {id}, chega em breve!' },
-  { icon: '⏰', label: 'Lembrete entrega', msg: 'Oi {nome}! Passando pra lembrar do seu pedido {id} pra {data}. Tudo certo?' },
-  { icon: '⭐', label: 'Pedir feedback',   msg: 'Oi {nome}! Espero que tenha curtido o pedido {id}. Manda foto! 😍' },
-  { icon: '💰', label: 'Cobrança gentil',  msg: 'Oi {nome}! Passando pra lembrar do pagamento do pedido {id} (R$ {valor}). Posso te enviar o pix?' },
-]
+const fmtR = v => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const fmtQ = q => String(Math.round((Number(q) || 0) * 100) / 100).replace('.', ',')
+const num = v => parseFloat(String(v ?? '').replace(',', '.')) || 0
+const fmtM = v => Number(v || 0).toFixed(2).replace('.', ',')
+const hoje0 = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
+const diaDe = ymd => new Date(ymd + 'T00:00:00')
+const diasAte = ymd => Math.round((diaDe(ymd) - hoje0()) / 864e5)
+const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const SEM = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
+const SEM_LONGO = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado']
+const ddmm = d => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+const diaCurto = ymd => { const d = diaDe(ymd); return `${SEM[d.getDay()]} ${ddmm(d)}` }
+const diaLongo = ymd => { const d = diaDe(ymd); return `${SEM_LONGO[d.getDay()]}, ${ddmm(d)}` }
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1)
+// O app rola dentro de .main-content (não na janela)
+const rolador = () => document.querySelector('.main-content') || document.scrollingElement || document.documentElement
 
-function fillTemplate(tpl, pedido) {
-  const nome = (pedido.cliente || '').split(' ')[0]
-  return tpl
-    .replace('{nome}', nome)
-    .replace('{id}', pedido.id)
-    .replace('{data}', fmtDate(pedido.dataEntrega))
-    .replace('{valor}', fmtR(pedido.valor))
+function tituloDia(ymd, passadoNormal) {
+  if (!ymd) return 'Sem data'
+  const n = diasAte(ymd), c = diaCurto(ymd)
+  if (n === 0) return `Hoje · ${c}`
+  if (n === 1) return `Amanhã · ${c}`
+  if (n < 0 && !passadoNormal) return `Atrasado · ${c}`
+  return cap(c)
 }
 
-const PGTO_STYLE = {
-  Aguardando: { bg: 'var(--warn-bg)',   border: 'var(--warn-text)',  dot: 'var(--warn-text)',  color: 'var(--warn-text)',  label: 'Aguardando pagamento' },
-  Pago:       { bg: 'var(--ok-bg)',     border: 'var(--ok-text)',    dot: 'var(--ok-text)',    color: 'var(--ok-text)',    label: 'Pago' },
-  Atrasado:   { bg: 'var(--alert-bg)',  border: 'var(--alert-text)', dot: 'var(--alert-text)', color: 'var(--alert-text)', label: 'Pagamento atrasado' },
+const aberto = p => p.status !== 'Entregue' && p.status !== 'Cancelado'
+const faltaPagar = p => (p.status === 'Cancelado' || p.pgto === 'Pago') ? 0 : Math.max(0, Number(p.saldo) || 0)
+const primeiroNome = p => (p.cliente || '').trim().split(/\s+/)[0] || ''
+const canalNome = c => CANAL_NOME[c] || c || '—'
+
+// Combos guardam os sabores como linhas "↳ Produto" logo abaixo
+function agruparItens(itens) {
+  const out = []
+  for (const it of itens || []) {
+    const nome = String(it.produto || '')
+    if (nome.startsWith('↳') && out.length) out[out.length - 1].subs.push({ nome: nome.replace(/^↳\s*/, ''), q: it.quantidade })
+    else out.push({ ...it, subs: [] })
+  }
+  return out
+}
+function nomesSubs(subs) {
+  const primeira = s => s.nome.split(/\s+/)[0]
+  const comum = subs.length && subs.every(s => primeira(s) === primeira(subs[0])) ? primeira(subs[0]) : null
+  return subs.map(s => `${fmtQ(s.q)} ${comum ? s.nome.slice(comum.length).trim() || s.nome : s.nome}`).join(', ')
+}
+const resumoItens = itens => agruparItens(itens).map(i => `${fmtQ(i.quantidade)}× ${i.produto}${i.subs.length ? ` (${nomesSubs(i.subs)})` : ''}`).join(' · ') || '—'
+
+function alertasDe(p) {
+  const out = []
+  const n = p.dataEntrega ? diasAte(p.dataEntrega) : null
+  if (aberto(p) && n != null && n < 0) out.push('atrasado')
+  if (faltaPagar(p) > 0 && (p.status === 'Entregue' || (n != null && n <= 0))) out.push(p.pgto === 'Atrasado' ? 'pagamento atrasado' : 'falta pagar')
+  if (aberto(p) && p.tipoEntrega === 'Entrega' && !p.periodo && n != null && n <= 2) out.push('combinar o período')
+  return out
 }
 
-// ── Helpers ───────────────────────────────────────────────────
-function fmtR(v) {
-  return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function estadoTexto(p) {
+  const st = p.status === 'Pendente' ? 'a fazer' : p.status === 'Pronto' ? 'pronto' : p.status === 'Entregue' ? 'entregue' : 'cancelado'
+  const jaAvisou = alertasDe(p).some(a => a.includes('pag'))
+  const pg = p.pgto === 'Pago' ? 'pago' : jaAvisou ? null : p.sinal > 0 ? `sinal ${fmtR(p.sinal)}` : 'a receber'
+  const env = p.envio && p.status !== 'Entregue' ? ENVIO_STATUS[p.envio.status] : null
+  return [st, env ? `envio ${env}` : null, p.status === 'Cancelado' ? null : pg].filter(Boolean).join(' · ')
 }
-function fmtDate(d) {
-  if (!d) return ''
-  return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
-}
-function urgency(dataEntrega) {
-  if (!dataEntrega) return null
-  const today = new Date(); today.setHours(0,0,0,0)
-  const dt = new Date(dataEntrega + 'T00:00:00')
-  const diff = Math.round((dt - today) / 86400000)
-  if (diff < 0)   return { label: 'ATRASADO', bg: 'var(--alert-bg)', color: 'var(--alert-text)' }
-  if (diff === 0) return { label: 'HOJE',     bg: 'var(--warn-bg)',  color: 'var(--warn-text)' }
-  if (diff === 1) return { label: 'AMANHÃ',   bg: '#713f12',         color: '#fbbf24' }
+
+// Próxima ação de cada pedido (botão principal do card / detalhe)
+function proximaAcao(p) {
+  if (p.status === 'Pendente') return { key: 'pronto', label: 'Pronto', longo: 'Marcar como pronto' }
+  if (p.status === 'Pronto') {
+    if (p.tipoEntrega !== 'Entrega') return { key: 'entregue', label: 'Entregue', longo: 'Marcar como entregue' }
+    if (p.envio && EM_ROTA.includes(p.envio.status) && p.envio.shareLink) return { key: 'rastreio', label: 'Rastreio', longo: 'Acompanhar entrega' }
+    return { key: 'envios', label: 'Envios', longo: p.envio ? 'Ver envio' : 'Despachar nos envios' }
+  }
+  if (p.status === 'Entregue' && faltaPagar(p) > 0) return { key: 'recebi', label: 'Recebi', longo: 'Marcar como pago' }
+  if (p.status === 'Cancelado') return { key: 'reabrir', label: 'Reabrir', longo: 'Reabrir pedido' }
   return null
 }
-function waLink(phone) {
-  const digits = (phone || '').replace(/\D/g, '')
-  if (!digits) return null
-  return `https://wa.me/${digits.startsWith('55') ? digits : '55' + digits}`
+
+// ── Mensagens prontas ─────────────────────────────────────────────────────────
+function quandoTexto(p) {
+  if (!p.dataEntrega) return null
+  const per = periodoDe(p.periodo)
+  const dia = diasAte(p.dataEntrega) === 0 ? 'hoje' : diasAte(p.dataEntrega) === 1 ? 'amanhã' : diaLongo(p.dataEntrega)
+  return `${dia}${per ? `, de ${per.nome.toLowerCase()} (${per.faixa})` : ''}`
 }
-function buildAlertMap(produtos, receitas, insumos) {
-  const criticalNomes = new Set(
-    (insumos || [])
-      .filter(i => i.estoqueAtual != null && i.estoqueMin > 0 && i.estoqueAtual <= i.estoqueMin * 0.5)
-      .map(i => i.nome)
-  )
-  if (criticalNomes.size === 0) return {}
-  const criticalReceitaIds = new Set(
-    (receitas || [])
-      .filter(r => (r.ingredientes || []).some(ing => criticalNomes.has(ing.nome)))
-      .map(r => r.id)
-  )
-  const map = {}
-  for (const prod of (produtos || [])) {
-    if (prod.tipo !== 'produto') continue
-    if ((prod.receitas || []).some(r => criticalReceitaIds.has(r.receitaId))) map[prod.nome] = true
-  }
-  return map
+function modelosDe(p, pix) {
+  const nome = primeiroNome(p)
+  const oi = `Oi${nome ? `, ${nome}` : ''}!`
+  const quando = quandoTexto(p)
+  const entrega = p.tipoEntrega === 'Entrega'
+  const falta = faltaPagar(p)
+  const pixTxt = pix ? ` A chave Pix é ${pix}.` : ''
+  const link = p.envio?.shareLink
+  const m = []
+  m.push({ key: 'confirmar', label: falta > 0 ? 'Confirmar + Pix' : 'Confirmar',
+    texto: `${oi} Seu pedido ${p.id} tá confirmado${quando ? ` pra ${entrega ? '' : 'retirada '}${quando}` : ''}.${falta > 0 ? ` O total é ${fmtR(falta)}.${pixTxt}` : ''} Qualquer coisa é só chamar aqui!` })
+  if (entrega && p.dataEntrega) m.push({ key: 'periodo', label: 'Combinar período',
+    texto: `${oi} Sobre o pedido ${p.id} pra ${diaLongo(p.dataEntrega)}: qual período fica melhor pra receber — manhã (9–12h), tarde (12–18h) ou noite (18–22h)?` })
+  if (p.dataEntrega) m.push({ key: 'lembrete', label: 'Lembrete do dia',
+    texto: entrega
+      ? `${oi} Passando pra lembrar que seu pedido ${p.id} sai ${quando}. Vou te mandar o link pra acompanhar assim que o motorista sair daqui.`
+      : `${oi} Passando pra lembrar que seu pedido ${p.id} fica pronto pra retirada ${quando}.` })
+  if (entrega) m.push({ key: 'saiu', label: 'Saiu pra entrega',
+    texto: `${oi} Seu pedido ${p.id} saiu pra entrega 🛵${link ? ` Dá pra acompanhar por aqui: ${link}` : ''}` })
+  else m.push({ key: 'pronto', label: 'Pronto pra retirar', texto: `${oi} Seu pedido ${p.id} tá pronto pra retirada 💛` })
+  if (falta > 0) m.push({ key: 'cobrar', label: 'Cobrar',
+    texto: `${oi} Passando pra lembrar do pagamento do pedido ${p.id} (${fmtR(falta)}).${pix ? ` Chave Pix: ${pix}` : ' Posso te mandar o Pix?'}` })
+  m.push({ key: 'avaliar', label: 'Pedir avaliação', texto: `${oi} Espero que tenha curtido o pedido ${p.id}! Se puder, manda uma foto ou conta o que achou 💛` })
+  return m
+}
+function modeloPadrao(p) {
+  if (alertasDe(p).includes('combinar o período')) return 'periodo'
+  if (p.envio && EM_ROTA.includes(p.envio.status)) return 'saiu'
+  if (p.status === 'Pronto' && p.tipoEntrega !== 'Entrega') return 'pronto'
+  if (p.status === 'Entregue') return faltaPagar(p) > 0 ? 'cobrar' : 'avaliar'
+  return 'confirmar'
 }
 
-function nextWeekday(day) {
-  const d = new Date()
-  d.setHours(0,0,0,0)
-  while (d.getDay() !== day) d.setDate(d.getDate()+1)
-  return d
+function waLink(phone, texto) {
+  const d = String(phone || '').replace(/\D/g, '')
+  if (!d) return null
+  return `https://wa.me/${d.startsWith('55') ? d : '55' + d}${texto ? `?text=${encodeURIComponent(texto)}` : ''}`
 }
 
-// ── Pipeline visual ───────────────────────────────────────────
-function Pipeline({ status, onStepClick, height = 26, fontSize = 9 }) {
-  const idx = PIPE_STEPS.indexOf(status)
+// ── Peças ─────────────────────────────────────────────────────────────────────
+const IconeLocal = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21z" stroke="currentColor" strokeWidth="2" /><circle cx="12" cy="9.5" r="2.5" stroke="currentColor" strokeWidth="2" /></svg>
+)
+const IconeCasa = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" /></svg>
+)
+const IconeVoltar = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+)
+
+function Aviso({ aviso, fechar }) {
+  if (!aviso) return null
   return (
-    <div style={{ display: 'flex', gap: 2, height }}>
-      {PIPE_STEPS.map((s, i) => {
-        const done    = i < idx
-        const current = i === idx
-        return (
-          <div
-            key={s}
-            onClick={onStepClick ? (e) => { e.stopPropagation(); onStepClick(s, i) } : undefined}
-            style={{
-              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize, fontWeight: current ? 800 : 700, letterSpacing: '0.04em', textTransform: 'uppercase',
-              transition: 'background 0.3s, color 0.3s, border-color 0.3s',
-              cursor: onStepClick ? 'pointer' : 'default',
-              borderRadius: i === 0 ? '7px 0 0 7px' : i === 2 ? '0 7px 7px 0' : 0,
-              background: done ? 'rgba(34,184,134,.15)' : current ? 'var(--teal)' : 'transparent',
-              border: done || current ? 'none' : '1.5px dashed #333',
-              color: done ? 'var(--teal)' : current ? '#000' : 'var(--text-tertiary)',
-            }}
-          >{s}</div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ── Pgto toggle ───────────────────────────────────────────────
-function PgtoToggle({ pgto, valor, onClick }) {
-  const s = PGTO_STYLE[pgto] || PGTO_STYLE.Aguardando
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        width: '100%', padding: '9px 12px', borderRadius: 9,
-        background: s.bg, border: `1.5px solid ${s.border}`,
-        cursor: 'pointer', textAlign: 'left',
-      }}
-    >
-      <div style={{ width: 10, height: 10, borderRadius: '50%', background: s.dot, flexShrink: 0 }} />
-      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: s.color }}>{s.label}</span>
-      {valor > 0 && <span style={{ fontSize: 12, color: s.color, opacity: 0.8 }}>R$ {fmtR(valor)}</span>}
-    </button>
-  )
-}
-
-// ── Date chips para formulário ────────────────────────────────
-function DateChipsForm({ value, onChange }) {
-  const hoje = new Date(); hoje.setHours(0,0,0,0)
-  const amanha = new Date(hoje); amanha.setDate(hoje.getDate()+1)
-  const sab = nextWeekday(6)
-  const dom = nextWeekday(0)
-
-  const fmt = (d) => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-  const toISO = (d) => d.toISOString().split('T')[0]
-
-  const chips = [
-    { key: 'hoje',    label: 'Hoje',    sub: fmt(hoje),   iso: toISO(hoje),   cls: 'today' },
-    { key: 'amanha',  label: 'Amanhã',  sub: fmt(amanha), iso: toISO(amanha)  },
-    { key: 'sab',     label: 'Sáb',     sub: fmt(sab),    iso: toISO(sab)     },
-    { key: 'dom',     label: 'Dom',     sub: fmt(dom),    iso: toISO(dom)     },
-    { key: 'agendar', label: '📅',       sub: 'Agendar',   iso: null           },
-  ]
-
-  const initKey = () => {
-    if (!value) return null
-    const chip = chips.find(c => c.iso === value)
-    return chip ? chip.key : 'agendar'
-  }
-  const [chip, setChip] = useState(initKey)
-
-  const select = (c) => {
-    setChip(c.key)
-    if (c.iso) onChange(c.iso)
-  }
-
-  const isToday = (c) => c.key === 'hoje'
-  const isSelected = (c) => chip === c.key
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 2 }}>
-        {chips.map(c => {
-          const sel = isSelected(c)
-          const today = isToday(c)
-          return (
-            <button
-              key={c.key}
-              onClick={() => select(c)}
-              style={{
-                flexShrink: 0, padding: '6px 8px', borderRadius: 8, fontSize: 12,
-                cursor: 'pointer', border: 'none', textAlign: 'center', minWidth: 50,
-                background: sel ? (today ? 'var(--warn-bg)' : 'var(--teal-light)') : 'var(--bg-secondary)',
-                outline: sel ? `1.5px solid ${today ? 'var(--warn-text)' : 'var(--teal)'}` : '1.5px solid transparent',
-                color: sel ? (today ? 'var(--warn-text)' : 'var(--teal)') : 'var(--text-secondary)',
-              }}
-            >
-              <div style={{ fontWeight: 700 }}>{c.label}</div>
-              {c.sub && <div style={{ fontSize: 10, marginTop: 1, opacity: 0.8 }}>{c.sub}</div>}
-            </button>
-          )
-        })}
+    <div style={{ position: 'fixed', left: 0, right: 0, bottom: 90, display: 'flex', justifyContent: 'center', zIndex: 300, pointerEvents: 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#222', color: '#fff', borderRadius: 12, padding: '11px 16px', fontSize: 14, boxShadow: '0 6px 20px rgba(0,0,0,.4)', pointerEvents: 'auto' }}>
+        <span>{aviso.msg}</span>
+        {aviso.undo && <button onClick={() => { const u = aviso.undo; fechar(); u() }} style={{ background: 'none', border: 'none', color: 'var(--teal)', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>Desfazer</button>}
       </div>
-      {chip === 'agendar' && (
-        <input
-          type="date"
-          className="field-input"
-          style={{ marginTop: 8, colorScheme: 'dark' }}
-          value={value !== chips.find(c => c.iso === value)?.iso ? value : ''}
-          onChange={e => onChange(e.target.value)}
-        />
-      )}
     </div>
   )
 }
 
-// ── New order view (full page) ────────────────────────────────
+function CardPedido({ p, onAbrir, onAcao }) {
+  const [ocupado, setOcupado] = useState(false)
+  const alertas = alertasDe(p)
+  const combinar = alertas.includes('combinar o período')
+  const outros = alertas.filter(a => a !== 'combinar o período')
+  const prox = proximaAcao(p)
+  const cobrar = faltaPagar(p) > 0 && p.status !== 'Entregue' && p.status !== 'Cancelado'
+  const rodar = key => async e => { e.stopPropagation(); setOcupado(true); try { await onAcao(p, key) } finally { setOcupado(false) } }
+  const entrega = p.tipoEntrega === 'Entrega'
+  return (
+    <article className={`pd-card${alertas.length ? ' alerta' : ''}`} onClick={onAbrir} tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter') onAbrir() }} aria-label={`Pedido ${p.id} de ${p.cliente}`}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 15, fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.cliente}</span>
+        <span className="pd-chip">{canalNome(p.canal)}</span>
+        <span style={{ fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap' }}>{fmtR(p.valor)}</span>
+      </div>
+      <div className="pd-2l" style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{resumoItens(p.itens)}</div>
+      <div className="pd-linha">
+        {entrega ? <IconeLocal /> : <IconeCasa />}
+        <span>{entrega ? `Entrega${p.endereco ? ` · ${p.endereco}` : ''}` : 'Retirada'}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.35 }}>
+          {(combinar ? ['combinar o período', ...outros] : outros).map(a => <b key={a} style={{ color: AMBAR }}>{a} · </b>)}
+          {estadoTexto(p)}
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          {combinar
+            ? <button className="pd-btn ambar" disabled={ocupado} onClick={e => { e.stopPropagation(); onAcao(p, 'combinar') }}>Combinar</button>
+            : <>
+                {cobrar && <button className="pd-btn vazado" disabled={ocupado} onClick={rodar('cobrar')}>Cobrar</button>}
+                {prox && <button className="pd-btn" disabled={ocupado} onClick={rodar(prox.key)}>{prox.label}</button>}
+              </>}
+        </div>
+      </div>
+    </article>
+  )
+}
+
+// ── Detalhe ───────────────────────────────────────────────────────────────────
+function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarregar, avisar }) {
+  const navigate = useNavigate()
+  const [editItens, setEditItens] = useState(false)
+  const [itensEd, setItensEd] = useState([])
+  const [mudarDia, setMudarDia] = useState(false)
+  const [endereco, setEndereco] = useState(p.endereco || '')
+  const [frete, setFrete] = useState(p.frete ? fmtM(p.frete) : '')
+  const [sinal, setSinal] = useState(p.sinal ? fmtM(p.sinal) : '')
+  const [apagar, setApagar] = useState(false)
+  const [modelo, setModelo] = useState(msgInicial || modeloPadrao(p))
+  const [texto, setTexto] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [ocupado, setOcupado] = useState(false)
+  const entrega = p.tipoEntrega === 'Entrega'
+
+  useEffect(() => { setEndereco(p.endereco || ''); setFrete(p.frete ? fmtM(p.frete) : ''); setSinal(p.sinal ? fmtM(p.sinal) : '') }, [p.id, p.endereco, p.frete, p.sinal])
+  const modelos = useMemo(() => modelosDe(p, pix), [p, pix])
+  useEffect(() => { setTexto(modelos.find(m => m.key === modelo)?.texto || modelos[0]?.texto || '') }, [modelo, p.id, pix, p.periodo, p.dataEntrega, p.tipoEntrega, p.pgto]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { rolador().scrollTo(0, 0) }, [p.id])
+
+  const itensTotal = (p.itens || []).reduce((s, it) => s + (Number(it.precoUnit) || 0) * (Number(it.quantidade) || 0), 0)
+  const contato = acharContato(contatos, p.contato)
+  const janela = janelaAberta(contato)
+  const ate = contato?.ultimaMsgClienteEm ? new Date(new Date(contato.ultimaMsgClienteEm).getTime() + 24 * 3600e3) : null
+  const ateTxt = ate ? `${ate.toDateString() === new Date().toDateString() ? 'hoje' : 'amanhã'} ${ate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''
+  const prox = proximaAcao(p)
+  const passos = ['Pendente', 'Pronto', 'Entregue']
+  const idx = passos.indexOf(p.status)
+
+  async function salvar(fn, msg) {
+    setOcupado(true)
+    try { await fn(); await recarregar(); if (msg) avisar({ msg }) }
+    catch (e) { avisar({ msg: 'Erro: ' + e.message }) }
+    finally { setOcupado(false) }
+  }
+  const salvarCampos = (campos, msg) => salvar(() => atualizarPedido(p.id, campos), msg)
+  const mudarTipo = t => salvar(() => updateStatusEncomenda(p.id, p.status, p.pgto, t, num(frete), itensTotal + (t === 'Entrega' ? num(frete) : 0)), t === 'Entrega' ? 'Agora é entrega' : 'Agora é retirada')
+  const salvarFrete = () => { if (num(frete) === Number(p.frete || 0)) return; salvar(() => updateStatusEncomenda(p.id, p.status, p.pgto, p.tipoEntrega, num(frete), itensTotal + num(frete)), 'Frete salvo') }
+  const salvarEndereco = () => { if (endereco.trim() === (p.endereco || '')) return; salvarCampos({ endereco: endereco.trim() }, 'Endereço salvo') }
+  const salvarSinal = () => { if (num(sinal) === Number(p.sinal || 0)) return; salvarCampos({ sinal: num(sinal) }, 'Sinal salvo') }
+  const salvarPgto = v => salvar(() => updateStatusEncomenda(p.id, p.status, v, p.tipoEntrega, p.frete, p.valor), v === 'Pago' ? 'Marcado como pago' : 'Marcado como a receber')
+
+  function abrirEdicao() {
+    setItensEd((p.itens || []).map(it => ({ ...it, quantidade: fmtQ(it.quantidade), precoUnit: fmtQ(it.precoUnit) })))
+    setEditItens(true)
+  }
+  const salvarItens = () => salvar(async () => {
+    const lista = itensEd.map(it => ({ ...it, quantidade: num(it.quantidade), precoUnit: num(it.precoUnit) }))
+    await updateEncomendaItens(p.id, lista)
+    const novo = lista.reduce((s, it) => s + it.precoUnit * it.quantidade, 0) + (entrega ? Number(p.frete || 0) : 0)
+    await atualizarPedido(p.id, { valor: novo })
+    setEditItens(false)
+  }, 'Itens salvos')
+
+  async function enviarMsg() {
+    if (!texto.trim()) return
+    if (janela) {
+      setEnviando(true)
+      try { await enviarWhatsApp(contato.telefone, texto.trim(), { pausar: false }); avisar({ msg: 'Enviado pelo WhatsApp da Guaxí' }) }
+      catch (e) { avisar({ msg: 'Erro: ' + e.message }) }
+      finally { setEnviando(false) }
+      return
+    }
+    const link = waLink(p.contato, texto.trim())
+    if (link) window.open(link, '_blank')
+    else avisar({ msg: 'Esse pedido não tem telefone' })
+  }
+
+  const proximosDias = Array.from({ length: 8 }, (_, i) => { const d = hoje0(); d.setDate(d.getDate() + i); return d })
+  const agrupados = agruparItens(p.itens)
+  const criado = p.createdAtTs ? new Date(p.createdAtTs) : null
+
+  return (
+    <>
+      <div className="topbar">
+        <div className="topbar-inner">
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 15, fontWeight: 600, padding: '6px 4px' }}>
+            <IconeVoltar /> Pedidos
+          </button>
+          <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-secondary)' }}>{p.id}</span>
+        </div>
+      </div>
+
+      <div className="page-inner pd" style={{ paddingTop: 16 }}>
+        <section aria-label="Cliente e andamento" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h1 style={{ margin: 0, flex: 1, minWidth: 0, fontSize: 22, fontWeight: 800 }}>{p.cliente}</h1>
+            <span className="pd-chip">{canalNome(p.canal)}</span>
+          </div>
+          {criado && <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>Feito {SEM[criado.getDay()]} {ddmm(criado)} às {criado.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>}
+          {alertasDe(p).length > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: AMBAR }}>{alertasDe(p).join(' · ')}</div>}
+          {p.status === 'Cancelado' ? (
+            <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Pedido cancelado.</div>
+          ) : (
+            <ol className="pd-passos" aria-label="Andamento">
+              {passos.map((s, i) => (
+                <li key={s} style={{ display: 'contents' }}>
+                  {i > 0 && <span className="pd-passos-traco" aria-hidden="true" style={{ flex: 1, height: 2, background: i <= idx ? 'var(--teal)' : '#2a2a2a' }} />}
+                  <span className={`passo${i <= idx ? ' feito' : ''}`} style={{ listStyle: 'none' }}>
+                    <button type="button" disabled={ocupado || i === idx} onClick={() => onAcao(p, s === 'Pendente' ? 'reabrir' : s === 'Pronto' ? 'pronto' : 'entregue')}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', padding: '6px 0', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', color: i <= idx ? 'var(--text-primary)' : 'var(--text-tertiary)' }}>
+                      <i style={{ width: 10, height: 10, borderRadius: '50%', boxSizing: 'border-box', background: i <= idx ? 'var(--teal)' : 'transparent', border: i <= idx ? 'none' : '2px solid #4a4a4a' }} />
+                      {s === 'Pendente' ? 'A fazer' : s}
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {prox && (
+            <button className={`pd-grande${prox.key === 'reabrir' ? ' neutro' : ''}`} disabled={ocupado}
+              onClick={async () => { setOcupado(true); try { await onAcao(p, prox.key) } finally { setOcupado(false) } }}>{prox.longo}</button>
+          )}
+        </section>
+
+        <div className="pd-det">
+          <div className="pd-col">
+            <section className="pd-bloco" aria-label="Itens">
+              <div className="pd-bloco-topo">
+                <h2>Itens</h2>
+                {!editItens && <button className="pd-link" onClick={abrirEdicao}>Editar</button>}
+              </div>
+              {!editItens ? (
+                <>
+                  {agrupados.map((it, i) => (
+                    <div key={it.id || i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <div className="pd-kv" style={{ fontSize: 14 }}>
+                        <span style={{ color: 'var(--text-primary)' }}>{fmtQ(it.quantidade)}× {it.produto}</span>
+                        <span>{fmtR((Number(it.precoUnit) || 0) * (Number(it.quantidade) || 0))}</span>
+                      </div>
+                      {it.subs.length > 0 && <div style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{nomesSubs(it.subs)}</div>}
+                    </div>
+                  ))}
+                  <div style={{ height: 1, background: 'var(--border-light-color)' }} />
+                  {entrega && <div className="pd-kv" style={{ fontSize: 13 }}><span>Frete</span><span>{fmtR(p.frete)}</span></div>}
+                  <div className="pd-kv" style={{ fontSize: 16, fontWeight: 800 }}><span style={{ color: 'var(--text-primary)' }}>Total</span><span>{fmtR(p.valor)}</span></div>
+                </>
+              ) : (
+                <>
+                  {itensEd.map((it, i) => (
+                    <div key={it.id || i} className="pd-item-ed">
+                      <span style={{ flex: 1, minWidth: 0 }}>{it.produto}</span>
+                      <input inputMode="decimal" aria-label={`Quantidade de ${it.produto}`} value={it.quantidade}
+                        onChange={e => setItensEd(l => l.map((x, k) => k === i ? { ...x, quantidade: e.target.value } : x))} />
+                      <span style={{ color: 'var(--text-tertiary)' }}>× R$</span>
+                      <input inputMode="decimal" style={{ width: 70 }} aria-label={`Preço de ${it.produto}`} value={it.precoUnit}
+                        onChange={e => setItensEd(l => l.map((x, k) => k === i ? { ...x, precoUnit: e.target.value } : x))} />
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="pd-btn vazado" style={{ flex: 1 }} onClick={() => setEditItens(false)}>Cancelar</button>
+                    <button className="pd-btn verde" style={{ flex: 1 }} disabled={ocupado} onClick={salvarItens}>Salvar itens</button>
+                  </div>
+                </>
+              )}
+            </section>
+
+            <section className="pd-bloco" aria-label="Entrega">
+              <div className="pd-bloco-topo">
+                <h2>{entrega ? 'Entrega' : 'Retirada'}{p.dataEntrega ? ` · ${diaCurto(p.dataEntrega)}` : ' · sem data'}</h2>
+                <button className="pd-link" onClick={() => setMudarDia(v => !v)}>{mudarDia ? 'Fechar' : 'Mudar dia'}</button>
+              </div>
+              {mudarDia && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div className="pd-msgs">
+                    {proximosDias.map(d => {
+                      const iso = isoLocal(d)
+                      return <button key={iso} className={p.dataEntrega === iso ? 'on' : ''} onClick={() => { salvarCampos({ data_entrega: iso }, `Dia: ${diaCurto(iso)}`); setMudarDia(false) }}>{diaCurto(iso)}</button>
+                    })}
+                  </div>
+                  <input type="date" className="pd-input" style={{ colorScheme: 'dark' }} value={p.dataEntrega || ''}
+                    onChange={e => { if (e.target.value) { salvarCampos({ data_entrega: e.target.value }, `Dia: ${diaCurto(e.target.value)}`); setMudarDia(false) } }} />
+                </div>
+              )}
+              <div className="pd-seg" role="group" aria-label="Tipo">
+                {['Entrega', 'Retirada'].map(t => (
+                  <button key={t} className={p.tipoEntrega === t || (!p.tipoEntrega && t === 'Retirada') ? 'on' : ''} disabled={ocupado} onClick={() => p.tipoEntrega !== t && mudarTipo(t)}>{t}</button>
+                ))}
+              </div>
+              <div className="pd-seg" role="group" aria-label="Período">
+                {PERIODOS.map(per => (
+                  <button key={per.v} className={p.periodo === per.v ? 'on' : ''} disabled={ocupado}
+                    onClick={() => salvarCampos({ periodo: p.periodo === per.v ? null : per.v }, p.periodo === per.v ? 'Período a combinar' : `Período: ${per.nome.toLowerCase()}`)}>
+                    {per.nome}<small>{per.faixa}</small>
+                  </button>
+                ))}
+              </div>
+              {!p.periodo && <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Período a combinar com o cliente</div>}
+              {entrega && (
+                <>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Endereço</span>
+                    <textarea className="pd-input" rows={2} style={{ resize: 'none' }} value={endereco}
+                      placeholder="Rua, número, complemento, bairro" onChange={e => setEndereco(e.target.value)} onBlur={salvarEndereco} />
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)' }}>Frete cobrado (R$)</span>
+                    <input className="pd-input" style={{ width: 100, textAlign: 'right' }} inputMode="decimal" value={frete}
+                      onChange={e => setFrete(e.target.value)} onBlur={salvarFrete} />
+                  </label>
+                  {p.envio ? (
+                    <button onClick={() => (p.envio.shareLink && EM_ROTA.includes(p.envio.status) ? window.open(p.envio.shareLink, '_blank') : navigate('/envios'))}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, background: '#262626', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left' }}>
+                      <span style={{ flex: 1 }}>
+                        <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700 }}>Envio {p.envio.periodo ? `· ${periodoDe(p.envio.periodo)?.nome.toLowerCase()}` : ''}</span>
+                        <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>{ENVIO_STATUS[p.envio.status] || p.envio.status}</span>
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#34d39a' }}>{p.envio.shareLink && EM_ROTA.includes(p.envio.status) ? 'Rastrear' : 'Ver envio'}</span>
+                    </button>
+                  ) : aberto(p) && (
+                    <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>Ainda sem envio — vai pra fila em Envios.</div>
+                  )}
+                </>
+              )}
+            </section>
+          </div>
+
+          <div className="pd-col">
+            {p.status !== 'Cancelado' && (
+              <section className="pd-bloco" aria-label="Pagamento">
+                <div className="pd-bloco-topo"><h2>Pagamento</h2></div>
+                <div className="pd-seg" role="group" aria-label="Situação do pagamento">
+                  <button className={p.pgto !== 'Pago' ? 'on' : ''} disabled={ocupado} onClick={() => p.pgto === 'Pago' && salvarPgto('Aguardando')}>A receber</button>
+                  <button className={p.pgto === 'Pago' ? 'on' : ''} disabled={ocupado} onClick={() => p.pgto !== 'Pago' && salvarPgto('Pago')}>Pago</button>
+                </div>
+                {p.pgto !== 'Pago' && (
+                  <>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)' }}>Sinal recebido (R$)</span>
+                      <input className="pd-input" style={{ width: 100, textAlign: 'right' }} inputMode="decimal" placeholder="0,00" value={sinal}
+                        onChange={e => setSinal(e.target.value)} onBlur={salvarSinal} />
+                    </label>
+                    <div className="pd-kv" style={{ fontWeight: 700 }}><span style={{ color: 'var(--text-primary)' }}>Falta</span><span style={{ color: faltaPagar(p) > 0 && alertasDe(p).some(a => a.includes('pag')) ? AMBAR : 'var(--text-primary)' }}>{fmtR(faltaPagar(p))}</span></div>
+                  </>
+                )}
+              </section>
+            )}
+
+            <section className="pd-bloco" aria-label="Mensagens">
+              <div className="pd-bloco-topo">
+                <h2>Mensagens</h2>
+                {contato && <button className="pd-link" onClick={() => navigate(`/atendimento?c=${encodeURIComponent(contato.telefone)}`)}>Abrir conversa</button>}
+              </div>
+              <div className={`pd-janela ${janela ? 'aberta' : 'fechada'}`}>
+                <i style={{ background: janela ? 'var(--teal)' : '#6b6b6b' }} />
+                <span>{janela
+                  ? <>Conversa aberta até <b>{ateTxt}</b> · vai pelo número da Guaxí</>
+                  : <>Conversa fechada · abre o seu WhatsApp com o texto pronto</>}</span>
+              </div>
+              <div className="pd-msgs" role="group" aria-label="Mensagens prontas">
+                {modelos.map(m => <button key={m.key} className={modelo === m.key ? 'on' : ''} onClick={() => setModelo(m.key)}>{m.label}</button>)}
+              </div>
+              {!pix && modelos.find(m => m.key === modelo)?.texto.includes('Pix') && (
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Dica: cadastre sua chave Pix em Configurações › Delivery e ela entra sozinha aqui.</div>
+              )}
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Mensagem</span>
+                <textarea className="pd-input" rows={5} style={{ resize: 'vertical', lineHeight: 1.45 }} value={texto} onChange={e => setTexto(e.target.value)} />
+              </label>
+              <button className="pd-grande" disabled={enviando || !texto.trim() || (!janela && !p.contato)} onClick={enviarMsg}>
+                {enviando ? 'Enviando…' : janela ? 'Enviar pela Guaxí' : 'Abrir no meu WhatsApp'}
+              </button>
+              {entrega && p.status !== 'Cancelado' && (
+                <>
+                  <div style={{ height: 1, background: 'var(--border-light-color)' }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 700 }}>Rastreio automático</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                        {p.rastreioEnviadoEm
+                          ? `Link enviado ${new Date(p.rastreioEnviadoEm).toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}.`
+                          : 'Quando o motorista sair daqui com o pedido, o cliente recebe o link da Lalamove.'}
+                      </div>
+                    </div>
+                    <button className={`pd-switch${p.rastreioAuto ? ' on' : ''}`} role="switch" aria-checked={p.rastreioAuto} aria-label="Rastreio automático"
+                      disabled={ocupado} onClick={() => salvarCampos({ rastreio_auto: !p.rastreioAuto }, p.rastreioAuto ? 'Rastreio automático desligado' : 'Rastreio automático ligado')}><span /></button>
+                  </div>
+                </>
+              )}
+            </section>
+
+            <section className="pd-bloco" aria-label="Contato e observações">
+              <div className="pd-kv"><span>WhatsApp</span><span>{p.contato || '—'}</span></div>
+              {p.obs && <div className="pd-kv"><span>Observações</span><span style={{ textAlign: 'right', whiteSpace: 'pre-line' }}>{p.obs}</span></div>}
+            </section>
+
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {p.status !== 'Cancelado' && <button className="pd-btn vazado" onClick={() => onAcao(p, 'cancelar')}>Cancelar pedido</button>}
+              {!apagar
+                ? <button className="pd-btn vazado" style={{ color: 'var(--text-secondary)' }} onClick={() => setApagar(true)}>Apagar</button>
+                : <button className="pd-btn" style={{ background: '#7f1d1d', borderColor: '#7f1d1d', color: '#fecaca' }}
+                    onClick={() => salvar(async () => { await deletePedido(p.id); onBack() }, 'Pedido apagado')}>Confirmar: apagar {p.id}</button>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ── Novo pedido (página) ──────────────────────────────────────────────────────
 function NovoView({ produtos, clientes, pedidos, onBack, onSaved }) {
   const { toast, show } = useToast()
   return (
@@ -248,390 +538,7 @@ function NovoView({ produtos, clientes, pedidos, onBack, onSaved }) {
   )
 }
 
-// ── Pgto bar (like pipeline but 3 independent states) ─────────
-function PgtoBar({ pgto, onChange, height = 36, fontSize = 11 }) {
-  const opts = [
-    { key: 'Aguardando', label: 'Aguardando', activeBg: '#713f12', activeColor: '#fbbf24' },
-    { key: 'Pago',       label: 'Pago',       activeBg: '#14532d', activeColor: '#4ade80' },
-    { key: 'Atrasado',   label: 'Atrasado',   activeBg: '#3b1f1f', activeColor: '#ef4444' },
-  ]
-  return (
-    <div style={{ display: 'flex', gap: 2, height }}>
-      {opts.map((o, i) => {
-        const active = pgto === o.key
-        return (
-          <div key={o.key} onClick={() => onChange(o.key)} style={{
-            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize, fontWeight: active ? 800 : 700, letterSpacing: '0.04em', textTransform: 'uppercase',
-            cursor: 'pointer',
-            borderRadius: i === 0 ? '7px 0 0 7px' : i === 2 ? '0 7px 7px 0' : 0,
-            background: active ? o.activeBg : 'transparent',
-            border: active ? 'none' : '1.5px dashed #333',
-            color: active ? o.activeColor : 'var(--text-tertiary)',
-            transition: 'background 0.3s, color 0.3s',
-          }}>{o.label}</div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ── Order card ────────────────────────────────────────────────
-function PedidoCard({ pedido, alertMap, expanded, onToggle, onEdit, onQuickStatus, onTogglePgto }) {
-  const urg      = urgency(pedido.dataEntrega)
-  const hasAlert = (pedido.itens || []).some(it => alertMap[it.produto])
-
-  const dateChipStyle = (() => {
-    if (!pedido.dataEntrega) return null
-    const today = new Date(); today.setHours(0,0,0,0)
-    const diff = Math.round((new Date(pedido.dataEntrega + 'T00:00:00') - today) / 86400000)
-    if (diff < 0)   return { color: 'var(--alert-text)' }
-    if (diff === 0) return { color: 'var(--warn-text)' }
-    if (diff === 1) return { color: '#fbbf24' }
-    return { color: 'var(--text-tertiary)' }
-  })()
-
-  const pgtoS = PGTO_STYLE[pedido.pgto] || PGTO_STYLE.Aguardando
-  const itensStr = (pedido.itens || []).map(it => `${it.produto} ×${it.quantidade}`).join(' · ')
-
-  return (
-    <div style={{ marginBottom: expanded ? 0 : 8 }}>
-      <div
-        className="card"
-        onClick={onToggle}
-        style={{
-          padding: '12px 14px', cursor: 'pointer',
-          borderRadius: expanded ? '12px 12px 0 0' : 12,
-          marginBottom: 0,
-          borderLeft: (urg?.label === 'HOJE' || urg?.label === 'ATRASADO') ? '3px solid var(--alert-text)' : undefined,
-        }}
-      >
-        {/* Head */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            {urg && (
-              <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: urg.bg, color: urg.color, letterSpacing: '.04em' }}>
-                {urg.label}
-              </span>
-            )}
-            {hasAlert && <span style={{ fontSize: 10, color: '#f59e0b' }}>⚠️</span>}
-            {pedido.canal === 'FormExterno' && (
-              <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: 'var(--info-bg)', color: 'var(--info-text)', letterSpacing: '.04em' }}>ONLINE</span>
-            )}
-            <span style={{ fontSize: 15, fontWeight: 700 }}>{pedido.cliente}</span>
-          </div>
-          {pedido.dataEntrega && dateChipStyle && (
-            <span style={{ fontSize: 12, fontWeight: 700, color: dateChipStyle.color, flexShrink: 0, marginLeft: 10 }}>
-              {fmtDate(pedido.dataEntrega)}
-            </span>
-          )}
-        </div>
-
-        {/* Items summary */}
-        {itensStr && (
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {itensStr}
-          </div>
-        )}
-
-        {/* Footer: pipeline + pgto */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ flex: 1 }}>
-            {pedido.status === 'Cancelado' ? (
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#3b1f1f', color: '#ef4444' }}>Cancelado</span>
-            ) : (
-              <Pipeline
-                status={pedido.status}
-                onStepClick={(s) => { onQuickStatus(s) }}
-              />
-            )}
-          </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); onTogglePgto() }}
-            style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 6, background: pgtoS.bg, color: pgtoS.color, whiteSpace: 'nowrap', flexShrink: 0, border: 'none', cursor: 'pointer' }}
-          >
-            {pgtoS.label}
-          </button>
-        </div>
-      </div>
-
-      {expanded && (
-        <div style={{ background: 'var(--bg-tertiary)', border: '1px solid #2a2a2a', borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '10px 14px', marginBottom: 8 }}>
-          {(pedido.itens || []).map((it, i, arr) => (
-            <div key={it.id || i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: i < arr.length - 1 ? '1px solid #1e1e1e' : 'none', fontSize: 13 }}>
-              <span>{it.produto} <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>×{it.quantidade}</span></span>
-              <span style={{ fontWeight: 600 }}>R$ {fmtR((it.precoUnit||0) * (it.quantidade||1))}</span>
-            </div>
-          ))}
-          {pedido.frete > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 12, color: 'var(--text-secondary)', borderTop: '1px solid #1e1e1e', marginTop: 2 }}>
-              <span>Frete</span>
-              <span style={{ fontWeight: 600 }}>R$ {fmtR(pedido.frete)}</span>
-            </div>
-          )}
-          {pedido.canal && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6 }}>Canal: {pedido.canal}</div>}
-          {hasAlert && (
-            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 6, background: '#3b2700', padding: '5px 8px', borderRadius: 6 }}>
-              ⚠️ Insumo crítico: {(pedido.itens || []).filter(it => alertMap[it.produto]).map(it => it.produto).join(', ')} com estoque abaixo do mínimo
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button onClick={onEdit} style={{ padding: '7px 14px', borderRadius: 8, border: '1.5px solid var(--teal)', background: 'var(--teal-light)', color: 'var(--teal)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              Editar detalhes
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Detail view ───────────────────────────────────────────────
-function DetalheView({ pedido, alertMap, onBack, onSaved }) {
-  const { toast, show } = useToast()
-  const [status, setStatus]           = useState(pedido.status)
-  const [pgto, setPgto]               = useState(pedido.pgto)
-  const [tipoEntrega, setTipoEntrega] = useState(pedido.tipoEntrega || 'Retirada')
-  const [frete, setFrete]             = useState(pedido.frete > 0 ? String(pedido.frete) : '')
-  const [dataEntrega, setDataEntrega] = useState(pedido.dataEntrega || '')
-  const [itens, setItens]             = useState(() => (pedido.itens || []).map(it => ({
-    ...it, quantidade: String(it.quantidade ?? 1), precoUnit: String(it.precoUnit ?? 0),
-  })))
-  const [endereco, setEndereco]       = useState(pedido.endereco || '')
-  const [saving, setSaving]           = useState(false)
-  const [confirm, setConfirm]         = useState(false)
-
-  const setItem = (i, k, v) => setItens(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
-
-  const wa = waLink(pedido.contato)
-  const navRR = useRRNavigate()
-  const [contatoAtd, setContatoAtd] = useState(null)
-  const [enviandoWa, setEnviandoWa] = useState(null)
-  useEffect(() => { getContatosAtendimento().then(cs => setContatoAtd(acharContato(cs, pedido.contato))) }, [pedido.contato])
-  const pelaGuaxi = janelaAberta(contatoAtd)
-  async function enviarPelaGuaxi(label, msg) {
-    if (!confirm(`Mandar pelo WhatsApp da Guaxí?\n\n${msg}`)) return
-    setEnviandoWa(label)
-    try { await enviarWhatsApp(contatoAtd.telefone, msg, { pausar: false }); show('Enviado pelo WhatsApp da Guaxí') }
-    catch (e) { show('Erro: ' + e.message) }
-    finally { setEnviandoWa(null) }
-  }
-  const itensSubtotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit)||0) * (parseFloat(it.quantidade)||1), 0)
-  const freteNum = tipoEntrega === 'Entrega' ? (parseFloat(frete) || 0) : 0
-  const totalAtual = itensSubtotal + freteNum
-
-  const cycleStatus = (s) => {
-    setStatus(s)
-    if (s === 'Entregue' && pgto !== 'Pago') setPgto('Atrasado')
-  }
-  const cyclePgto = () => {
-    setPgto(p => p === 'Aguardando' ? 'Pago' : p === 'Pago' ? 'Atrasado' : 'Aguardando')
-  }
-
-  const handleSave = async () => {
-    setSaving(true)
-    try {
-      await updateEncomendaItens(pedido.id, itens)
-      await updateStatusEncomenda(pedido.id, status, pgto, tipoEntrega, frete, totalAtual, dataEntrega, endereco)
-      show('Salvo!')
-      setTimeout(() => { onSaved(); onBack() }, 700)
-    } catch (e) {
-      show('Erro: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <>
-      <div className="topbar">
-        <div className="topbar-inner">
-          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
-            ← voltar
-          </button>
-          <div style={{ textAlign: 'right' }}>
-            <div className="topbar-title">{pedido.cliente}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{pedido.id}</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="page-inner" style={{ paddingTop: 16 }}>
-
-        {/* Data entrega — editável */}
-        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 8 }}>
-            Data de entrega
-          </div>
-          <DateChipsForm value={dataEntrega} onChange={setDataEntrega} />
-        </div>
-
-        {/* Status pipeline */}
-        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 10 }}>
-            Status da produção — toque para avançar
-          </div>
-          <Pipeline status={status} height={36} fontSize={11} onStepClick={(s) => cycleStatus(s)} />
-        </div>
-
-        {/* Pgto bar */}
-        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 10 }}>
-            Pagamento — toque para alterar
-          </div>
-          <PgtoBar pgto={pgto} onChange={setPgto} height={36} fontSize={11} />
-        </div>
-
-        {/* Itens */}
-        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 10 }}>
-            Itens
-          </div>
-          {itens.map((it, i, arr) => {
-            const linha = (parseFloat(it.precoUnit)||0) * (parseFloat(it.quantidade)||1)
-            return (
-            <div key={it.id || i} style={{
-              display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0',
-              borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none', fontSize: 13,
-            }}>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                {it.produto}
-                {alertMap[it.produto] && <span style={{ marginLeft: 6, fontSize: 11, color: '#f59e0b' }}>⚠️</span>}
-              </span>
-              <input
-                type="text" inputMode="numeric" value={it.quantidade}
-                onChange={e => setItem(i, 'quantidade', e.target.value)}
-                onFocus={e => e.target.select()}
-                style={{ width: 42, textAlign: 'center', padding: '4px 4px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}
-              />
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>×</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>R$</span>
-                <input
-                  type="text" inputMode="decimal" value={it.precoUnit}
-                  onChange={e => setItem(i, 'precoUnit', e.target.value)}
-                  onFocus={e => e.target.select()}
-                  style={{ width: 60, textAlign: 'center', padding: '4px 4px', background: 'var(--bg-tertiary)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', fontSize: 13, fontWeight: 700 }}
-                />
-              </div>
-              <span style={{ fontWeight: 600, color: 'var(--teal)', minWidth: 64, textAlign: 'right', flexShrink: 0 }}>R$ {fmtR(linha)}</span>
-            </div>
-            )
-          })}
-          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 0', fontWeight: 700, fontSize: 14 }}>
-            <span>Total</span>
-            <span>R$ {fmtR(totalAtual)}</span>
-          </div>
-        </div>
-
-        {/* WhatsApp */}
-        {wa && (
-          <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <div style={{ flex: 1, fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700 }}>
-                WhatsApp — {pedido.cliente?.split(' ')[0]}{pelaGuaxi ? ' · sai pelo número da Guaxí' : ''}
-              </div>
-              {contatoAtd && (
-                <button onClick={() => navRR(`/atendimento?c=${contatoAtd.telefone}`)} style={{ fontSize: 12, fontWeight: 700, padding: '5px 10px', borderRadius: 8, border: '1px solid rgba(37,211,102,.35)', background: 'transparent', color: '#4ade80', cursor: 'pointer' }}>
-                  💬 Conversa
-                </button>
-              )}
-            </div>
-            {WA_TEMPLATES.map(t => {
-              const msg = fillTemplate(t.msg, { ...pedido, valor: totalAtual })
-              return (
-                <a
-                  key={t.label}
-                  href={`${wa}?text=${encodeURIComponent(msg)}`}
-                  target="_blank" rel="noreferrer"
-                  onClick={pelaGuaxi ? (e) => { e.preventDefault(); enviarPelaGuaxi(t.label, msg) } : undefined}
-                  style={{
-                    opacity: enviandoWa === t.label ? 0.5 : 1,
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    padding: '10px 8px', borderRadius: 8,
-                    background: 'rgba(37,211,102,.06)', border: '1.5px solid rgba(37,211,102,.15)',
-                    marginBottom: 6, textDecoration: 'none',
-                  }}
-                >
-                  <span style={{ fontSize: 18, flexShrink: 0 }}>{t.icon}</span>
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', lineHeight: 1.35 }}>{t.label}</span>
-                  <span style={{ color: 'var(--text-tertiary)', fontSize: 14 }}>›</span>
-                </a>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Frete */}
-        {tipoEntrega === 'Entrega' && (
-          <div style={{ marginBottom: 10 }}>
-            <div className="field-label">Frete (R$)</div>
-            <input className="field-input" type="text" inputMode="decimal" placeholder="0,00"
-              value={frete} onChange={e => setFrete(e.target.value)} />
-          </div>
-        )}
-        {pedido.tipoEntrega === 'Retirada' && (
-          <div style={{ marginBottom: 10 }}>
-            <div className="field-label">Tipo de entrega</div>
-            <select className="field-input" value={tipoEntrega} onChange={e => setTipoEntrega(e.target.value)}>
-              <option>Retirada</option>
-              <option>Entrega</option>
-            </select>
-          </div>
-        )}
-
-        {/* Endereço */}
-        <div style={{ background: 'var(--bg-secondary)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, marginBottom: 8 }}>
-            Endereço de entrega
-          </div>
-          <textarea
-            rows={2}
-            placeholder="Rua, número, bairro..."
-            value={endereco}
-            onChange={e => setEndereco(e.target.value)}
-            style={{
-              width: '100%', boxSizing: 'border-box', resize: 'vertical',
-              background: 'var(--bg-input)', border: '1px solid var(--border)',
-              borderRadius: 8, color: 'var(--text-primary)', fontSize: 13,
-              padding: '8px 10px', lineHeight: 1.5,
-            }}
-          />
-        </div>
-
-        {/* Obs */}
-        {pedido.obs && (
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14, background: 'var(--bg-secondary)', borderRadius: 10, padding: '10px 14px' }}>
-            {pedido.obs}
-          </div>
-        )}
-
-        <button className="btn-primary" onClick={handleSave} disabled={saving}>
-          {saving ? 'Salvando...' : 'Salvar alterações'}
-        </button>
-
-        {!confirm ? (
-          <button onClick={() => setConfirm(true)} style={{ width: '100%', marginTop: 10, padding: 11, background: 'transparent', border: '1px solid #7f1d1d', color: '#ef4444', borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-            Apagar pedido
-          </button>
-        ) : (
-          <div style={{ marginTop: 10, padding: '12px 14px', background: '#1a0a0a', borderRadius: 10, border: '1px solid #7f1d1d' }}>
-            <div style={{ fontSize: 13, color: '#fca5a5', marginBottom: 10 }}>
-              Tem certeza? Isso apaga {pedido.id} ({pedido.cliente}) permanentemente.
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={async () => { setSaving(true); try { await deletePedido(pedido.id); await onSaved(); onBack() } catch(e) { show('Erro: '+e.message); setSaving(false) } }} style={{ flex: 1, padding: 9, background: '#7f1d1d', color: '#fca5a5', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 13 }} disabled={saving}>Apagar</button>
-              <button onClick={() => setConfirm(false)} style={{ flex: 1, padding: 9, background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
-            </div>
-          </div>
-        )}
-      </div>
-      {toast && <div className="toast">{toast}</div>}
-    </>
-  )
-}
-
-// ── NovoPedidoSheet — sheet para uso externo ──────────────────
+// ── NovoPedidoSheet — usado no Início ─────────────────────────────────────────
 export function NovoPedidoSheet({ onClose, onSaved }) {
   const { toast, show }   = useToast()
   const { data: produtos } = useData(getProdutos)
@@ -653,270 +560,252 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
   )
 }
 
-// ── Production view ───────────────────────────────────────────
-// ── Main page ─────────────────────────────────────────────────
+// ── Página ────────────────────────────────────────────────────────────────────
+const FILTROS = [
+  { key: 'proximos', label: 'Próximos' },
+  { key: 'receber', label: 'A receber' },
+  { key: 'entregues', label: 'Entregues' },
+  { key: 'todos', label: 'Todos' },
+]
+
 export default function Pedidos() {
   const { user } = useAuth()
   const location = useLocation()
-  const navTo    = useRRNavigate()
-  const { data: pedidos,  loading: loadingPed, reload: reloadPedidos } = useData(getEncomendas)
-  const { data: produtos, loading: loadingProd, reload: reloadProdutos } = useData(getProdutos)
-  const { data: insumos  } = useData(getInsumos)
-  const { data: receitas } = useData(getReceitas)
+  const navigate = useNavigate()
+  const { data: pedidos, loading: loadingPed, reload: reloadPedidos } = useData(getEncomendas)
+  const { data: produtos, reload: reloadProdutos } = useData(getProdutos)
   const { data: clientes, reload: reloadClientes } = useData(getClientes)
+  const { data: contatos, reload: reloadContatos } = useData(getContatosAtendimento)
+  const [modo, setModo] = useState('lista')             // lista | novo | { id, msg }
+  const [filtro, setFiltro] = useState(() => { try { return localStorage.getItem('pedidos_filtro2') || 'proximos' } catch { return 'proximos' } })
+  const [busca, setBusca] = useState('')
+  const [aviso, setAviso] = useState(null)
+  const [pix, setPix] = useState('')
+  const rolagem = useRef(0)
 
-  const [mode, setMode]               = useState('list')
+  useEffect(() => { reconciliarBaixasPedidos().then(n => { if (n) reloadProdutos() }).catch(() => {}) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadUserConfig().then(c => setPix(c?.delivery?.pix || '')).catch(() => {}) }, [])
+  useEffect(() => { if (!aviso) return; const t = setTimeout(() => setAviso(null), 6000); return () => clearTimeout(t) }, [aviso])
+  useEffect(() => { try { localStorage.setItem('pedidos_filtro2', filtro) } catch { /* sem storage */ } }, [filtro])
 
-  // Pedido entregue baixa o estoque (inclusive os concluídos pelo Lalamove)
-  useEffect(() => { reconciliarBaixasPedidos().then(n => { if (n) reloadProdutos() }).catch(() => {}) }, [])
-
-  const handledState = useRef(false)
+  // Vindo do Início / Atendimento / Envios
+  const tratou = useRef(false)
   useEffect(() => {
-    if (handledState.current) return
-    if (location.state?.openNew) {
-      handledState.current = true
-      setMode('novo')
-      navTo(location.pathname, { replace: true, state: null })
+    if (tratou.current) return
+    if (location.state?.openNew) { tratou.current = true; setModo('novo'); navigate(location.pathname, { replace: true, state: null }); return }
+    if (location.state?.openPedidoId && pedidos) {
+      tratou.current = true
+      setModo({ id: location.state.openPedidoId })
+      navigate(location.pathname, { replace: true, state: null })
     }
-  }, [])
+  }, [pedidos]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => {
-    if (handledState.current || !location.state?.openPedidoId || !pedidos) return
-    const ped = pedidos.find(p => p.id === location.state.openPedidoId)
-    if (!ped) return
-    handledState.current = true
-    setMode(ped)
-    navTo(location.pathname, { replace: true, state: null })
+  const recarregar = () => Promise.all([reloadPedidos(), reloadContatos()])
+
+  async function mudarStatus(p, novo) {
+    const antes = { status: p.status, pgto: p.pgto }
+    const pgto = novo === 'Entregue' && p.pgto !== 'Pago' ? 'Atrasado' : (p.status === 'Entregue' && p.pgto === 'Atrasado' ? 'Aguardando' : p.pgto)
+    await updateStatusEncomenda(p.id, novo, pgto, p.tipoEntrega, p.frete, p.valor)
+    if (novo === 'Entregue' || p.status === 'Entregue') await reconciliarBaixasPedidos().catch(() => {})
+    await recarregar()
+    const nomes = { Pendente: 'a fazer', Pronto: 'pronto', Entregue: 'entregue', Cancelado: 'cancelado' }
+    setAviso({
+      msg: `${primeiroNome(p) || p.id}: ${nomes[novo]}`,
+      undo: async () => {
+        await updateStatusEncomenda(p.id, antes.status, antes.pgto, p.tipoEntrega, p.frete, p.valor)
+        await reconciliarBaixasPedidos().catch(() => {})
+        await recarregar(); setAviso({ msg: 'Desfeito' })
+      },
+    })
+  }
+
+  async function cobrar(p) {
+    const falta = faltaPagar(p)
+    const texto = `Oi${primeiroNome(p) ? `, ${primeiroNome(p)}` : ''}! Passando pra lembrar do pagamento do pedido ${p.id} (${fmtR(falta)}).${pix ? ` Chave Pix: ${pix}` : ' Posso te mandar o Pix?'}`
+    const contato = acharContato(contatos || [], p.contato)
+    if (janelaAberta(contato)) {
+      if (!window.confirm(`Mandar pelo WhatsApp da Guaxí?\n\n${texto}`)) return
+      await enviarWhatsApp(contato.telefone, texto, { pausar: false })
+      setAviso({ msg: 'Cobrança enviada pelo WhatsApp da Guaxí' })
+      return
+    }
+    const link = waLink(p.contato, texto)
+    if (link) window.open(link, '_blank')
+    else setModo({ id: p.id, msg: 'cobrar' })
+  }
+
+  async function acao(p, key) {
+    try {
+      if (key === 'pronto') return await mudarStatus(p, 'Pronto')
+      if (key === 'entregue') return await mudarStatus(p, 'Entregue')
+      if (key === 'reabrir') return await mudarStatus(p, 'Pendente')
+      if (key === 'cancelar') { if (window.confirm(`Cancelar o pedido ${p.id}?`)) await mudarStatus(p, 'Cancelado'); return }
+      if (key === 'recebi') {
+        const antes = p.pgto
+        await updateStatusEncomenda(p.id, p.status, 'Pago', p.tipoEntrega, p.frete, p.valor)
+        await recarregar()
+        setAviso({ msg: `${primeiroNome(p) || p.id}: pago`, undo: async () => { await updateStatusEncomenda(p.id, p.status, antes, p.tipoEntrega, p.frete, p.valor); await recarregar(); setAviso({ msg: 'Desfeito' }) } })
+        return
+      }
+      if (key === 'cobrar') return await cobrar(p)
+      if (key === 'rastreio') { window.open(p.envio.shareLink, '_blank'); return }
+      if (key === 'envios') { navigate('/envios'); return }
+      if (key === 'combinar') { rolagem.current = rolador().scrollTop; setModo({ id: p.id, msg: 'periodo' }); return }
+    } catch (e) { setAviso({ msg: 'Erro: ' + e.message }) }
+  }
+
+  // ── Lista filtrada e agrupada ──
+  const resumo = useMemo(() => {
+    const ab = (pedidos || []).filter(aberto)
+    return {
+      hoje: ab.filter(p => p.dataEntrega && diasAte(p.dataEntrega) <= 0).length,
+      semana: ab.filter(p => p.dataEntrega && diasAte(p.dataEntrega) >= 0 && diasAte(p.dataEntrega) <= 7).length,
+      receber: (pedidos || []).reduce((s, p) => s + faltaPagar(p), 0),
+    }
   }, [pedidos])
-  const [filtroUrgencia, setFiltroUrgencia] = useState(() => localStorage.getItem('pedidos_filtro') || 'todos')
-  const [filtroStatus, setFiltroStatus]     = useState(['Pendente', 'Pronto'])
-  const [selecao, setSelecao]         = useState({})
-  const [expandedPedidoId, setExpandedPedidoId] = useState(null)
-  const selecaoMode = Object.keys(selecao).some(k => selecao[k])
 
-  const setFiltroUrgenciaAndSave = (f) => { setFiltroUrgencia(f); localStorage.setItem('pedidos_filtro', f) }
-
-  const alertMap = useMemo(
-    () => buildAlertMap(produtos || [], receitas || [], insumos || []),
-    [produtos, receitas, insumos]
-  )
-
-  const pedidosFiltrados = useMemo(() => {
-    const list = pedidos || []
-    const fu = FILTROS_URGENCIA.find(x => x.key === filtroUrgencia) || FILTROS_URGENCIA[0]
-    return list.filter(p => {
-      if (!fu.match(p)) return false
-      if (filtroStatus.length > 0 && !filtroStatus.includes(p.status)) return false
+  const grupos = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    const dig = q.replace(/\D/g, '')
+    let lista = (pedidos || []).filter(p => {
+      if (filtro === 'proximos') return aberto(p)
+      if (filtro === 'receber') return faltaPagar(p) > 0
+      if (filtro === 'entregues') return p.status === 'Entregue'
       return true
     })
-  }, [pedidos, filtroUrgencia, filtroStatus])
-
-  const urgenciaCounts = useMemo(() => {
-    const out = {}
-    for (const f of FILTROS_URGENCIA) {
-      if (f.key === 'todos') continue
-      out[f.key] = (pedidos || []).filter(p => f.match(p)).length
+    if (q) lista = lista.filter(p => (p.cliente || '').toLowerCase().includes(q) || (p.id || '').toLowerCase().includes(q) || (dig.length >= 3 && String(p.contato || '').replace(/\D/g, '').includes(dig)))
+    const desc = filtro === 'entregues' || filtro === 'todos'
+    const chaveData = p => p.dataEntrega || (desc ? '0000' : '9999')
+    lista.sort((a, b) => (desc ? chaveData(b).localeCompare(chaveData(a)) : chaveData(a).localeCompare(chaveData(b)))
+      || ((ORDEM_PERIODO[a.periodo] ?? 3) - (ORDEM_PERIODO[b.periodo] ?? 3))
+      || String(a.createdAtTs || '').localeCompare(String(b.createdAtTs || '')))
+    const porDia = new Map()
+    for (const p of lista) {
+      const k = p.dataEntrega || 'sem-data'
+      if (!porDia.has(k)) porDia.set(k, [])
+      porDia.get(k).push(p)
     }
-    return out
-  }, [pedidos])
+    return [...porDia.entries()].map(([k, ps]) => {
+      const subsMap = new Map()
+      for (const p of ps) {
+        const sk = p.periodo || 'nenhum'
+        if (!subsMap.has(sk)) subsMap.set(sk, [])
+        subsMap.get(sk).push(p)
+      }
+      const entregas = ps.filter(p => p.tipoEntrega === 'Entrega').length
+      const subs = [...subsMap.entries()].map(([sk, sps]) => {
+        const per = periodoDe(sk)
+        const envio = sps.find(p => p.envio && p.status !== 'Entregue')?.envio || null
+        const paradas = envio ? (pedidos || []).filter(p => p.envio?.id === envio.id).length : 0
+        return { key: sk, titulo: per ? `${per.nome} · ${per.faixa}` : 'Período a combinar', pedidos: sps, envio, paradas }
+      })
+      const atrasado = k !== 'sem-data' && filtro === 'proximos' && diasAte(k) < 0
+      return {
+        key: k, titulo: tituloDia(k === 'sem-data' ? null : k, filtro !== 'proximos'), atrasado,
+        meta: `${ps.length} ${ps.length === 1 ? 'pedido' : 'pedidos'}${entregas ? ` · ${entregas} ${entregas === 1 ? 'entrega' : 'entregas'}` : ''}`,
+        subs, mostrarSubs: subs.length > 1 || subs.some(s => s.key !== 'nenhum'),
+      }
+    })
+  }, [pedidos, filtro, busca])
 
-  const statusCounts = useMemo(() => {
-    const out = {}
-    const fu = FILTROS_URGENCIA.find(x => x.key === filtroUrgencia) || FILTROS_URGENCIA[0]
-    for (const s of STATUS_FILTROS) {
-      out[s] = (pedidos || []).filter(p => fu.match(p) && p.status === s).length
+  const contagem = useMemo(() => ({
+    proximos: (pedidos || []).filter(aberto).length,
+    receber: (pedidos || []).filter(p => faltaPagar(p) > 0).length,
+  }), [pedidos])
+
+  if (loadingPed && !pedidos) return <div className="loading">Carregando...</div>
+
+  if (modo === 'novo') {
+    return <NovoView produtos={produtos || []} clientes={clientes || []} pedidos={pedidos || []} onBack={() => setModo('lista')} onSaved={() => { reloadPedidos(); reloadClientes() }} />
+  }
+  if (modo && modo.id) {
+    const p = (pedidos || []).find(x => x.id === modo.id)
+    if (p) {
+      return (
+        <>
+          <DetalhePedido key={p.id} p={p} pix={pix} contatos={contatos || []} msgInicial={modo.msg}
+            onBack={() => { setModo('lista'); setTimeout(() => rolador().scrollTo(0, rolagem.current), 0) }}
+            onAcao={acao} recarregar={recarregar} avisar={setAviso} />
+          <Aviso aviso={aviso} fechar={() => setAviso(null)} />
+        </>
+      )
     }
-    return out
-  }, [pedidos, filtroUrgencia])
-
-  const toggleStatusFiltro = (s) =>
-    setFiltroStatus(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])
-
-  const handleQuickStatus = async (pedido, novoStatus) => {
-    try {
-      const novoPgto = novoStatus === 'Entregue' && pedido.pgto !== 'Pago' ? 'Atrasado' : pedido.pgto
-      await updateStatusEncomenda(pedido.id, novoStatus, novoPgto, pedido.tipoEntrega, pedido.frete, pedido.valor)
-      reloadPedidos()
-      setExpandedPedidoId(null)
-    } catch(e) { alert('Erro: '+e.message) }
   }
 
-  const handleTogglePgto = async (pedido) => {
-    const ordem = ['Aguardando', 'Pago', 'Atrasado']
-    const nextPgto = ordem[(ordem.indexOf(pedido.pgto) + 1) % 3]
-    try {
-      await updateStatusEncomenda(pedido.id, pedido.status, nextPgto, pedido.tipoEntrega, pedido.frete, pedido.valor)
-      reloadPedidos()
-    } catch(e) { alert('Erro: '+e.message) }
-  }
-
-  const handleBulkStatus = async (novoStatus) => {
-    const ids = Object.keys(selecao).filter(k => selecao[k])
-    try {
-      await Promise.all(ids.map(id => {
-        const p = (pedidos || []).find(x => x.id === id)
-        if (!p) return null
-        const novoPgto = novoStatus === 'Entregue' && p.pgto !== 'Pago' ? 'Atrasado' : p.pgto
-        return updateStatusEncomenda(id, novoStatus, novoPgto, p.tipoEntrega, p.frete, p.valor)
-      }))
-      setSelecao({}); reloadPedidos()
-    } catch(e) { alert('Erro: '+e.message) }
-  }
-
-  if ((loadingPed && !pedidos) || (loadingProd && !produtos)) return <div className="loading">Carregando...</div>
-
-  if (mode === 'novo') {
-    return <NovoView produtos={produtos||[]} clientes={clientes||[]} pedidos={pedidos||[]} onBack={() => setMode('list')} onSaved={() => { reloadPedidos(); reloadClientes() }} />
-  }
-  if (mode !== 'list') {
-    return <DetalheView pedido={mode} alertMap={alertMap} onBack={() => setMode('list')} onSaved={reloadPedidos} />
-  }
+  const linkCardapio = user?.id ? `${window.location.origin}/pedido/${user.id}` : null
 
   return (
     <>
       <div className="topbar">
         <div className="topbar-inner">
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <button onClick={() => navTo(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <button onClick={() => navigate(-1)} aria-label="Voltar" style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <IconeVoltar />
             </button>
             <div className="topbar-title">Pedidos</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {user?.id && (
-              <button
-                onClick={() => {
-                  const url = `${window.location.origin}/pedido/${user.id}`
-                  navigator.clipboard.writeText(url).then(() => alert('Link copiado!'))
-                }}
-                style={{ background: 'transparent', color: 'var(--teal)', border: '1px solid var(--teal)', borderRadius: 8, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
-                title="Copiar link do formulário de pedidos"
-              >
-                🔗 Link
-              </button>
+            {linkCardapio && (
+              <button className="pd-btn vazado" onClick={() => navigator.clipboard.writeText(linkCardapio).then(() => setAviso({ msg: 'Link do cardápio copiado' }))}>Link do cardápio</button>
             )}
-            <button onClick={() => setMode('novo')} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-              + Novo
-            </button>
+            <button className="pd-btn verde" onClick={() => setModo('novo')}>+ Novo</button>
           </div>
         </div>
       </div>
 
-      <div className="page-inner" style={{ paddingTop: 12 }}>
-        {(
-          <>
-            {/* Mini dashboard */}
-            {(() => {
-              const todos = pedidos || []
-              const pendentes = todos.filter(p => p.status !== 'Entregue' && p.status !== 'Cancelado').length
-              const abertos   = todos.filter(p => p.status !== 'Cancelado' && p.pgto !== 'Pago').length
-              const aReceber  = todos.filter(p => p.status !== 'Cancelado' && p.pgto !== 'Pago').reduce((s, p) => s + (p.saldo || 0), 0)
-              const stats = [
-                { label: 'Em aberto', value: String(pendentes), sub: pendentes === 1 ? 'pedido' : 'pedidos' },
-                { label: 'Pgto pendente', value: String(abertos), sub: abertos === 1 ? 'pedido' : 'pedidos' },
-                { label: 'A receber', value: `R$ ${Number(aReceber).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`, sub: '' },
-              ]
-              return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
-                  {stats.map(s => (
-                    <div key={s.label} className="card" style={{ padding: '12px 14px' }}>
-                      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700, marginBottom: 4 }}>{s.label}</div>
-                      <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>{s.value}</div>
-                      {s.sub && <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 2 }}>{s.sub}</div>}
-                    </div>
-                  ))}
-                </div>
-              )
-            })()}
+      <div className="page-inner pd" style={{ paddingTop: 14 }}>
+        <section className="pd-resumo" aria-label="Resumo">
+          <div className="pd-tile"><b>{resumo.hoje}</b><span>pra hoje</span></div>
+          <div className="pd-tile"><b>{resumo.semana}</b><span>próximos 7 dias</span></div>
+          <div className="pd-tile"><b>{fmtR(resumo.receber).replace(/,00$/, '')}</b><span>a receber</span></div>
+        </section>
 
-            {/* Filter row 1: urgência/temporal — wraps se não couber */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-              {FILTROS_URGENCIA.map(f => {
-                const count  = urgenciaCounts[f.key]
-                const active = filtroUrgencia === f.key
-                return (
-                  <button key={f.key} onClick={() => setFiltroUrgenciaAndSave(f.key)} style={{
-                    padding: '4px 9px', borderRadius: 14, fontSize: 11, fontWeight: 600,
-                    border: '1.5px solid', whiteSpace: 'nowrap', cursor: 'pointer',
-                    borderColor: active ? 'var(--teal)' : '#333',
-                    background:  active ? 'var(--teal-light)' : 'transparent',
-                    color:       active ? 'var(--teal)' : 'var(--text-secondary)',
-                    display: 'flex', alignItems: 'center', gap: 4,
-                  }}>
-                    {f.label}
-                    {count > 0 && (
-                      <span style={{ fontSize: 9, fontWeight: 700, opacity: 0.8 }}>{count}</span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
+        <label className="pd-busca">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="#8a8a8a" strokeWidth="2" /><path d="M20 20l-3.5-3.5" stroke="#8a8a8a" strokeWidth="2" strokeLinecap="round" /></svg>
+          <input type="search" placeholder="Buscar cliente, pedido ou telefone" value={busca} onChange={e => setBusca(e.target.value)} aria-label="Buscar pedidos" />
+        </label>
 
-            {/* Filter row 2: status — multi-select, Entregue off by default */}
-            <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-              <button
-                onClick={() => setFiltroStatus([])}
-                style={{
-                  padding: '4px 9px', borderRadius: 14, fontSize: 11, fontWeight: 600,
-                  border: '1.5px solid', cursor: 'pointer', whiteSpace: 'nowrap',
-                  borderColor: filtroStatus.length === 0 ? 'var(--teal)' : '#333',
-                  background:  filtroStatus.length === 0 ? 'var(--teal-light)' : 'transparent',
-                  color:       filtroStatus.length === 0 ? 'var(--teal)' : 'var(--text-tertiary)',
-                }}
-              >Todos</button>
-              {STATUS_FILTROS.map(s => {
-                const active = filtroStatus.includes(s)
-                const count  = statusCounts[s]
-                return (
-                  <button key={s} onClick={() => toggleStatusFiltro(s)} style={{
-                    padding: '4px 9px', borderRadius: 14, fontSize: 11, fontWeight: 600,
-                    border: '1.5px solid', whiteSpace: 'nowrap', cursor: 'pointer',
-                    borderColor: active ? 'var(--teal)' : '#333',
-                    background:  active ? 'var(--teal-light)' : 'transparent',
-                    color:       active ? 'var(--teal)' : 'var(--text-tertiary)',
-                    display: 'flex', alignItems: 'center', gap: 4,
-                  }}>
-                    {s}
-                    {count > 0 && <span style={{ fontSize: 9, opacity: 0.7 }}>{count}</span>}
-                  </button>
-                )
-              })}
-            </div>
+        <nav className="pd-seg" aria-label="Filtro">
+          {FILTROS.map(f => (
+            <button key={f.key} className={filtro === f.key ? 'on' : ''} onClick={() => setFiltro(f.key)}>
+              {f.label}{contagem[f.key] ? ` (${contagem[f.key]})` : ''}
+            </button>
+          ))}
+        </nav>
 
-            {/* Bulk action bar */}
-            {selecaoMode && (
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--teal-light)', border: '1px solid var(--teal)', borderRadius: 10, padding: '8px 12px', marginBottom: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>{Object.values(selecao).filter(Boolean).length} selecionado(s)</span>
-                <div style={{ display: 'flex', gap: 6, marginLeft: 'auto', flexWrap: 'wrap' }}>
-                  {['Pronto','Entregue'].map(s => (
-                    <button key={s} onClick={() => handleBulkStatus(s)} style={{ padding: '5px 10px', borderRadius: 6, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>→ {s}</button>
-                  ))}
-                  <button onClick={() => setSelecao({})} style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)', fontSize: 12, cursor: 'pointer' }}>Cancelar</button>
-                </div>
-              </div>
-            )}
-
-            {pedidosFiltrados.length === 0 ? (
-              <div style={{ textAlign: 'center', color: 'var(--text-tertiary)', marginTop: 48, fontSize: 14 }}>
-                {filtroUrgencia === 'todos' ? 'Nenhum pedido ainda' : 'Nenhum pedido neste filtro'}
-              </div>
-            ) : (
-              pedidosFiltrados.map(p => (
-                <PedidoCard
-                  key={p.id}
-                  pedido={p}
-                  alertMap={alertMap}
-                  expanded={expandedPedidoId === p.id}
-                  onToggle={() => setExpandedPedidoId(id => id === p.id ? null : p.id)}
-                  onEdit={() => setMode(p)}
-                  onQuickStatus={(status) => handleQuickStatus(p, status)}
-                  onTogglePgto={() => handleTogglePgto(p)}
-                />
-              ))
-            )}
-          </>
+        {grupos.length === 0 && (
+          <div className="pd-vazio">
+            {busca ? 'Nenhum pedido encontrado.' : filtro === 'proximos' ? 'Nenhum pedido em aberto. ' : 'Nada por aqui.'}
+            {filtro === 'proximos' && !busca && <button className="pd-link" onClick={() => setModo('novo')}>Criar pedido</button>}
+          </div>
         )}
+
+        {grupos.map(g => (
+          <section key={g.key} className="pd-dia" aria-label={g.titulo}>
+            <div className="pd-dia-topo">
+              <h2 style={{ color: g.atrasado ? AMBAR : undefined }}>{g.titulo}</h2>
+              <span>{g.meta}</span>
+            </div>
+            {g.subs.map(s => (
+              <div key={s.key} className="pd-sub">
+                {g.mostrarSubs && (
+                  <div className="pd-sub-topo">
+                    <span>{s.titulo}</span>
+                    {s.envio && <button className="pd-link" onClick={() => navigate('/envios')}>Envio {ENVIO_STATUS[s.envio.status] || ''}{s.paradas > 1 ? ` · ${s.paradas} paradas` : ''}</button>}
+                  </div>
+                )}
+                <div className="pd-grade">
+                  {s.pedidos.map(p => (
+                    <CardPedido key={p.id} p={p} onAcao={acao}
+                      onAbrir={() => { rolagem.current = rolador().scrollTop; setModo({ id: p.id }) }} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        ))}
       </div>
+      <Aviso aviso={aviso} fechar={() => setAviso(null)} />
     </>
   )
 }

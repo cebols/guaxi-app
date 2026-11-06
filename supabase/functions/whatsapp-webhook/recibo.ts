@@ -9,6 +9,7 @@ const COD = /\bPED[-\s]?#?(\d{1,6})\b/i
 const soDigitos = (s: string) => String(s || '').replace(/\D/g, '')
 const fmtR = (v: number) => `R$ ${Number(v || 0).toFixed(2).replace('.', ',')}`
 const DIAS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado']
+const PERIODO: Record<string, string> = { manha: 'manhã (9–12h)', tarde: 'tarde (12–18h)', noite: 'noite (18–22h)' }
 const dia = (s: string) => {
   const d = new Date(s + 'T12:00:00')
   return `${DIAS[d.getDay()]}, ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -21,7 +22,7 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
   if (!m) return null
   const pedidoId = `PED-${m[1].padStart(3, '0')}`
   const { data: p } = await sb.from('encomendas')
-    .select('id, cliente, contato, data_entrega, tipo_entrega, endereco, valor, frete, pgto, status, encomenda_itens(produto, quantidade, preco_unit)')
+    .select('id, cliente, contato, data_entrega, periodo, tipo_entrega, endereco, valor, frete, pgto, status, encomenda_itens(produto, quantidade, preco_unit)')
     .eq('user_id', OWNER_USER_ID).eq('id', pedidoId).maybeSingle()
   if (!p) return null   // código que não existe: segue a conversa normal
 
@@ -44,10 +45,13 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
   }).join('\n')
   const entrega = p.tipo_entrega === 'Entrega'
   const frete = Number(p.frete) || 0
+  const per = PERIODO[String(p.periodo || '')] ? ` · ${PERIODO[String(p.periodo)]}` : ''
   const quando = p.data_entrega
-    ? (entrega ? `🛵 *Entrega ${dia(String(p.data_entrega))}*${p.endereco ? `\n${p.endereco}` : ''}` : `🏠 *Retirada ${dia(String(p.data_entrega))}*`)
+    ? (entrega ? `🛵 *Entrega ${dia(String(p.data_entrega))}${per}*${p.endereco ? `\n${p.endereco}` : ''}` : `🏠 *Retirada ${dia(String(p.data_entrega))}${per}*`)
     : (entrega ? '🛵 *Entrega* — a gente combina o dia por aqui' : '🏠 *Retirada* — a gente combina o dia e o horário por aqui')
   const pago = p.pgto === 'Pago'
+  const { data: cfg } = await sb.from('user_config').select('config').eq('user_id', OWNER_USER_ID).maybeSingle()
+  const pix = String(((cfg?.config as Record<string, Record<string, unknown>> | undefined)?.delivery?.pix) || '').trim()
 
   const resposta = [
     `Oii${nome ? `, ${nome}` : ''}! Aqui é a GuaxiMina, a guaxinim virtual da Guaxí 🦝`,
@@ -59,7 +63,8 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
     '',
     quando,
     '',
-    pago ? 'Pagamento: confirmado ✅' : 'Pagamento: Pix — a Guaxí te manda a chave por aqui.',
+    pago ? 'Pagamento: confirmado ✅' : pix ? `Pagamento por Pix — chave: *${pix}*` : 'Pagamento: Pix — a Guaxí te manda a chave por aqui.',
+    entrega ? 'Quando o motorista sair daqui, a gente te manda o link pra acompanhar 🛵' : null,
     'Qualquer dúvida, é só me chamar aqui mesmo 💛',
   ].filter(l => l !== null).join('\n')
 

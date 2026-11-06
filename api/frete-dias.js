@@ -22,12 +22,14 @@ const iso = (d) => d.toISOString().slice(0, 10)
 
 // Assinatura do frete: o banco (submit_pedido_externo) confere com o mesmo segredo
 // (CRON_SECRET aqui = guaxi_cron_secret no Vault). Sem ela o pedido entra com aviso.
-function assinar(userId, date, preco, lat, lng, frag) {
+// Com período, o preço vale só pra aquele período (é a rota daquele período que barateia).
+function assinar(userId, date, preco, lat, lng, frag, periodo = null) {
   const segredo = process.env.CRON_SECRET
   if (!segredo) return null
-  const msg = `${userId}|${date}|${Number(preco).toFixed(2)}|${Number(lat).toFixed(5)}|${Number(lng).toFixed(5)}|${frag}`
+  const msg = `${userId}|${date}|${Number(preco).toFixed(2)}|${Number(lat).toFixed(5)}|${Number(lng).toFixed(5)}|${frag}${periodo ? `|${periodo}` : ''}`
   return crypto.createHmac('sha256', segredo).update(msg).digest('hex')
 }
+const PERIODOS = ['manha', 'tarde', 'noite']
 const ordSemana = (wd) => (wd + 6) % 7   // segunda=0 ... domingo=6
 
 export default async function handler(req, res) {
@@ -72,14 +74,17 @@ export default async function handler(req, res) {
     // Pedidos já reservados nessas datas (com coordenadas)
     const { data: pedidos } = await sb
       .from('encomendas')
-      .select('data_entrega, entrega_lat, entrega_lng, entrega_frag')
+      .select('data_entrega, periodo, entrega_lat, entrega_lng, entrega_frag, status')
       .eq('user_id', userId)
       .eq('tipo_entrega', 'Entrega')
       .in('data_entrega', datas.map(iso))
       .not('entrega_lat', 'is', null)
 
     const porDia = {}
-    for (const p of (pedidos || [])) (porDia[p.data_entrega] ||= []).push(p)
+    for (const p of (pedidos || [])) {
+      if (p.status === 'Cancelado' || p.status === 'Entregue') continue
+      (porDia[p.data_entrega] ||= []).push(p)
+    }
 
     const loja    = stopOf(lojaLat, lojaLng, 'Loja')
     const cliente = stopOf(lat, lng, 'Cliente')
@@ -90,32 +95,48 @@ export default async function handler(req, res) {
     const veicCliente = veiculoPara([frag])
     const solo = await quoteTotal([loja, cliente], veicCliente)
 
+    const precoSolo = gratis ? 0 : Math.max(pisoFrete(veicCliente, delivery), precoFrete(solo, delivery))
+
+    // Preço de entrar numa rota já existente (pedidos daquele dia e período)
+    async function precoNaRota(reservados) {
+      if (!reservados.length) return { preco: precoSolo, compartilhado: false, veiculo: veicCliente }
+      const fragsRota = reservados.map(p => p.entrega_frag || 'robusto')
+      const veicRota  = veiculoPara(fragsRota)
+      const veiculo   = veiculoPara([...fragsRota, frag])   // se o cliente é frágil, a rota sobe pra carro
+      const stops     = reservados.map((p, i) => stopOf(p.entrega_lat, p.entrega_lng, `Parada ${i + 1}`))
+      const base       = await quoteTotal([loja, ...stops], veicRota)
+      const comCliente = await quoteTotal([loja, ...stops, cliente], veiculo)
+      const marginal   = comCliente - base
+      // Paga o menor entre o marginal do compartilhado e o solo individual
+      const custo = Math.min(marginal, solo)
+      const preco = gratis ? 0 : Math.max(pisoFrete(veicCliente, delivery), precoFrete(custo, delivery))
+      return { preco, compartilhado: marginal < solo, veiculo }
+    }
+
     const dias = []
     for (const d of datas) {
       const key = iso(d)
       const reservados = porDia[key] || []
-      const fragsDia = reservados.map(p => p.entrega_frag || 'robusto')
-      const veicDia  = veiculoPara(fragsDia)
-      const veiculo  = veiculoPara([...fragsDia, frag])   // se o cliente é frágil, a rota sobe pra carro
-
-      const stopsExist = reservados.map((p, i) => stopOf(p.entrega_lat, p.entrega_lng, `Parada ${i + 1}`))
-      const base       = stopsExist.length === 0 ? 0 : await quoteTotal([loja, ...stopsExist], veicDia)
-      const comCliente = await quoteTotal([loja, ...stopsExist, cliente], veiculo)
-      const marginal   = comCliente - base
-
-      // Paga o menor entre o marginal do compartilhado e o solo individual
-      const custo = Math.min(marginal, solo)
-      const preco = gratis ? 0 : Math.max(pisoFrete(veicCliente, delivery), precoFrete(custo, delivery))
-      const compartilhado = reservados.length > 0 && marginal < solo  // agrupar de fato baratearia
-
-      dias.push({ date: key, weekday: d.getDay(), pedidos: reservados.length, veiculo, preco, gratis, compartilhado,
-                  assinatura: assinar(userId, key, preco, lat, lng, frag) })
+      // Um envio por período: só os pedidos do mesmo período dividem a rota.
+      // Pedidos ainda sem período não entram na conta de nenhum.
+      const periodos = []
+      for (const per of PERIODOS) {
+        const daRota = reservados.filter(p => p.periodo === per)
+        const r = await precoNaRota(daRota)
+        periodos.push({ periodo: per, pedidos: daRota.length, preco: r.preco, compartilhado: daRota.length > 0 && r.compartilhado,
+                        assinatura: assinar(userId, key, r.preco, lat, lng, frag, per) })
+      }
+      // Resumo do dia (agente do WhatsApp / pedido sem período): o período mais barato
+      const melhor = [...periodos].sort((a, b) => a.preco - b.preco || b.pedidos - a.pedidos)[0]
+      dias.push({ date: key, weekday: d.getDay(), pedidos: reservados.length, veiculo: veicCliente, preco: melhor.preco, gratis,
+                  compartilhado: periodos.some(p => p.compartilhado), periodos,
+                  assinatura: assinar(userId, key, melhor.preco, lat, lng, frag) })
     }
 
     // Ordena por dia da semana: segunda → domingo
     dias.sort((a, b) => ordSemana(a.weekday) - ordSemana(b.weekday))
 
-    res.status(200).json({ dias })
+    res.status(200).json({ dias, precoSolo })
   } catch (e) {
     console.error('frete-dias', e)
     res.status(500).json({ error: 'Não foi possível calcular o frete agora' })

@@ -471,6 +471,13 @@ ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS entrega_frag text default 'robus
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS envio_id     bigint references envios(id) on delete set null;
 -- Pedido aberto só reserva; ao virar Entregue o app baixa do estoque e marca isto
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS estoque_baixado boolean NOT NULL DEFAULT false;
+-- Período da entrega: manha (9–12h) | tarde (12–18h) | noite (18–22h); null = a combinar
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS periodo text;
+-- Rastreio da Lalamove pelo WhatsApp da Guaxí quando o motorista sai com o pedido
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS rastreio_auto       boolean NOT NULL DEFAULT true;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS rastreio_enviado_em timestamptz;
+-- Envios: uma rota da Lalamove por dia + período
+ALTER TABLE envios ADD COLUMN IF NOT EXISTS periodo text;
 
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS produto_id bigint references produtos(id) on delete set null;
@@ -649,6 +656,7 @@ DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, tex
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text);
+DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text);
 CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_user_id          uuid,
   p_cliente          text,
@@ -663,7 +671,8 @@ CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_lng              numeric default null,
   p_frag             text default 'robusto',
   p_frete_assinatura text default null,
-  p_canal            text default 'FormExterno'   -- 'FormExterno' (cardápio online) | 'WhatsApp' (agente)
+  p_canal            text default 'FormExterno',  -- 'FormExterno' (cardápio online) | 'WhatsApp' (agente)
+  p_periodo          text default null            -- manha | tarde | noite (null = a combinar)
 ) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
 DECLARE
@@ -682,6 +691,7 @@ DECLARE
   v_segredo  text;
   v_gratis   numeric;
   v_obs      text := left(coalesce(p_obs, ''), 1000);
+  v_periodo  text := CASE WHEN p_periodo IN ('manha', 'tarde', 'noite') THEN p_periodo END;
 BEGIN
   IF coalesce(trim(p_cliente), '') = '' OR coalesce(trim(p_contato), '') = '' THEN
     RAISE EXCEPTION 'Informe nome e WhatsApp';
@@ -715,7 +725,8 @@ BEGIN
     v_ok := v_segredo IS NOT NULL AND p_frete_assinatura IS NOT NULL
       AND p_data_entrega IS NOT NULL AND p_lat IS NOT NULL AND p_lng IS NOT NULL
       AND encode(hmac(p_user_id::text || '|' || p_data_entrega::text || '|' || round(v_frete, 2)::text || '|'
-                      || round(p_lat, 5)::text || '|' || round(p_lng, 5)::text || '|' || v_frag,
+                      || round(p_lat, 5)::text || '|' || round(p_lng, 5)::text || '|' || v_frag
+                      || coalesce('|' || v_periodo, ''),   -- o preço vale pro período escolhido
                       v_segredo, 'sha256'), 'hex') = p_frete_assinatura;
     -- frete grátis só se o pedido de verdade passou do valor mínimo
     IF v_ok AND v_frete = 0 THEN
@@ -736,13 +747,13 @@ BEGIN
 
   INSERT INTO encomendas
     (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto,
-     data_entrega, entrega_lat, entrega_lng, entrega_frag)
+     data_entrega, entrega_lat, entrega_lng, entrega_frag, periodo)
   VALUES
     (v_id, p_user_id, left(trim(p_cliente), 100), left(trim(p_contato), 40),
      CASE WHEN p_canal = 'WhatsApp' THEN 'WhatsApp' ELSE 'FormExterno' END,
      CASE WHEN v_entrega THEN 'Entrega' ELSE 'Retirada' END, left(coalesce(p_endereco, ''), 300), v_obs,
      v_total + v_frete, v_frete, 'Pendente', 'Aguardando',
-     p_data_entrega, p_lat, p_lng, v_frag);
+     p_data_entrega, p_lat, p_lng, v_frag, v_periodo);
 
   INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id, produto_id)
   SELECT v_id, elem->>'produto_nome', (elem->>'quantidade')::numeric, (elem->>'preco_unit')::numeric,
@@ -843,7 +854,7 @@ GRANT EXECUTE ON FUNCTION public.cardapio_publico(uuid)        TO anon, authenti
 GRANT EXECUTE ON FUNCTION public.get_delivery_config(uuid)     TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.produtos_disponiveis(uuid)    TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.registrar_interesse(uuid, bigint, text, text) TO anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.delete_pedido(text, uuid)     TO authenticated, service_role;
 
 
@@ -930,6 +941,40 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION avisar_dono(uuid, text, text, text, text) FROM public, anon, authenticated;
 GRANT EXECUTE ON FUNCTION avisar_dono(uuid, text, text, text, text) TO service_role;
+
+-- Confere o segredo do Vault (o agente do WhatsApp usa pra aceitar chamadas do banco)
+CREATE OR REPLACE FUNCTION conferir_segredo_guaxi(p_segredo text) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT coalesce(nullif(p_segredo, '') = (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'guaxi_cron_secret' LIMIT 1), false)
+$$;
+REVOKE ALL ON FUNCTION conferir_segredo_guaxi(text) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION conferir_segredo_guaxi(text) TO service_role;
+
+-- Rastreio automático: quando o motorista sai com os pedidos (Lalamove PICKED_UP),
+-- chama o agente do WhatsApp, que manda o link de rastreio pra cada cliente do envio.
+CREATE OR REPLACE FUNCTION avisar_rastreio_envio() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE segredo text;
+BEGIN
+  IF NEW.status = 'PICKED_UP' AND coalesce(NEW.share_link, '') <> ''
+     AND (OLD.status IS DISTINCT FROM 'PICKED_UP' OR coalesce(OLD.share_link, '') = '') THEN
+    SELECT decrypted_secret INTO segredo FROM vault.decrypted_secrets WHERE name = 'guaxi_cron_secret' LIMIT 1;
+    IF segredo IS NOT NULL THEN
+      PERFORM net.http_post(
+        url     := 'https://xhnzbmguobhfvcmwhhwi.supabase.co/functions/v1/whatsapp-webhook?acao=rastreio',
+        headers := jsonb_build_object('Content-Type', 'application/json', 'x-guaxi-segredo', segredo),
+        body    := jsonb_build_object('envio_id', NEW.id)
+      );
+    END IF;
+  END IF;
+  RETURN NEW;
+EXCEPTION WHEN others THEN
+  RAISE WARNING 'rastreio automático: %', SQLERRM;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION avisar_rastreio_envio() FROM public, anon, authenticated;
+CREATE OR REPLACE TRIGGER envio_rastreio AFTER UPDATE OF status, share_link ON envios
+  FOR EACH ROW EXECUTE FUNCTION avisar_rastreio_envio();
 
 -- Agenda (rodar de novo só atualiza o mesmo agendamento)
 SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar_lembretes_push()');

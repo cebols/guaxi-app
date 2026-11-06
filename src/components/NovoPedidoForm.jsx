@@ -8,6 +8,7 @@ import { saveCliente, savePedido } from '../services/db'
 // estoque de cada sabor reserva e baixa certo, sem mudar o banco.
 
 const CANAIS = ['WhatsApp', 'Instagram', 'iFood', 'Presencial']
+const PERIODOS_NP = [{ v: 'manha', l: 'Manhã', h: '9–12h' }, { v: 'tarde', l: 'Tarde', h: '12–18h' }, { v: 'noite', l: 'Noite', h: '18–22h' }, { v: '', l: 'A combinar', h: 'depois' }]
 const fmtR = v => Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num = v => parseFloat(String(v ?? '').replace(',', '.')) || 0
 const isoLocal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -229,7 +230,7 @@ export default function NovoPedidoForm({ produtos, clientes, encomendas, onSaved
   const [modo, setModo] = useState('encomenda') // encomenda | feita
   const [form, setForm] = useState({
     cliente: '', contato: '', canal: 'WhatsApp', dataEntrega: '', tipoEntrega: 'Entrega', frete: '10',
-    endereco: '', obs: '', pgto: 'Aguardando', sinal: '',
+    endereco: '', obs: '', pgto: 'Aguardando', sinal: '', periodo: '',
   })
   const [itens, setItens] = useState([])
   const [seletor, setSeletor] = useState(false)
@@ -323,6 +324,7 @@ export default function NovoPedidoForm({ produtos, clientes, encomendas, onSaved
         endereco: entrega ? form.endereco.trim() : '',
         sinal: form.pgto === 'Pago' ? 0 : num(form.sinal),
         status: feita ? 'Entregue' : 'Pendente',
+        periodo: feita ? null : (form.periodo || null),
       }, linhas)
       show(feita ? `Venda ${id} registrada!` : `Pedido ${id} salvo!`)
       setTimeout(() => { onSaved?.(); onClose?.() }, 700)
@@ -397,6 +399,15 @@ export default function NovoPedidoForm({ produtos, clientes, encomendas, onSaved
       <div className="np-bloco">
         <div className="np-titulo">Entrega</div>
         <Segmento valor={form.tipoEntrega} onChange={v => set('tipoEntrega', v)} opcoes={[{ v: 'Entrega', l: '🛵 Entrega' }, { v: 'Retirada', l: '🏠 Retirada' }]} />
+        {!feita && (
+          <div className="np-chips" style={{ marginTop: 10 }}>
+            {PERIODOS_NP.map(p => (
+              <button key={p.v} type="button" className={`np-chip${form.periodo === p.v ? ' on' : ''}`} onClick={() => set('periodo', p.v)}>
+                <b>{p.l}</b><span>{p.h}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {form.tipoEntrega === 'Entrega' && (
           <div style={{ marginTop: 10 }}>
             <input className="field-input" placeholder="Endereço: rua, número, complemento, bairro" autoComplete="street-address"

@@ -170,6 +170,7 @@ export default function Configuracoes() {
     const payload = {
       ...(existing?.delivery || {}),   // preserva campos salvos em outras telas (nome/telefone da loja)
       lojaCEP: deliveryCfg.lojaCEP, lojaEndereco: deliveryCfg.lojaEndereco,
+      pix: (deliveryCfg.pix || '').trim(),
       freteMargemPct: deliveryCfg.freteMargemPct === '' ? 10 : (parseFloat(deliveryCfg.freteMargemPct) || 0),
       freteMargemMin: deliveryCfg.freteMargemMin === '' ? 1 : (parseFloat(deliveryCfg.freteMargemMin) || 0),
       freteGratis: parseFloat(deliveryCfg.freteGratis) || 0, freteTiers: tiers,
@@ -595,6 +596,14 @@ export default function Configuracoes() {
               value={deliveryCfg.lojaEndereco}
               onChange={e => setDel('lojaEndereco', e.target.value)}
               placeholder="Rua..., número, cidade"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
+            />
+            <label className="cfg-label">Chave Pix (vai nas mensagens pro cliente)</label>
+            <input
+              type="text"
+              value={deliveryCfg.pix || ''}
+              onChange={e => setDel('pix', e.target.value)}
+              placeholder="CNPJ, e-mail, telefone ou chave aleatória"
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
             />
             <label className="cfg-label">Frete grátis acima de (R$, 0 = desativado)</label>

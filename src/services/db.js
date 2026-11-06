@@ -932,7 +932,7 @@ export async function saveCliente(cliente) {
 export async function getEncomendas() {
   const { data, error } = await supabase
     .from('encomendas')
-    .select('*, encomenda_itens(*)')
+    .select('*, encomenda_itens(*), envios(id, status, share_link, periodo, data_entrega)')
     .order('data_entrega', { ascending: true })
   if (error) throw error
   return data.map(r => ({
@@ -954,6 +954,11 @@ export async function getEncomendas() {
     tipoEntrega: r.tipo_entrega || 'Retirada',
     frete: r.frete || 0,
     estoqueBaixado: r.estoque_baixado ?? false,
+    periodo: r.periodo || null,
+    rastreioAuto: r.rastreio_auto ?? true,
+    rastreioEnviadoEm: r.rastreio_enviado_em || null,
+    envio: r.envios ? { id: r.envios.id, status: r.envios.status, shareLink: r.envios.share_link || null, periodo: r.envios.periodo || null } : null,
+    createdAtTs: r.created_at || null,
     itens: (r.encomenda_itens || []).map(i => ({
       id: i.id,
       produto: i.produto,
@@ -999,13 +1004,18 @@ export async function savePedido(pedido, itens) {
     obs: pedido.obs || '',
     tipo_entrega: pedido.tipoEntrega || 'Retirada',
     frete,
+    ...(pedido.periodo ? { periodo: pedido.periodo } : {}),
   }
 
   // Graceful fallback if migration15 not yet run
   const tryInsert = async (r) => supabase.from('encomendas').insert(r)
   let { error } = await tryInsert(row)
+  if (error?.message?.includes('periodo')) {
+    const { periodo: _p, ...semPeriodo } = row
+    ;({ error } = await tryInsert(semPeriodo))
+  }
   if (error?.message?.includes('tipo_entrega') || error?.message?.includes('frete')) {
-    const { tipo_entrega: _t, frete: _f, ...rowFallback } = row
+    const { tipo_entrega: _t, frete: _f, periodo: _p2, ...rowFallback } = row
     const res = await tryInsert(rowFallback)
     error = res.error
   }
@@ -1099,6 +1109,12 @@ export function reservasPorProduto(encomendas, produtos, dias = 1) {
 export async function deletePedido(id) {
   const { data: { user } } = await supabase.auth.getUser()
   const { error } = await supabase.rpc('delete_pedido', { p_id: id, p_user_id: user.id })
+  if (error) throw error
+}
+
+// Atualiza campos soltos do pedido (período, rastreio, endereço…) — nomes já no formato do banco
+export async function atualizarPedido(id, campos) {
+  const { error } = await supabase.from('encomendas').update(campos).eq('id', id)
   if (error) throw error
 }
 
@@ -2457,8 +2473,10 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
   }
   const naoAchou = (e) => e && /Could not find the function|PGRST202/i.test(e.message || '')
   // Versão atual: frete assinado pelo servidor (o banco confere)
-  let { data, error } = await supabase.rpc('submit_pedido_externo', { ...comEntrega, p_frete_assinatura: entrega.freteAssinatura || null })
+  const assinado = { ...comEntrega, p_frete_assinatura: entrega.freteAssinatura || null }
+  let { data, error } = await supabase.rpc('submit_pedido_externo', entrega.periodo ? { ...assinado, p_periodo: entrega.periodo } : assinado)
   // Fallbacks p/ bancos que ainda não rodaram o SQL novo
+  if (naoAchou(error) && entrega.periodo) ({ data, error } = await supabase.rpc('submit_pedido_externo', assinado))
   if (naoAchou(error)) ({ data, error } = await supabase.rpc('submit_pedido_externo', comEntrega))
   if (naoAchou(error)) ({ data, error } = await supabase.rpc('submit_pedido_externo', baseArgs))
   if (error) throw error
@@ -2473,7 +2491,7 @@ const FINAIS = ['Entregue', 'Cancelado']
 export async function getPedidosParaAgrupar() {
   const { data, error } = await supabase
     .from('encomendas')
-    .select('id, cliente, contato, canal, endereco, obs, valor, frete, data_entrega, entrega_lat, entrega_lng, entrega_frag, status, pgto, encomenda_itens(produto, quantidade)')
+    .select('id, cliente, contato, canal, endereco, obs, valor, frete, data_entrega, periodo, entrega_lat, entrega_lng, entrega_frag, status, pgto, encomenda_itens(produto, quantidade)')
     .eq('tipo_entrega', 'Entrega')
     .is('envio_id', null)
     .not('data_entrega', 'is', null)
@@ -2485,7 +2503,7 @@ export async function getPedidosParaAgrupar() {
     .map(r => ({
       id: r.id, cliente: r.cliente, contato: r.contato || '', canal: r.canal || '', endereco: r.endereco || '',
       obs: r.obs || '', valor: r.valor || 0, frete: r.frete || 0, status: r.status, pgto: r.pgto,
-      dataEntrega: r.data_entrega, frag: r.entrega_frag || 'robusto',
+      dataEntrega: r.data_entrega, periodo: r.periodo || null, frag: r.entrega_frag || 'robusto',
       itens: (r.encomenda_itens || []).map(i => ({ produto: i.produto, quantidade: i.quantidade })),
     }))
 }
@@ -2498,7 +2516,7 @@ export async function getEnvios() {
     .order('data_entrega')
   if (error) throw error
   return (data || []).map(e => ({
-    id: e.id, dataEntrega: e.data_entrega, veiculo: e.veiculo, status: e.status,
+    id: e.id, dataEntrega: e.data_entrega, periodo: e.periodo || null, veiculo: e.veiculo, status: e.status,
     orderId: e.order_id, shareLink: e.share_link, precoTotal: e.price_total || 0,
     driverNome: e.driver_nome, driverPhone: e.driver_phone, driverPlate: e.driver_plate,
     pedidos: (e.encomendas || []).map(p => ({
@@ -2510,18 +2528,24 @@ export async function getEnvios() {
   }))
 }
 
-// Agrupa automaticamente os pedidos pendentes: 1 envio por dia.
-// Veículo = CAR se houver algum frágil no dia, senão LALAGO.
+// Agrupa automaticamente os pedidos pendentes: 1 envio por dia + período
+// (manhã, tarde, noite; pedidos sem período formam o envio "a combinar" do dia).
+// Veículo = CAR se houver algum frágil no grupo, senão LALAGO.
 export async function gerarEnvios() {
   const pendentes = await getPedidosParaAgrupar()
-  const byDay = {}
-  for (const p of pendentes) (byDay[p.dataEntrega] ||= []).push(p)
+  const grupos = {}
+  for (const p of pendentes) (grupos[`${p.dataEntrega}|${p.periodo || ''}`] ||= []).push(p)
   const criados = []
-  for (const [dia, peds] of Object.entries(byDay)) {
+  for (const [chave, peds] of Object.entries(grupos)) {
+    const [dia, periodo] = chave.split('|')
     // mesmo critério da cotação do frete: tudo robusto → moto; algum frágil → hatch
     const veiculo = peds.some(p => p.frag === 'fragil') ? 'HATCHBACK' : 'LALAGO'
-    const { data: envio, error } = await supabase
-      .from('envios').insert({ data_entrega: dia, veiculo, status: 'FILA' }).select().single()
+    const linha = { data_entrega: dia, veiculo, status: 'FILA', ...(periodo ? { periodo } : {}) }
+    let { data: envio, error } = await supabase.from('envios').insert(linha).select().single()
+    if (error?.message?.includes('periodo')) {   // banco sem a coluna ainda
+      const { periodo: _p, ...sem } = linha
+      ;({ data: envio, error } = await supabase.from('envios').insert(sem).select().single())
+    }
     if (error) throw error
     const { error: upErr } = await supabase
       .from('encomendas').update({ envio_id: envio.id }).in('id', peds.map(p => p.id))

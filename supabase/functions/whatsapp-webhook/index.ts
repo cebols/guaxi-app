@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { parseMetaWebhook, sendMetaMessage } from './providers.ts'
 import { runAgent } from './agent.ts'
+import { avisarRastreio } from './rastreio.ts'
 
 // A Meta assina cada chamada (X-Hub-Signature-256 = HMAC-SHA256 do corpo com o App
 // Secret). Sem conferir, qualquer um que descubra esta URL manda mensagens falsas
@@ -38,6 +39,21 @@ Deno.serve(async (req: Request) => {
 
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 })
+  }
+
+  // Chamada do próprio banco (gatilho em envios): motorista saiu → manda o rastreio.
+  // Autenticada pelo segredo guardado no Vault (guaxi_cron_secret).
+  if (new URL(req.url).searchParams.get('acao') === 'rastreio') {
+    const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+    const { data: ok } = await sb.rpc('conferir_segredo_guaxi', { p_segredo: req.headers.get('x-guaxi-segredo') || '' })
+    if (ok !== true) return new Response('Forbidden', { status: 403 })
+    let envioId = 0
+    try { envioId = Number((await req.json())?.envio_id) || 0 } catch { /* corpo inválido */ }
+    if (!envioId) return new Response('Bad Request', { status: 400 })
+    const r = await avisarRastreio(sb, envioId, {
+      phoneNumberId: Deno.env.get('META_PHONE_NUMBER_ID')!, accessToken: Deno.env.get('META_ACCESS_TOKEN')!,
+    })
+    return new Response(JSON.stringify(r), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
 
   const raw = await req.text()
