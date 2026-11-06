@@ -6,6 +6,7 @@ import {
   getProdutos, getEncomendas, reconciliarBaixasPedidos, reservasPorProduto, getInteresses, marcarInteressesAvisados,
   getProntidaoLotes, moverProntidao, desfazerMovimento, embalarProduto, desfazerEmbalar,
   corrigirEtapaProntidao, baixaProntidao, descartarVencidosProntidao, setProdutoProntidao,
+  marcarEtapaPronta, desfazerEtapaPronta,
 } from '../services/db'
 import {
   FLUXOS, LOCAL, fluxoAtivo, analisarProduto, sugerirConfig, etapasDoProduto, metaPadrao, hhmm, fmtDuracao, usaEmbalagem,
@@ -104,6 +105,8 @@ export default function Prontidao() {
       ...x.a.sugestoes.map(s => ({ ...s, prod: x.prod, status: x.a.status })),
       ...(x.a.vendaveis > 0 && interessadosPor[x.prod.id]?.length
         ? [{ tipo: 'avisar', prod: x.prod, n: interessadosPor[x.prod.id].length, status: x.a.status }] : []),
+      ...x.a.etapas.filter(e => e.pendentes > 0 && e.tempoH > 0)
+        .map(e => ({ tipo: 'aguardando', etapa: e.key, n: e.pendentes, prontoAs: e.proxPronto, tempoH: e.tempoH, prod: x.prod, status: x.a.status })),
     ])
     .sort((a, b) => STATUS[a.status].ordem - STATUS[b.status].ordem)
 
@@ -117,6 +120,12 @@ export default function Prontidao() {
   async function executar(t, qtd, destinos) {
     try {
       if (t.tipo === 'avisar') { setVerInteresses(t.prod); return }
+      if (t.tipo === 'aguardando') {
+        const info = await marcarEtapaPronta(t.prod.id, t.etapa, t.tempoH)
+        await recarregar()
+        setAviso({ msg: `${fmtN(t.n)} ${t.prod.nome} pronto(s) agora`, undo: async () => { await desfazerEtapaPronta(info); await recarregar(); setAviso({ msg: 'Desfeito' }) } })
+        return
+      }
       if (t.tipo === 'produzir') { navigate('/mise-en-place', { state: { adicionar: [{ produtoId: t.prod.id, n: qtd }] } }); return }
       if (t.tipo === 'vencidos') {
         const e = etapasDoProduto(t.prod).find(x => x.key === t.etapa)
@@ -336,8 +345,8 @@ export default function Prontidao() {
 // ── Quadro de ações: agrupado pelo tipo de trabalho ──────────────────────────
 const GRUPOS = [
   { key: 'embalar',   icon: '📦', nome: 'Embalar',   cor: '#c084fc', match: t => t.tipo === 'mover' && t.verbo === 'Embalar' },
-  { key: 'forno',     icon: '🔥', nome: 'Forno',     cor: '#fb923c', match: t => t.tipo === 'mover' && (t.verbo === 'Assar' || t.verbo === 'Reassar') },
-  { key: 'degelo',    icon: '💧', nome: 'Degelo',    cor: '#2dd4bf', match: t => t.tipo === 'mover' && t.verbo === 'Tirar pro degelo' },
+  { key: 'forno',     icon: '🔥', nome: 'Forno',     cor: '#fb923c', match: t => (t.tipo === 'mover' && (t.verbo === 'Assar' || t.verbo === 'Reassar')) || (t.tipo === 'aguardando' && t.etapa !== 'degelo') },
+  { key: 'degelo',    icon: '💧', nome: 'Degelo',    cor: '#2dd4bf', match: t => (t.tipo === 'mover' && t.verbo === 'Tirar pro degelo') || (t.tipo === 'aguardando' && t.etapa === 'degelo') },
   { key: 'rechear',   icon: '🧁', nome: 'Rechear',   cor: '#4ade80', match: t => t.tipo === 'mover' && t.verbo === 'Rechear' },
   { key: 'congelar',  icon: '❄', nome: 'Voltar pro freezer', cor: '#60a5fa', match: t => t.tipo === 'mover' && t.verbo === 'Congelar de volta' },
   { key: 'mover',     icon: '➡️', nome: 'Mover',     cor: '#94a3b8', match: t => t.tipo === 'mover' },
@@ -404,6 +413,18 @@ function QuadroAcoes({ tarefas, analises, agora, grupoSel, setGrupoSel, onExecut
   )
 }
 
+// Número que dá pra tocar e digitar (teclado numérico), além do − e +
+function NumCampo({ valor, onValor, min = 0, max = Infinity }) {
+  const [txt, setTxt] = useState(null)   // null = mostra o valor; string = digitando
+  return (
+    <input type="text" inputMode="numeric" pattern="[0-9]*" value={txt ?? fmtN(valor)}
+      onFocus={e => { setTxt(String(valor)); const el = e.target; setTimeout(() => el.select(), 0) }}
+      onChange={e => { const v = e.target.value.replace(/\D/g, ''); setTxt(v); if (v !== '') onValor(Math.max(min, Math.min(max, parseInt(v, 10)))) }}
+      onBlur={() => setTxt(null)}
+      style={{ width: 54, textAlign: 'center', fontWeight: 800, fontSize: 15, padding: '5px 4px', borderRadius: 8, border: '1px solid #3a3a3a', background: 'var(--bg-input)', color: 'var(--text-primary)', outline: 'none' }} />
+  )
+}
+
 function LinhaAcao({ t, cor, primeira, a, agora, onExecutar }) {
   const etapas = a?.etapas || []
   const src = etapas.find(e => e.key === (t.de || t.etapa))
@@ -421,7 +442,8 @@ function LinhaAcao({ t, cor, primeira, a, agora, onExecutar }) {
   const nEng = Math.min(proEng, qtd)
 
   let sub = ''
-  if (t.tipo === 'avisar') sub = `voltou — ${fmtN(t.n)} pessoa(s) pediram pra ser avisadas`
+  if (t.tipo === 'aguardando') sub = `${fmtN(t.n)} ${t.etapa === 'degelo' ? 'descongelando' : `em ${src?.nome?.toLowerCase() || t.etapa}`} · pronto às ${hhmm(t.prontoAs)}`
+  else if (t.tipo === 'avisar') sub = `voltou — ${fmtN(t.n)} pessoa(s) pediram pra ser avisadas`
   else if (t.tipo === 'vencidos') sub = `${fmtN(t.n)} vencido(s) em ${src?.nome?.toLowerCase() || t.etapa}`
   else if (t.tipo === 'produzir') sub = `faltam ${fmtN(t.n)} — abre o planejamento com a fornada`
   else if (volta) sub = `${fmtN(t.n)} ${src?.nome?.toLowerCase() || t.de} de ontem · voltam pra ${(etapas.find(e => e.key === t.para)?.nome || t.para).toLowerCase()}`
@@ -443,7 +465,7 @@ function LinhaAcao({ t, cor, primeira, a, agora, onExecutar }) {
 
   const passo = (d) => setQtd(v => Math.max(1, Math.min(max || Infinity, v + d)))
   const mini = { width: 30, height: 30, borderRadius: 8, border: '1px solid #333', background: 'var(--bg-input)', color: 'var(--text-primary)', fontSize: 16, cursor: 'pointer' }
-  const rotulo = t.tipo === 'avisar' ? `Avisar ${fmtN(t.n)} →` : t.tipo === 'produzir' ? `Planejar ${fmtN(qtd)} →` : t.tipo === 'vencidos' ? `Descartar ${fmtN(t.n)}` : `✓ ${FEITO[t.verbo] || 'Feito'} ${fmtN(qtd)}`
+  const rotulo = t.tipo === 'aguardando' ? (t.etapa === 'degelo' ? '✓ Já degelou' : '✓ Já está pronto') : t.tipo === 'avisar' ? `Avisar ${fmtN(t.n)} →` : t.tipo === 'produzir' ? `Planejar ${fmtN(qtd)} →` : t.tipo === 'vencidos' ? `Descartar ${fmtN(t.n)}` : `✓ ${FEITO[t.verbo] || 'Feito'} ${fmtN(qtd)}`
 
   return (
     <div style={{ padding: '12px 14px', borderTop: primeira ? 'none' : '1px solid #2a2a2a' }}>
@@ -461,7 +483,7 @@ function LinhaAcao({ t, cor, primeira, a, agora, onExecutar }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>quantidade</span>
           <button style={mini} onClick={() => passo(-1)}>−</button>
-          <span style={{ minWidth: 26, textAlign: 'center', fontWeight: 800 }}>{fmtN(qtd)}</span>
+          <NumCampo valor={qtd} onValor={setQtd} min={1} max={max || Infinity} />
           <button style={mini} onClick={() => passo(1)}>+</button>
           {max > qtd && <button onClick={() => setQtd(max)} style={{ ...mini, width: 'auto', padding: '0 10px', fontSize: 12 }}>tudo ({fmtN(max)})</button>}
         </div>
@@ -471,7 +493,7 @@ function LinhaAcao({ t, cor, primeira, a, agora, onExecutar }) {
           <span>depois:</span>
           <span style={{ color: (LOCAL[eng.local] || LOCAL.freezer).cor, fontWeight: 700 }}>{eng.nome}</span>
           <button style={mini} onClick={() => setProEng(v => Math.max(0, Math.min(qtd, v) - 1))}>−</button>
-          <span style={{ minWidth: 20, textAlign: 'center', fontWeight: 800, color: 'var(--text-primary)' }}>{fmtN(nEng)}</span>
+          <NumCampo valor={nEng} onValor={setProEng} min={0} max={qtd} />
           <button style={mini} onClick={() => setProEng(v => Math.min(qtd, v + 1))}>+</button>
           <span>· {fmtN(qtd - nEng)} pro <b style={{ color: (LOCAL[prox.local] || LOCAL.freezer).cor }}>{prox.local === 'freezer' ? '❄ ' : ''}{prox.nome.toLowerCase()}</b></span>
         </div>
@@ -704,6 +726,12 @@ function EtapaSheet({ prod, etapaKey, lotes, agora, onClose, onDone }) {
         </div>
       )}
 
+      {e.pendentes > 0 && e.tempoH > 0 && (
+        <button className="btn-primary" disabled={salvando} style={{ marginBottom: 14 }}
+          onClick={() => rodar(() => marcarEtapaPronta(prod.id, e.key, e.tempoH), `${fmtN(e.pendentes)} pronto(s) agora`)}>
+          ✓ {e.key === 'degelo' ? 'Já degelou' : 'Já está pronto'} · {fmtN(e.pendentes)}
+        </button>
+      )}
       {e.vencidos > 0 && (
         <button className="btn-primary" disabled={salvando} style={{ background: '#b91c1c', marginBottom: 14 }}
           onClick={() => rodar(() => descartarVencidosProntidao(prod.id, e.key, e.validadeH), `${fmtN(e.vencidos)} descartado(s)`)}>

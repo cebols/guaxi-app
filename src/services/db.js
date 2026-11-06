@@ -854,6 +854,24 @@ export async function corrigirEtapaProntidao(produtoId, etapa, novoTotal, tempoH
   return { movidos, novos: Math.max(0, diff) }
 }
 
+// "Já degelou / já está pronto": o que ainda estava finalizando nessa etapa
+// (descongelando, reassando) passa a contar como pronto agora. Devolve o
+// necessário pra desfazer.
+export async function marcarEtapaPronta(produtoId, etapa, tempoH) {
+  const limite = new Date(Date.now() - (Number(tempoH) || 0) * 3600e3).toISOString()
+  const { data, error } = await supabase.from('prontidao_lotes').select('id, entrou_em')
+    .eq('produto_id', produtoId).eq('etapa', etapa).gt('entrou_em', limite)
+  if (error) throw error
+  for (const l of (data || [])) {
+    const { error: e2 } = await supabase.from('prontidao_lotes').update({ entrou_em: limite }).eq('id', l.id)
+    if (e2) throw e2
+  }
+  return { lotes: data || [] }
+}
+export async function desfazerEtapaPronta(info) {
+  for (const l of (info?.lotes || [])) await supabase.from('prontidao_lotes').update({ entrou_em: l.entrou_em }).eq('id', l.id)
+}
+
 export async function baixaProntidao(produtoId, etapa, n) {
   await consumirLotes(produtoId, [etapa], n)
   return syncEstoqueProdutoFluxo(produtoId)
