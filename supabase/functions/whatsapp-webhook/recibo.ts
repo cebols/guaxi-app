@@ -17,6 +17,18 @@ const dia = (s: string) => {
 }
 
 // extras: mensagens que vão logo depois (o Pix copia e cola sozinho, pra copiar com um toque)
+async function pixAutomatico(pedido: string): Promise<string> {
+  try {
+    const r = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/pix-mercadopago`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acao: 'criar', pedido }),
+    })
+    const d = await r.json().catch(() => null) as { codigo?: string } | null
+    return r.ok && d?.codigo ? d.codigo : ''
+  } catch { return '' }
+}
+
 export interface Recibo { resposta: string; outroNumero: boolean; pedidoId: string; extras: string[] }
 
 export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto: string): Promise<Recibo | null> {
@@ -55,7 +67,9 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
   const { data: cfg } = await sb.from('user_config').select('config').eq('user_id', OWNER_USER_ID).maybeSingle()
   const pix = String(((cfg?.config as Record<string, Record<string, unknown>> | undefined)?.delivery?.pix) || '').trim()
   const falta = Math.max(0, (Number(p.valor) || 0) - (Number(p.sinal) || 0))
-  const codigo = !pago && pix && falta > 0 ? pixCopiaECola({ chave: pix, valor: falta, txid: pedidoId }) : ''
+  // Pix do Mercado Pago (confirma o pedido sozinho quando cai); sem ele, o copia e cola da chave
+  const automatico = !pago && falta > 0 ? await pixAutomatico(pedidoId) : ''
+  const codigo = automatico || (!pago && pix && falta > 0 ? pixCopiaECola({ chave: pix, valor: falta, txid: pedidoId }) : '')
 
   const resposta = [
     `Oii${nome ? `, ${nome}` : ''}! Aqui é a GuaxiMina, a guaxinim virtual da Guaxí 🦝`,
@@ -68,7 +82,7 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
     quando,
     '',
     pago ? 'Pagamento: confirmado ✅'
-      : codigo ? `Pagamento por Pix — *${fmtR(falta)}*. Te mando o código *Pix copia e cola* aqui embaixo 👇 É só copiar e colar no app do seu banco (o valor já vem certinho).`
+      : codigo ? `Pagamento por Pix — *${fmtR(falta)}*. Te mando o código *Pix copia e cola* aqui embaixo 👇 É só copiar e colar no app do seu banco (o valor já vem certinho).${automatico ? ' Assim que cair, eu te aviso que tá confirmado ✅' : ''}`
       : pix ? `Pagamento por Pix — chave: *${pix}*` : 'Pagamento: Pix — a Guaxí te manda a chave por aqui.',
     entrega ? 'Quando o motorista sair daqui, a gente te manda o link pra acompanhar 🛵' : null,
     'Qualquer dúvida, é só me chamar aqui mesmo 💛',

@@ -481,6 +481,12 @@ ALTER TABLE envios ADD COLUMN IF NOT EXISTS periodo text;
 -- Segredo do aparelho do cliente (cardápio): com ele o cliente vê os próprios pedidos sem login
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS chave_cliente text;
 CREATE INDEX IF NOT EXISTS encomendas_chave_cliente ON encomendas(chave_cliente) WHERE chave_cliente IS NOT NULL;
+-- Pix automático (Mercado Pago, função pix-mercadopago): a cobrança do pedido e quando caiu
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_mp_id     text;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_codigo    text;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_valor     numeric;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_expira_em timestamptz;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_pago_em   timestamptz;
 
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS produto_id bigint references produtos(id) on delete set null;

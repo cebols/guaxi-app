@@ -2504,6 +2504,20 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
   return data
 }
 
+// Pix automático (Mercado Pago): cria ou reaproveita o Pix do pedido. O cliente manda
+// o segredo do pedido (chave); a dona logada não precisa. Devolve { codigo, qr, expira_em, valor } ou { pago: true }.
+async function chamarPix(acao, pedido, chave) {
+  const { data, error } = await supabase.functions.invoke('pix-mercadopago', { body: { acao, pedido, chave: chave || undefined } })
+  if (error) {
+    let msg = error.message
+    try { const j = await error.context?.json(); if (j?.error) msg = j.error } catch { /* mantém a mensagem padrão */ }
+    throw new Error(msg)
+  }
+  return data
+}
+export const pixDoPedido = (pedido, chave) => chamarPix('criar', pedido, chave)
+export const conferirPix = (pedido, chave) => chamarPix('conferir', pedido, chave)
+
 // Pedidos feitos neste aparelho (cardápio, sem login): pelo segredo guardado em cada pedido
 export async function getPedidosDoCliente(chaves) {
   if (!chaves?.length) return []

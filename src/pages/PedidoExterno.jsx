@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig, registrarInteresse, getPedidosDoCliente } from '../services/db'
+import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig, registrarInteresse, getPedidosDoCliente, pixDoPedido, conferirPix } from '../services/db'
 import { pixCopiaECola } from '../lib/pix'
 
 const fmtR = (v) =>
@@ -130,10 +130,86 @@ function PixCopiar({ codigo, valor }) {
   )
 }
 
+// Pix automático (Mercado Pago): pega o código do pedido e fica conferindo se caiu —
+// a cada 5s nos primeiros 10 min, depois a cada 15s, e na hora que o cliente volta do app do banco
+function usePixAutomatico(pedido, chave, ligado) {
+  const [pix, setPix] = useState({ estado: 'carregando' })
+  useEffect(() => {
+    if (!ligado || !pedido || !chave) return
+    let vivo = true
+    setPix({ estado: 'carregando' })
+    pixDoPedido(pedido, chave)
+      .then(d => { if (vivo) setPix(d?.pago ? { estado: 'pago' } : d?.codigo ? { estado: 'aguardando', ...d } : { estado: 'erro' }) })
+      .catch(() => { if (vivo) setPix({ estado: 'erro' }) })
+    return () => { vivo = false }
+  }, [pedido, chave, ligado])
+  useEffect(() => {
+    if (pix.estado !== 'aguardando') return
+    let parado = false, timer
+    const inicio = Date.now()
+    const checar = async () => {
+      if (parado || document.hidden) return
+      try { const d = await conferirPix(pedido, chave); if (!parado && d?.pago) setPix(x => ({ ...x, estado: 'pago' })) } catch { /* tenta de novo */ }
+    }
+    const agendar = () => {
+      if (Date.now() - inicio > 3 * 3600e3) return
+      timer = setTimeout(async () => { await checar(); if (!parado) agendar() }, Date.now() - inicio < 600e3 ? 5000 : 15000)
+    }
+    agendar()
+    const onVis = () => { if (!document.hidden) checar() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { parado = true; clearTimeout(timer); document.removeEventListener('visibilitychange', onVis) }
+  }, [pix.estado, pedido, chave])
+  return pix
+}
+
+const PIX_CSS = `@keyframes gx-pulsa { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }`
+// Bloco do pagamento: aguardando (código + QR) → confirmado. Sem Mercado Pago: copia e cola da chave.
+function PagamentoPix({ pix, estatico, valor }) {
+  const [verQr, setVerQr] = useState(false)
+  if (pix.estado === 'pago') {
+    return (
+      <div role="status" style={{ marginTop: 8, padding: '12px 14px', borderRadius: 12, background: '#E7F7EF', border: '1px solid #B9E8D1', color: '#136B48' }}>
+        <div style={{ fontWeight: 800, fontSize: 15 }}>✅ Pix recebido!</div>
+        <div style={{ fontSize: 13.5, marginTop: 2 }}>Seu pedido tá confirmado. Obrigada 💛</div>
+      </div>
+    )
+  }
+  if (pix.estado === 'carregando') {
+    return <div style={{ marginTop: 10, height: 46, borderRadius: 12, background: 'linear-gradient(90deg, #F2E8EB 25%, #FFFFFF 50%, #F2E8EB 75%)', backgroundSize: '200% 100%', animation: 'gx-brilho 1.3s linear infinite' }} className="gx-anim" aria-label="Gerando seu Pix" />
+  }
+  if (pix.estado === 'aguardando') {
+    return (
+      <div style={{ marginTop: 8 }}>
+        <style>{PIX_CSS}</style>
+        <div role="status" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 800, color: '#8A5A00', background: '#FFF4DC', borderRadius: 99, padding: '4px 10px' }}>
+          <i className="gx-anim" style={{ width: 8, height: 8, borderRadius: '50%', background: '#E59A00', animation: 'gx-pulsa 1.4s ease-in-out infinite' }} /> Aguardando o Pix
+        </div>
+        <div style={{ color: C.tinta2, fontSize: 13, margin: '6px 0 10px', lineHeight: 1.45 }}>Copie o código e cole no app do seu banco. Assim que cair, o pedido se confirma sozinho — pode deixar esta tela aberta.</div>
+        <PixCopiar codigo={pix.codigo} valor={pix.valor ?? valor} />
+        {pix.qr && (
+          <div style={{ textAlign: 'center', marginTop: 8 }}>
+            {verQr
+              ? <img src={`data:image/png;base64,${pix.qr}`} alt="QR Code do Pix" style={{ width: 210, height: 210, display: 'block', margin: '4px auto 0', imageRendering: 'pixelated' }} />
+              : <button onClick={() => setVerQr(true)} style={{ background: 'none', border: 'none', color: C.azul, fontWeight: 700, fontSize: 13, cursor: 'pointer', padding: 8, fontFamily: FONTE }}>Pagar com outro celular? Mostrar QR Code</button>}
+          </div>
+        )}
+      </div>
+    )
+  }
+  // erro / sem Mercado Pago: copia e cola da chave (a Guaxí confere na mão)
+  return estatico ? (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ color: C.tinta2, fontSize: 13, marginBottom: 10 }}>Copie o código e cole no app do seu banco — o valor já vem certinho.</div>
+      <PixCopiar codigo={estatico} valor={valor} />
+    </div>
+  ) : <div style={{ color: C.tinta2, fontSize: 13, marginTop: 1 }}>a chave vai pelo WhatsApp</div>
+}
+
 // "Seu pedido" no topo do cardápio: andamento, rastreio e Pix — sem login
 const PASSOS_ENTREGA = ['Recebido', 'Pronto', 'A caminho', 'Entregue']
 const PASSOS_RETIRADA = ['Recebido', 'Pronto', 'Retirado']
-function SeusPedidos({ pedidos, pix, produtos, onPedirDeNovo }) {
+function SeusPedidos({ pedidos, pix, pixPor = {}, produtos, onPedirDeNovo }) {
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0)
   const ativos = pedidos.filter(p => !['Entregue', 'Cancelado'].includes(p.status))
   const recente = pedidos.find(p => p.status === 'Entregue' && (p.data ? new Date(p.data + 'T12:00:00') >= new Date(hoje.getTime() - 3 * 864e5) : Date.now() - new Date(p.criado).getTime() < 5 * 864e5))
@@ -151,7 +227,9 @@ function SeusPedidos({ pedidos, pix, produtos, onPedirDeNovo }) {
         const passos = p.tipo === 'Entrega' ? PASSOS_ENTREGA : PASSOS_RETIRADA
         const etapa = p.rastreio || ['ON_GOING', 'PICKED_UP'].includes(p.envio) ? 2 : p.status === 'Pronto' ? 1 : 0
         const falta = Math.max(0, (Number(p.valor) || 0) - (Number(p.sinal) || 0))
-        const codigo = p.pgto !== 'Pago' && falta > 0 && pix ? pixCopiaECola({ chave: pix, valor: falta, txid: p.id }) : ''
+        const auto = pixPor[p.id]
+        const pago = p.pgto === 'Pago' || auto?.estado === 'pago'
+        const codigo = pago || falta <= 0 ? '' : auto?.estado === 'aguardando' ? auto.codigo : pix ? pixCopiaECola({ chave: pix, valor: falta, txid: p.id }) : ''
         return (
           <section key={p.id} aria-label={`Seu pedido ${p.id}`} style={card}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -177,11 +255,13 @@ function SeusPedidos({ pedidos, pix, produtos, onPedirDeNovo }) {
                 Acompanhar o motorista ›
               </a>
             )}
-            {p.pgto === 'Pago' ? (
+            {pago ? (
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1F9D6B', marginTop: 8 }}>Pagamento confirmado ✓</div>
             ) : falta > 0 && (
               <div style={{ marginTop: 10 }}>
-                <div style={{ fontSize: 13, color: C.tinta2, marginBottom: 6 }}>Falta pagar <b style={{ color: C.tinta }}>{fmtR(falta)}</b>{codigo ? ' — é só copiar e colar no app do banco:' : ''}</div>
+                <div style={{ fontSize: 13, color: C.tinta2, marginBottom: 6 }}>
+                  Falta pagar <b style={{ color: C.tinta }}>{fmtR(falta)}</b>{codigo ? ' — é só copiar e colar no app do banco' : ''}{auto?.estado === 'aguardando' ? '. Confirma sozinho quando cair.' : codigo ? ':' : ''}
+                </div>
                 <PixCopiar codigo={codigo} valor={falta} />
               </div>
             )}
@@ -579,6 +659,8 @@ export default function PedidoExterno() {
   const [secaoAtiva, setSecaoAtiva]   = useState(null)
   const [aberto, setAberto]           = useState(null) // produto com a página aberta
   const [meusPedidos, setMeusPedidos] = useState([])   // pedidos feitos neste aparelho
+  const [chaveAtual, setChaveAtual]   = useState(null) // segredo do pedido que acabou de ser feito
+  const [pixMeus, setPixMeus]         = useState({})   // { PED-031: { estado, codigo, ... } }
   useFontesMarca()
   useRolarAoDigitar()
   // Endereço da última compra: ao ir pro checkout com Entrega, já preenche o CEP e calcula o frete
@@ -594,11 +676,36 @@ export default function PedidoExterno() {
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   // Pedidos deste aparelho (volta pro cardápio → atualiza o andamento)
-  useEffect(() => {
-    if (step !== 'catalog') return
+  const carregarMeus = () => {
     const salvos = lerPedidosSalvos()
     if (salvos.length) getPedidosDoCliente(salvos.map(x => x.chave)).then(setMeusPedidos).catch(() => {})
-  }, [step])
+  }
+  useEffect(() => { if (step === 'catalog') carregarMeus() }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pix automático do recibo (pedido recém-feito)
+  const pixRecibo = usePixAutomatico(pedidoId, chaveAtual, step === 'confirm')
+
+  // Pix automático dos pedidos em aberto no topo do cardápio (e confere se caiu de tempos em tempos)
+  const devendo = meusPedidos.filter(p => !['Entregue', 'Cancelado'].includes(p.status) && p.pgto !== 'Pago' && Number(p.valor) - Number(p.sinal || 0) > 0).map(p => p.id).join(',')
+  useEffect(() => {
+    if (!devendo || step !== 'catalog') return
+    const chaves = Object.fromEntries(lerPedidosSalvos().map(x => [x.id, x.chave]))
+    const ids = devendo.split(',').filter(id => chaves[id])
+    let vivo = true
+    ids.forEach(id => pixDoPedido(id, chaves[id])
+      .then(d => { if (vivo) setPixMeus(m => ({ ...m, [id]: d?.pago ? { estado: 'pago' } : d?.codigo ? { estado: 'aguardando', ...d } : { estado: 'erro' } })) })
+      .catch(() => {}))
+    const checar = async () => {
+      if (document.hidden) return
+      for (const id of ids) {
+        try { const d = await conferirPix(id, chaves[id]); if (vivo && d?.pago) { setPixMeus(m => ({ ...m, [id]: { estado: 'pago' } })); carregarMeus() } } catch { /* tenta depois */ }
+      }
+    }
+    const t = setInterval(checar, 20000)
+    const onVis = () => { if (!document.hidden) checar() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { vivo = false; clearInterval(t); document.removeEventListener('visibilitychange', onVis) }
+  }, [devendo, step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!userId) return
@@ -897,6 +1004,7 @@ export default function PedidoExterno() {
       const id = await submitPedidoExterno(userId, { ...form, endereco }, carrinhoItens, freteValor, entrega)
       salvarCliente({ nome: form.nome, telefone: form.telefone, tipoEntrega: form.tipoEntrega, cep: form.cep, numero: form.numero, complemento: form.complemento })
       if (id) guardarPedido(id, chave)
+      setChaveAtual(chave)
       setPedidoId(id)
       setStep('confirm')
     } catch (e) {
@@ -945,7 +1053,7 @@ export default function PedidoExterno() {
     const codigoPix = deliveryCfg?.pix ? pixCopiaECola({ chave: deliveryCfg.pix, valor: total + freteValor, txid: pedidoId }) : ''
     return (
       <div style={{ ...shell, background: C.creme }}>
-        <style>{RECIBO_CSS}</style>
+        <style>{RECIBO_CSS + ANIM_CSS}</style>
         {/* Topo da marca com confete */}
         <div style={{ background: C.rosa, padding: '26px 20px 70px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
           {CONFETES.map((cor, i) => (
@@ -1008,8 +1116,7 @@ export default function PedidoExterno() {
                 <span style={{ fontSize: 18 }}>💸</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <b>Pagamento por Pix</b>
-                  <div style={{ color: C.tinta2, fontSize: 13, marginTop: 1 }}>{codigoPix ? 'Copie o código e cole no app do seu banco — o valor já vem certinho.' : 'a chave vai pelo WhatsApp'}</div>
-                  {codigoPix && <div style={{ marginTop: 10 }}><PixCopiar codigo={codigoPix} valor={total + freteValor} /></div>}
+                  <PagamentoPix pix={pixRecibo} estatico={codigoPix} valor={total + freteValor} />
                 </div>
               </div>
             </div>
@@ -1026,7 +1133,7 @@ export default function PedidoExterno() {
               Confirmar no WhatsApp
             </a>
             <div style={{ fontSize: 13, color: C.tinta2, marginTop: 10, lineHeight: 1.45 }}>
-              A <b style={{ color: C.azul }}>GuaxiMina</b> te manda o recibo por lá e tira qualquer dúvida&nbsp;🦝{codigoPix ? <><br />Pagou? Manda o comprovante por lá também.</> : null}
+              A <b style={{ color: C.azul }}>GuaxiMina</b> te manda o recibo por lá e tira qualquer dúvida&nbsp;🦝{pixRecibo.estado === 'erro' && codigoPix ? <><br />Pagou? Manda o comprovante por lá também.</> : null}
             </div>
             <button onClick={() => { setStep('catalog'); setCarrinho({}); window.scrollTo(0, 0) }} style={{
               marginTop: 18, background: 'none', border: 'none', color: C.azul, fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: FONTE, padding: 8,
@@ -1322,7 +1429,7 @@ export default function PedidoExterno() {
         <InfoLoja endereco={enderecoLoja} cep={deliveryCfg?.lojaCEP} />
       </div>
 
-      <SeusPedidos pedidos={meusPedidos} pix={deliveryCfg?.pix} produtos={produtos}
+      <SeusPedidos pedidos={meusPedidos} pix={deliveryCfg?.pix} pixPor={pixMeus} produtos={produtos}
         onPedirDeNovo={(p) => {
           const novo = {}
           for (const i of p.itens || []) { const x = produtos.find(y => y.nome === i.produto && !y.esgotado); if (x) novo[x.id] = Math.min((novo[x.id] || 0) + Number(i.qtd || 1), x.estoqueAtual > 0 ? x.estoqueAtual : 99) }

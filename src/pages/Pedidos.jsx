@@ -7,7 +7,7 @@ import NovoPedidoForm from '../components/NovoPedidoForm'
 import {
   getProdutos, getEncomendas, getClientes, updateStatusEncomenda, updateEncomendaItens, deletePedido,
   reconciliarBaixasPedidos, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
-  atualizarPedido, loadUserConfig,
+  atualizarPedido, loadUserConfig, pixDoPedido,
 } from '../services/db'
 import { pixCopiaECola } from '../lib/pix'
 
@@ -114,14 +114,15 @@ function quandoTexto(p) {
   const dia = diasAte(p.dataEntrega) === 0 ? 'hoje' : diasAte(p.dataEntrega) === 1 ? 'amanhã' : diaLongo(p.dataEntrega)
   return `${dia}${per ? `, de ${per.nome.toLowerCase()} (${per.faixa})` : ''}`
 }
-function modelosDe(p, pix) {
+function modelosDe(p, pix, codigoMP) {
   const nome = primeiroNome(p)
   const oi = `Oi${nome ? `, ${nome}` : ''}!`
   const quando = quandoTexto(p)
   const entrega = p.tipoEntrega === 'Entrega'
   const falta = faltaPagar(p)
   // Pix copia e cola com o valor que falta: vai numa mensagem separada (o cliente copia com um toque)
-  const codigo = pix && falta > 0 ? pixCopiaECola({ chave: pix, valor: falta, txid: p.id }) : ''
+  // codigoMP = Pix do Mercado Pago (o pedido vira Pago sozinho quando cai); sem ele, o da chave
+  const codigo = falta > 0 ? (codigoMP || (pix ? pixCopiaECola({ chave: pix, valor: falta, txid: p.id }) : '')) : ''
   const pixTxt = codigo ? ' Te mando o Pix copia e cola logo abaixo 👇' : pix ? ` A chave Pix é ${pix}.` : ''
   const link = p.envio?.shareLink
   const m = []
@@ -236,8 +237,18 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
   const entrega = p.tipoEntrega === 'Entrega'
 
   useEffect(() => { setEndereco(p.endereco || ''); setFrete(p.frete ? fmtM(p.frete) : ''); setSinal(p.sinal ? fmtM(p.sinal) : '') }, [p.id, p.endereco, p.frete, p.sinal])
-  const modelos = useMemo(() => modelosDe(p, pix), [p, pix])
-  useEffect(() => { setTexto(modelos.find(m => m.key === modelo)?.texto || modelos[0]?.texto || '') }, [modelo, p.id, pix, p.periodo, p.dataEntrega, p.tipoEntrega, p.pgto]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Pix automático do Mercado Pago pra esse pedido (cria ou reaproveita; se falhar, fica o da chave)
+  const [pixMP, setPixMP] = useState(null)
+  const faltaAgora = faltaPagar(p)
+  useEffect(() => {
+    setPixMP(null)
+    if (!(faltaAgora > 0)) return
+    let vivo = true
+    pixDoPedido(p.id).then(d => { if (vivo) setPixMP(d?.codigo || null) }).catch(() => {})
+    return () => { vivo = false }
+  }, [p.id, faltaAgora])
+  const modelos = useMemo(() => modelosDe(p, pix, pixMP), [p, pix, pixMP])
+  useEffect(() => { setTexto(modelos.find(m => m.key === modelo)?.texto || modelos[0]?.texto || '') }, [modelo, p.id, pix, pixMP, p.periodo, p.dataEntrega, p.tipoEntrega, p.pgto]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { rolador().scrollTo(0, 0) }, [p.id])
 
   const itensTotal = (p.itens || []).reduce((s, it) => s + (Number(it.precoUnit) || 0) * (Number(it.quantidade) || 0), 0)
