@@ -36,8 +36,44 @@ function CheckAnim({ size = 72 }) {
 // ── Identidade Guaxí ──────────────────────────────────────────
 const C = { rosa: '#FBDAE1', azul: '#185D9C', azulEsc: '#0E3C68', azulClaro: '#E3EDF7', creme: '#FFF9F7', tinta: '#1D2B3A', tinta2: '#5B6878', linha: '#EBCDD5' }
 const FONTE = 'Figtree, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-const SERIF = '"Cormorant Garamond", Georgia, "Times New Roman", serif'
+const SERIF = '"Cormorant Garamond", Georgia, "Times New Roman", serif' // só no logo (GUAXÍ / PÂTISSERIE)
 const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb']
+
+// Teclado do celular: quanto da parte de baixo da tela ele cobre. O Chrome do
+// Android não sobe o que é position:fixed, então a folha do doce sobe na mão.
+function useTeclado() {
+  const [t, setT] = useState({ kb: 0, alt: 0 })
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const f = () => {
+      const kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop))
+      setT({ kb: kb > 80 ? kb : 0, alt: Math.round(vv.height) })
+    }
+    vv.addEventListener('resize', f); vv.addEventListener('scroll', f)
+    return () => { vv.removeEventListener('resize', f); vv.removeEventListener('scroll', f) }
+  }, [])
+  return t
+}
+
+// Ao tocar num campo, espera o teclado abrir e rola até o campo ficar no meio da tela
+function useRolarAoDigitar() {
+  useEffect(() => {
+    const vv = window.visualViewport
+    let timer, altAntes = vv?.height || 0
+    const campo = (el) => el && el.matches?.('input, textarea, select') && !['checkbox', 'radio', 'button', 'submit'].includes(el.type)
+    const rolar = () => { const el = document.activeElement; if (campo(el)) el.scrollIntoView({ block: 'center', behavior: 'smooth' }) }
+    const onFocus = (e) => { if (!campo(e.target)) return; clearTimeout(timer); timer = setTimeout(rolar, 350) }
+    const onResize = () => {
+      const encolheu = vv.height < altAntes - 80   // teclado abriu (não é só a barra do navegador)
+      altAntes = vv.height
+      if (encolheu && campo(document.activeElement)) { clearTimeout(timer); timer = setTimeout(rolar, 80) }
+    }
+    document.addEventListener('focusin', onFocus)
+    vv?.addEventListener('resize', onResize)
+    return () => { clearTimeout(timer); document.removeEventListener('focusin', onFocus); vv?.removeEventListener('resize', onResize) }
+  }, [])
+}
 
 function useFontesMarca() {
   useEffect(() => {
@@ -62,7 +98,7 @@ const fmtTel = (v) => {
 }
 
 // Vídeo que só toca quando está na tela (economiza dado no 4G)
-function VideoLoop({ src, poster, style }) {
+function VideoLoop({ src, poster, style, onMedida }) {
   const ref = useRef(null)
   useEffect(() => {
     const el = ref.current
@@ -71,12 +107,16 @@ function VideoLoop({ src, poster, style }) {
     io.observe(el)
     return () => io.disconnect()
   }, [src])
-  return <video ref={ref} src={src} poster={poster || undefined} muted loop playsInline preload="metadata" style={style} />
+  return <video ref={ref} src={src} poster={poster || undefined} muted loop playsInline preload="metadata" style={style}
+    onLoadedMetadata={onMedida ? e => onMedida(e.currentTarget.videoWidth, e.currentTarget.videoHeight) : undefined} />
 }
 
-// Carrossel de fotos/vídeos com bolinhas (arrasta pro lado)
-function Midias({ midias, nome, aspect = '4 / 5', altura, radius = 0, onIndex }) {
+// Carrossel de fotos/vídeos com bolinhas (arrasta pro lado).
+// encaixar: mostra a foto inteira (sem cortar), na proporção da 1ª foto, com
+// a própria foto borrada preenchendo as sobras.
+function Midias({ midias, nome, aspect = '4 / 5', altura, radius = 0, onIndex, encaixar }) {
   const [idx, setIdx] = useState(0)
+  const [prop, setProp] = useState(null) // largura/altura da 1ª foto
   const ref = useRef(null)
   const lista = midias?.length ? midias : [null]
   const onScroll = () => {
@@ -85,16 +125,31 @@ function Midias({ midias, nome, aspect = '4 / 5', altura, radius = 0, onIndex })
     const i = Math.round(el.scrollLeft / el.clientWidth)
     if (i !== idx) { setIdx(i); onIndex?.(i) }
   }
+  const medir = (w, h) => { if (w && h) setProp(Math.min(2, Math.max(0.7, w / h))) }
   const cover = { width: '100%', height: '100%', objectFit: 'cover', display: 'block' }
+  const inteira = { position: 'relative', width: '100%', height: '100%', objectFit: 'contain', display: 'block' }
+  const fundo = { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(18px)', transform: 'scale(1.2)', opacity: 0.6 }
+  // largura cheia (a folha tem até 560px); altura na proporção da foto, até 60% da tela
+  const caixa = encaixar ? { width: '100%', height: `min(calc(min(100vw, 560px) / ${(prop || 1).toFixed(3)}), 60dvh)` } : altura ? { height: altura } : { aspectRatio: aspect }
   return (
-    <div style={{ position: 'relative', ...(altura ? { height: altura } : { aspectRatio: aspect }), background: C.rosa, borderRadius: radius, overflow: 'hidden' }}>
+    <div style={{ position: 'relative', ...caixa, background: C.rosa, borderRadius: radius, overflow: 'hidden' }}>
       <div ref={ref} onScroll={onScroll} style={{ display: 'flex', width: '100%', height: '100%', overflowX: lista.length > 1 ? 'auto' : 'hidden', scrollSnapType: 'x mandatory', scrollbarWidth: 'none' }}>
         {lista.map((m, i) => (
-          <div key={i} style={{ flex: '0 0 100%', height: '100%', scrollSnapAlign: 'start' }}>
+          <div key={i} style={{ position: 'relative', flex: '0 0 100%', height: '100%', scrollSnapAlign: 'start', overflow: 'hidden' }}>
             {!m ? (
               <div style={{ ...cover, display: 'grid', placeItems: 'center' }}><img src="/brand/guaxinim.png" alt="" style={{ width: '45%', opacity: 0.35 }} /></div>
             ) : m.tipo === 'video' ? (
-              <VideoLoop src={m.url} poster={m.poster} style={cover} />
+              encaixar ? (
+                <>
+                  {m.poster && <img src={m.poster} alt="" aria-hidden="true" style={fundo} />}
+                  <VideoLoop src={m.url} poster={m.poster} style={inteira} onMedida={i === 0 ? medir : undefined} />
+                </>
+              ) : <VideoLoop src={m.url} poster={m.poster} style={cover} />
+            ) : encaixar ? (
+              <>
+                <img src={m.url} alt="" aria-hidden="true" style={fundo} />
+                <img src={m.url} alt={nome} style={inteira} onLoad={i === 0 ? e => medir(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight) : undefined} />
+              </>
             ) : (
               <img src={m.url} alt={nome} loading="lazy" style={cover} />
             )}
@@ -120,7 +175,7 @@ function ProdutoCard({ produto, qtd, onAdd, onRemove, onAbrir }) {
       <div onClick={onAbrir} style={{ position: 'relative', cursor: 'pointer', opacity: esg ? 0.55 : 1, filter: esg ? 'grayscale(.35)' : 'none' }}>
         <Midias midias={produto.midias} nome={produto.nome} />
         {!esg && produto.estoqueAtual > 0 && produto.estoqueAtual <= 3 && (
-          <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 10.5, fontWeight: 800, padding: '3px 8px', borderRadius: 99, background: 'rgba(255,255,255,.92)', color: C.azulEsc }}>Últimas {produto.estoqueAtual}</span>
+          <span style={{ position: 'absolute', top: 8, right: 8, fontSize: 10.5, fontWeight: 800, padding: '3px 8px', borderRadius: 99, background: 'rgba(255,255,255,.92)', color: C.azulEsc }}>{produto.estoqueAtual === 1 ? 'Última unidade!' : `Últimas ${produto.estoqueAtual}`}</span>
         )}
         {esg && (
           <span style={{ position: 'absolute', left: 8, right: 8, bottom: 8, textAlign: 'center', fontSize: 11.5, fontWeight: 800, color: C.azulEsc, background: 'rgba(255,255,255,.94)', borderRadius: 8, padding: '4px' }}>
@@ -129,7 +184,7 @@ function ProdutoCard({ produto, qtd, onAdd, onRemove, onAbrir }) {
         )}
       </div>
       <div style={{ padding: '9px 10px 10px', display: 'flex', flexDirection: 'column', flex: 1 }}>
-        <div onClick={onAbrir} style={{ cursor: 'pointer', fontFamily: SERIF, fontWeight: 700, fontSize: 17, lineHeight: 1.08, color: C.azulEsc }}>{produto.nome}</div>
+        <div onClick={onAbrir} style={{ cursor: 'pointer', fontWeight: 800, fontSize: 14.5, lineHeight: 1.2, color: C.azulEsc }}>{produto.nome}</div>
         {produto.descricao && (
           <div style={{ fontSize: 11.5, color: C.tinta2, marginTop: 3, lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{produto.descricao}</div>
         )}
@@ -162,6 +217,7 @@ function ProdutoSheet({ produto, qtdNoCarrinho, onClose, onConfirmar, userId }) 
   const [estado, setEstado] = useState(null) // null | 'enviando' | 'ok' | erro
   const max = produto.estoqueAtual > 0 ? produto.estoqueAtual : 99
   const esg = produto.esgotado
+  const { kb, alt } = useTeclado()
   useEffect(() => {
     const h = document.documentElement, b = document.body
     const antes = [h.style.overflow, b.style.overflow]
@@ -179,14 +235,13 @@ function ProdutoSheet({ produto, qtdNoCarrinho, onClose, onConfirmar, userId }) 
     } catch (e) { setEstado('Não deu pra registrar agora. Tenta de novo?') }
   }
 
-  const inp = { width: '100%', padding: '11px 12px', borderRadius: 10, border: `1.5px solid ${C.linha}`, background: '#fff', color: C.tinta, fontSize: 15, fontFamily: FONTE, outline: 'none', boxSizing: 'border-box' }
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(14,30,50,.45)', zIndex: 40, touchAction: 'none' }} />
-      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, maxWidth: 560, margin: '0 auto', maxHeight: '92dvh', display: 'flex', flexDirection: 'column', background: C.creme, borderRadius: '22px 22px 0 0', overflow: 'hidden', zIndex: 41, fontFamily: FONTE, color: C.tinta }}>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(14,30,50,.55)', backdropFilter: 'blur(9px)', WebkitBackdropFilter: 'blur(9px)', zIndex: 40, touchAction: 'none' }} />
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: kb, maxWidth: 560, margin: '0 auto', maxHeight: kb ? alt - 8 : '92dvh', display: 'flex', flexDirection: 'column', background: C.creme, borderRadius: kb ? 16 : '22px 22px 0 0', overflow: 'hidden', zIndex: 41, fontFamily: FONTE, color: C.tinta, boxShadow: '0 -8px 30px rgba(14,30,50,.25)' }}>
        <div style={{ overflowY: 'auto', overscrollBehavior: 'contain', flex: '0 1 auto', minHeight: 0 }}>
         <div style={{ position: 'relative' }}>
-          <Midias midias={produto.midias} nome={produto.nome} altura="min(100vw, 560px, 52dvh)" onIndex={setIdx} />
+          <Midias midias={produto.midias} nome={produto.nome} encaixar onIndex={setIdx} />
           <button onClick={onClose} aria-label="Fechar" style={{ position: 'absolute', top: 10, right: 10, width: 34, height: 34, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,.92)', color: C.azulEsc, fontSize: 20, cursor: 'pointer' }}>×</button>
         </div>
         <div style={{ padding: '14px 18px 22px' }}>
@@ -201,7 +256,7 @@ function ProdutoSheet({ produto, qtdNoCarrinho, onClose, onConfirmar, userId }) 
               ))}
             </div>
           )}
-          <div style={{ fontFamily: SERIF, fontWeight: 700, fontSize: 26, lineHeight: 1.05, color: C.azulEsc }}>{produto.nome}</div>
+          <div style={{ fontWeight: 800, fontSize: 22, lineHeight: 1.18, color: C.azulEsc }}>{produto.nome}</div>
           {produto.descricao && <div style={{ fontSize: 14, color: C.tinta2, marginTop: 8, lineHeight: 1.5, whiteSpace: 'pre-line' }}>{produto.descricao}</div>}
           <div style={{ fontSize: 18, fontWeight: 800, marginTop: 10 }}>{fmtR(produto.precoDireta)}</div>
 
@@ -213,8 +268,8 @@ function ProdutoSheet({ produto, qtdNoCarrinho, onClose, onConfirmar, userId }) 
             <div style={{ marginTop: 16, padding: '14px', borderRadius: 14, background: '#fff', border: `1px solid ${C.linha}` }}>
               <div style={{ fontWeight: 800, color: C.azulEsc, marginBottom: 2 }}>{produto.aCaminho > 0 ? 'Volta em breve' : 'Esgotado no momento'}</div>
               <div style={{ fontSize: 13, color: C.tinta2, marginBottom: 10 }}>Deixa seu WhatsApp que a gente avisa quando voltar.</div>
-              <input style={{ ...inp, marginBottom: 8 }} placeholder="Seu nome" value={nome} onChange={e => setNome(e.target.value)} />
-              <input style={{ ...inp, marginBottom: 10 }} type="tel" inputMode="numeric" placeholder="WhatsApp com DDD" value={tel} onChange={e => setTel(fmtTel(e.target.value))} />
+              <Field label="Nome"><Input placeholder="Seu nome" value={nome} onChange={e => setNome(e.target.value)} /></Field>
+              <Field label="WhatsApp"><Input type="tel" inputMode="numeric" placeholder="(11) 99999-9999" value={tel} onChange={e => setTel(fmtTel(e.target.value))} /></Field>
               {estado && estado !== 'enviando' && <div style={{ fontSize: 12.5, color: '#c0392b', marginBottom: 8 }}>{estado}</div>}
               <button onClick={avisar} disabled={estado === 'enviando'} style={{ width: '100%', height: 46, borderRadius: 12, border: 'none', background: C.azul, color: '#fff', fontWeight: 800, fontSize: 15, cursor: 'pointer', fontFamily: FONTE }}>
                 {estado === 'enviando' ? 'Enviando...' : 'Avisar quando voltar'}
@@ -302,6 +357,39 @@ function rotaEmDestaque(dias) {
 
 // Número do WhatsApp da Guaxí (o mesmo do agente GuaxiMina)
 const WHATS_GUAXI = '5521998718459'
+const telBonito = (n) => { const d = n.replace(/^55/, ''); return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}` }
+
+// Topo do cardápio: WhatsApp (abre a conversa) e endereço pra retirada (abre o mapa)
+function InfoLoja({ endereco, cep }) {
+  const c = String(cep || '').replace(/\D/g, '')
+  // pro mapa: rua e número, sem apto/bloco (atrapalha a busca) + CEP
+  const busca = [endereco.replace(/[\s,–-]*\b(ap|apt|apto|apartamento|bloco|bl|sala|casa|cobertura|fundos)\b.*$/i, ''), c.length === 8 ? `${c.slice(0, 5)}-${c.slice(5)}` : ''].filter(Boolean).join(', ')
+  const linha = { display: 'flex', alignItems: 'center', gap: 10, minHeight: 50, padding: '6px 12px', textDecoration: 'none', color: C.tinta, textAlign: 'left' }
+  const icone = { width: 32, height: 32, flexShrink: 0, borderRadius: '50%', background: C.azulClaro, display: 'grid', placeItems: 'center', fontSize: 16 }
+  const acao = { flexShrink: 0, fontSize: 12, fontWeight: 800, color: C.azul, whiteSpace: 'nowrap' }
+  return (
+    <div style={{ maxWidth: 420, margin: '12px auto 0', background: '#FFFFFF', borderRadius: 14, border: '1px solid rgba(24,93,156,.14)', boxShadow: '0 4px 12px rgba(14,60,104,.06)', overflow: 'hidden' }}>
+      <a href={`https://wa.me/${WHATS_GUAXI}`} target="_blank" rel="noopener noreferrer" style={linha}>
+        <span style={icone} aria-hidden="true">💬</span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: C.tinta2 }}>WhatsApp</span>
+          <b style={{ fontSize: 14.5 }}>{telBonito(WHATS_GUAXI)}</b>
+        </span>
+        <span style={acao}>Chamar ›</span>
+      </a>
+      {endereco && (
+        <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(busca || endereco)}`} target="_blank" rel="noopener noreferrer" style={{ ...linha, borderTop: `1px solid ${C.linha}` }}>
+          <span style={icone} aria-hidden="true">📍</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: C.tinta2 }}>Retirada</span>
+            <b style={{ fontSize: 14, lineHeight: 1.25, display: 'block' }}>{endereco}</b>
+          </span>
+          <span style={acao}>Ver no mapa ›</span>
+        </a>
+      )}
+    </div>
+  )
+}
 const RECIBO_CSS = `
   @keyframes gx-cai { 0% { transform: translateY(0) rotate(0); opacity: 0 } 12% { opacity: 1 } 100% { transform: translateY(240px) rotate(300deg); opacity: 0 } }
   @keyframes gx-pula { 0% { transform: scale(.6) translateY(24px); opacity: 0 } 70% { transform: scale(1.05) translateY(-4px); opacity: 1 } 100% { transform: none; opacity: 1 } }
@@ -377,6 +465,7 @@ export default function PedidoExterno() {
   const [secaoAtiva, setSecaoAtiva]   = useState(null)
   const [aberto, setAberto]           = useState(null) // produto com a página aberta
   useFontesMarca()
+  useRolarAoDigitar()
   // Endereço da última compra: ao ir pro checkout com Entrega, já preenche o CEP e calcula o frete
   useEffect(() => {
     if (step !== 'checkout' || form.tipoEntrega !== 'Entrega' || form.cep || !form.cepSalvo) return
@@ -746,7 +835,7 @@ export default function PedidoExterno() {
               <CheckAnim size={34} />
             </div>
           </div>
-          <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 32, color: C.azul, lineHeight: 1.1, marginTop: 10 }}>Pedido recebido!</div>
+          <div style={{ fontWeight: 800, fontSize: 26, color: C.azul, lineHeight: 1.15, marginTop: 10 }}>Pedido recebido!</div>
           <div style={{ fontSize: 15, color: C.azulEsc, marginTop: 6 }}>
             {primeiro ? `Obrigada, ${primeiro}!` : 'Obrigada!'} Já tá tudo anotadinho aqui 💛
           </div>
@@ -941,7 +1030,7 @@ export default function PedidoExterno() {
                 const fmtP = v => (v === 0 ? 'Grátis' : fmtR(v))
                 return (
                 <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 24, color: C.azulEsc, lineHeight: 1.1 }}>Quando você quer receber?</div>
+                  <div style={{ fontWeight: 800, fontSize: 19, color: C.azulEsc, lineHeight: 1.2 }}>Quando você quer receber?</div>
                   {dest && (
                     <button type="button" onClick={() => escolherPeriodo(dest.dia, dest.per.periodo)} style={{
                       textAlign: 'left', padding: 16, borderRadius: 16, cursor: 'pointer', fontFamily: FONTE, color: C.tinta,
@@ -1088,6 +1177,7 @@ export default function PedidoExterno() {
   }
   const dias = (deliveryCfg?.diasEntrega || []).slice().sort((x, y) => ((x + 6) % 7) - ((y + 6) % 7)).map(d => DIAS[d])
   const chip = { fontSize: 11.5, fontWeight: 700, color: C.azulEsc, background: 'rgba(255,255,255,.7)', border: '1px solid rgba(24,93,156,.18)', padding: '4px 10px', borderRadius: 99 }
+  const enderecoLoja = String(deliveryCfg?.lojaEndereco || '').replace(/\s+/g, ' ').trim()
 
   return (
     <div style={{ ...shell, background: C.creme }}>
@@ -1101,8 +1191,9 @@ export default function PedidoExterno() {
         <div style={{ fontFamily: SERIF, fontWeight: 600, letterSpacing: '.32em', fontSize: 13, color: C.azul }}>PÂTISSERIE</div>
         <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap', marginTop: 12 }}>
           {dias.length > 0 && <span style={chip}>🛵 Entregas {dias.join(' · ')}</span>}
-          <span style={chip}>Retirada</span>
+          {!enderecoLoja && <span style={chip}>Retirada</span>}
         </div>
+        <InfoLoja endereco={enderecoLoja} cep={deliveryCfg?.lojaCEP} />
       </div>
 
       {/* Seções */}
@@ -1142,7 +1233,7 @@ export default function PedidoExterno() {
         <div style={{ padding: '4px 12px 120px' }}>
           {produtosPorSecao.map(({ secao, items }) => (
             <div key={secao || '__sem_secao'} id={secao ? `secao-${secao}` : undefined} style={{ scrollMarginTop: 58 }}>
-              {secao && <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 22, color: C.azulEsc, padding: '14px 4px 8px' }}>{secao}</div>}
+              {secao && <div style={{ fontWeight: 800, fontSize: 18, color: C.azulEsc, padding: '16px 4px 8px' }}>{secao}</div>}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, marginBottom: 8 }}>
                 {[...items].sort((x, y) => ((x.esgotado ? 1 : 0) - (y.esgotado ? 1 : 0)) || ((x.ordem ?? 1e9) - (y.ordem ?? 1e9))).map(prod => (
                   <ProdutoCard key={prod.id} produto={prod} qtd={carrinho[prod.id] || 0}

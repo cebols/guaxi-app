@@ -591,7 +591,7 @@ export default function Configuracoes() {
               maxLength={9}
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
             />
-            <label className="cfg-label">Endereço completo (opcional)</label>
+            <label className="cfg-label">Endereço completo (aparece no cardápio, pra retirada)</label>
             <input
               value={deliveryCfg.lojaEndereco}
               onChange={e => setDel('lojaEndereco', e.target.value)}

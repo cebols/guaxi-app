@@ -774,7 +774,8 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
       'diasEntrega', config->'delivery'->'diasEntrega',
       'freteGratis', config->'delivery'->'freteGratis',
       'freteTiers',  config->'delivery'->'freteTiers',
-      'lojaCEP',     config->'delivery'->'lojaCEP'
+      'lojaCEP',     config->'delivery'->'lojaCEP',
+      'lojaEndereco', NULLIF(btrim(config->'delivery'->>'lojaEndereco', E' \t\r\n'), '')  -- mostrado no topo do cardápio (retirada)
     )),
     'secoesOrdem', COALESCE(config->'secoesOrdem', '[]'::jsonb)
   )
