@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { lalamove, lalamoveConfigured, stopOf } from './_lalamove.js'
+import { lalamove, lalamoveConfigured, stopOf, despachoSandbox } from './_lalamove.js'
 import { usuarioLogado } from './_auth.js'
 
 // Cota um envio em VÁRIAS categorias de veículo (pros parâmetros reais do envio:
@@ -9,12 +9,10 @@ import { usuarioLogado } from './_auth.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
-const SANDBOX      = process.env.LALAMOVE_DISPATCH_SANDBOX !== 'false'
 const CATEGORIAS   = ['LALAGO', 'HATCHBACK', 'CAR', 'VAN']
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
-  if (!lalamoveConfigured(SANDBOX)) { res.status(500).json({ error: `Lalamove ${SANDBOX ? 'sandbox' : 'produção'} não configurado` }); return }
   if (!SUPABASE_URL || !SERVICE_KEY) { res.status(500).json({ error: 'Supabase service role não configurado' }); return }
 
   try {
@@ -35,6 +33,8 @@ export default async function handler(req, res) {
     const { data: cfgRow } = await sb.from('user_config').select('config').eq('user_id', userId).single()
     const delivery = cfgRow?.config?.delivery || {}
     if (!delivery.lojaLat || !delivery.lojaLng) { res.status(400).json({ error: 'Loja sem coordenadas' }); return }
+    const SANDBOX = despachoSandbox(delivery)
+    if (!lalamoveConfigured(SANDBOX)) { res.status(500).json({ error: `Lalamove ${SANDBOX ? 'sandbox' : 'produção'} não configurado` }); return }
 
     const stops = [
       stopOf(delivery.lojaLat, delivery.lojaLng, delivery.lojaEndereco || 'Loja'),

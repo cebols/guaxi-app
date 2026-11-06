@@ -48,6 +48,20 @@ export function pisoFrete(veiculo, cfg = {}) {
   return precoFrete(base, cfg)
 }
 
+// Modo do despacho: teste (sandbox, sem motorista de verdade) ou valendo.
+// Liga no app (Configurações › Delivery → delivery.lalamoveProducao). A variável
+// LALAMOVE_DISPATCH_SANDBOX=false no Vercel também liga, pra tudo.
+export function despachoSandbox(delivery) {
+  if (process.env.LALAMOVE_DISPATCH_SANDBOX === 'false') return false
+  return delivery?.lalamoveProducao !== true
+}
+// Envio já despachado segue no ambiente em que foi criado (trocar o modo não
+// quebra o acompanhamento nem o cancelamento dos envios antigos)
+export function envioSandbox(envio) {
+  if (typeof envio?.sandbox === 'boolean') return envio.sandbox
+  return process.env.LALAMOVE_DISPATCH_SANDBOX !== 'false'
+}
+
 export function lalamoveConfigured(sandbox = false) {
   const c = creds(sandbox)
   return Boolean(c.key && c.secret)

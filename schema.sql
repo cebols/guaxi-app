@@ -478,6 +478,8 @@ ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS rastreio_auto       boolean NOT 
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS rastreio_enviado_em timestamptz;
 -- Envios: uma rota da Lalamove por dia + período
 ALTER TABLE envios ADD COLUMN IF NOT EXISTS periodo text;
+-- Lalamove: o envio saiu em modo teste (sandbox) ou valendo — status e cancelamento seguem o mesmo
+ALTER TABLE envios ADD COLUMN IF NOT EXISTS sandbox boolean;
 -- Segredo do aparelho do cliente (cardápio): com ele o cliente vê os próprios pedidos sem login
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS chave_cliente text;
 CREATE INDEX IF NOT EXISTS encomendas_chave_cliente ON encomendas(chave_cliente) WHERE chave_cliente IS NOT NULL;

@@ -204,7 +204,7 @@ export default function Envios() {
     try {
       if (sel !== envio.veiculo) await atualizarEnvio(envio.id, { veiculo: sel })
       const r = await despacharEnvio(user.id, envio.id)
-      show(`Despachado! ${r.sandbox ? '(sandbox) ' : ''}custo ${fmtR(r.custo)}`)
+      show(r.sandbox ? `Despacho de teste feito (custo simulado ${fmtR(r.custo)})` : `Motorista chamado! Custo ${fmtR(r.custo)}`)
       setDisp(null); reload()
     } catch (err) { show('Erro: ' + err.message); setDisp(d => d ? { ...d, confirming: false } : d) }
   }
@@ -304,7 +304,13 @@ export default function Envios() {
         <div onClick={() => !disp.confirming && setDisp(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: 16 }}>
           <div onClick={ev => ev.stopPropagation()} style={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 16, padding: 18, width: 420, maxWidth: '100%' }}>
             <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 2 }}>Despachar · {diaLabel(disp.envio.dataEntrega)}{disp.envio.periodo ? ` · ${PERIODO_NOME[disp.envio.periodo]}` : ''}</div>
-            <div style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>{disp.envio.pedidos.length} parada(s){disp.sandbox ? ' · sandbox' : ''}</div>
+            <div style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>{disp.envio.pedidos.length} parada(s)</div>
+            {disp.quotes && (
+              <div style={{ fontSize: 12.5, fontWeight: 700, padding: '8px 10px', borderRadius: 9, marginBottom: 12,
+                ...(disp.sandbox ? { background: '#262626', color: '#bbb' } : { background: 'rgba(245,181,68,.12)', color: '#f5b544', border: '1px solid rgba(245,181,68,.45)' }) }}>
+                {disp.sandbox ? 'Modo teste: nenhum motorista vem e nada é cobrado.' : 'Valendo: chama motorista de verdade e cobra da sua carteira Lalamove.'}
+              </div>
+            )}
 
             {disp.loading && <div style={{ color: '#888', padding: '20px 0', textAlign: 'center' }}>Cotando categorias…</div>}
 
@@ -328,7 +334,7 @@ export default function Envios() {
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
               <button onClick={() => setDisp(null)} disabled={disp.confirming} style={{ ...btn('#2a2a2a', '#ccc'), flex: 1 }}>Cancelar</button>
               <button onClick={confirmarDespacho} disabled={disp.loading || disp.confirming || !selQuote?.total} style={{ ...btn('#22b886'), flex: 2, opacity: (disp.loading || disp.confirming || !selQuote?.total) ? 0.5 : 1 }}>
-                {disp.confirming ? 'Despachando…' : `Confirmar ${selQuote?.total != null ? fmtR(selQuote.total) : ''}`}
+                {disp.confirming ? 'Despachando…' : `${disp.sandbox === false ? 'Chamar motorista' : 'Despachar (teste)'} ${selQuote?.total != null ? fmtR(selQuote.total) : ''}`}
               </button>
             </div>
           </div>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getConfig, saveConfig, calcPrecos, getCustoSacolaDelivery, CONFIG_DEFAULTS } from '../hooks/useConfig'
-import { getVendas, getEncomendas, getEmbalagens, loadUserConfig, saveUserConfig } from '../services/db'
+import { getVendas, getEncomendas, getEmbalagens, loadUserConfig, saveUserConfig, configurarAvisosLalamove } from '../services/db'
 import { useAuth } from '../contexts/AuthContext'
 
 function fmtPct(v) { return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) }
@@ -171,6 +171,8 @@ export default function Configuracoes() {
       ...(existing?.delivery || {}),   // preserva campos salvos em outras telas (nome/telefone da loja)
       lojaCEP: deliveryCfg.lojaCEP, lojaEndereco: deliveryCfg.lojaEndereco,
       pix: (deliveryCfg.pix || '').trim(),
+      lojaPhone: (deliveryCfg.lojaPhone || '').trim(),
+      lalamoveProducao: deliveryCfg.lalamoveProducao === true,
       freteMargemPct: deliveryCfg.freteMargemPct === '' ? 10 : (parseFloat(deliveryCfg.freteMargemPct) || 0),
       freteMargemMin: deliveryCfg.freteMargemMin === '' ? 1 : (parseFloat(deliveryCfg.freteMargemMin) || 0),
       freteGratis: parseFloat(deliveryCfg.freteGratis) || 0, freteTiers: tiers,
@@ -180,6 +182,12 @@ export default function Configuracoes() {
     }
     await saveUserConfig({ ...(existing || {}), delivery: payload })
     setDeliveryCfg(d => ({ ...d, freteTiers: tiers, lojaLat: payload.lojaLat, lojaLng: payload.lojaLng }))
+    // Acabou de ligar o Lalamove valendo: cadastra lá o endereço dos avisos (motorista saiu, entregou)
+    if (payload.lalamoveProducao && !existing?.delivery?.lalamoveProducao) {
+      try { await configurarAvisosLalamove(false); show('Delivery salvo! Lalamove valendo, com avisos ligados.') }
+      catch (e) { show(`Delivery salvo, mas os avisos da Lalamove falharam: ${e.message}`) }
+      return
+    }
     show(coords ? 'Delivery salvo!' : 'Delivery salvo (não consegui geocodar o CEP da loja)')
   }
 
@@ -598,6 +606,33 @@ export default function Configuracoes() {
               placeholder="Rua..., número, cidade"
               style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
             />
+            <label className="cfg-label">Telefone da loja (o motorista do Lalamove liga aqui)</label>
+            <input
+              type="tel" inputMode="tel"
+              value={deliveryCfg.lojaPhone || ''}
+              onChange={e => setDel('lojaPhone', e.target.value)}
+              placeholder="(21) 99999-9999"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', marginBottom: 12, borderRadius: 10,
+              border: `1px solid ${deliveryCfg.lalamoveProducao ? 'rgba(245,181,68,.55)' : 'var(--border)'}`, background: deliveryCfg.lalamoveProducao ? 'rgba(245,181,68,.08)' : 'transparent' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Lalamove {deliveryCfg.lalamoveProducao ? 'valendo' : 'em modo teste'}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.4 }}>
+                  {deliveryCfg.lalamoveProducao
+                    ? 'O despacho chama motorista de verdade e cobra da sua carteira Lalamove.'
+                    : 'O despacho é de mentira (sandbox): nenhum motorista vem e nada é cobrado.'}
+                </div>
+              </div>
+              <button type="button" role="switch" aria-checked={!!deliveryCfg.lalamoveProducao} aria-label="Lalamove valendo"
+                onClick={() => {
+                  if (!deliveryCfg.lalamoveProducao && !window.confirm('Ligar o Lalamove de verdade?\n\nA partir daí, "Despachar" chama motorista e cobra da sua carteira Lalamove. Lembre de salvar.')) return
+                  setDel('lalamoveProducao', !deliveryCfg.lalamoveProducao)
+                }}
+                style={{ width: 52, height: 30, borderRadius: 99, border: 'none', position: 'relative', flexShrink: 0, cursor: 'pointer', background: deliveryCfg.lalamoveProducao ? '#f5b544' : '#3a3a3a' }}>
+                <span style={{ position: 'absolute', top: 3, left: deliveryCfg.lalamoveProducao ? 25 : 3, width: 24, height: 24, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
+              </button>
+            </div>
             <label className="cfg-label">Chave Pix (gera o Pix copia e cola com o valor de cada pedido)</label>
             <input
               type="text"

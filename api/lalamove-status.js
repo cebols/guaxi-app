@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { lalamove, lalamoveConfigured } from './_lalamove.js'
+import { lalamove, lalamoveConfigured, envioSandbox } from './_lalamove.js'
 import { usuarioLogado } from './_auth.js'
 
 // Consulta o status de um envio despachado e atualiza o registro:
@@ -9,7 +9,6 @@ import { usuarioLogado } from './_auth.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
-const SANDBOX      = process.env.LALAMOVE_DISPATCH_SANDBOX !== 'false'
 
 // Entrega concluída → os pedidos do envio viram Entregue (a baixa do estoque
 // acontece no app, na próxima vez que ele abre pedidos/prontidão).
@@ -20,7 +19,6 @@ async function marcarPedidosEntregues(sb, envioId) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
-  if (!lalamoveConfigured(SANDBOX)) { res.status(500).json({ error: `Lalamove ${SANDBOX ? 'sandbox' : 'produção'} não configurado` }); return }
   if (!SUPABASE_URL || !SERVICE_KEY) { res.status(500).json({ error: 'Supabase service role não configurado' }); return }
 
   try {
@@ -33,6 +31,8 @@ export default async function handler(req, res) {
     const { data: envio } = await sb.from('envios').select('*').eq('id', envioId).eq('user_id', userId).single()
     if (!envio) { res.status(404).json({ error: 'Envio não encontrado' }); return }
     if (!envio.order_id) { res.status(400).json({ error: 'Envio ainda não despachado' }); return }
+    const SANDBOX = envioSandbox(envio)
+    if (!lalamoveConfigured(SANDBOX)) { res.status(500).json({ error: `Lalamove ${SANDBOX ? 'sandbox' : 'produção'} não configurado` }); return }
 
     const get = await lalamove('GET', `/v3/orders/${envio.order_id}`, null, { sandbox: SANDBOX })
     if (!get.ok) { res.status(get.status).json({ error: get.json?.errors?.[0]?.message || 'Falha ao consultar pedido' }); return }

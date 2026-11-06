@@ -1,23 +1,21 @@
 import { createClient } from '@supabase/supabase-js'
-import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal, pisoFrete, precoFrete } from './_lalamove.js'
+import { lalamove, lalamoveConfigured, stopOf, brPhone, quoteTotal, pisoFrete, precoFrete, despachoSandbox } from './_lalamove.js'
 import { usuarioLogado } from './_auth.js'
 
 // Despacha um envio na Lalamove: cota → cria order → grava order_id/shareLink/status.
 // Ao despachar, REALOCA o frete de cada pedido para sua fração justa do custo real
 // da viagem agrupada (proporcional ao custo individual/solo), nunca acima do cotado.
-// Despacho usa SANDBOX por padrão (não chama motorista real). Defina
-// LALAMOVE_DISPATCH_SANDBOX=false só quando for pra valer.
+// Despacho em modo teste (sandbox, não chama motorista real) até ligar "Lalamove
+// valendo" em Configurações › Delivery. Cada envio guarda em qual modo saiu.
 //
 // Body: { envioId } — exige login (Authorization: Bearer <token do Supabase>)
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
-const SANDBOX      = process.env.LALAMOVE_DISPATCH_SANDBOX !== 'false'   // default: sandbox
 const BLEND        = 0.5   // 50% divisão igual + 50% proporcional à distância
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
-  if (!lalamoveConfigured(SANDBOX)) { res.status(500).json({ error: `Lalamove ${SANDBOX ? 'sandbox' : 'produção'} não configurado` }); return }
   if (!SUPABASE_URL || !SERVICE_KEY) { res.status(500).json({ error: 'Supabase service role não configurado' }); return }
 
   try {
@@ -43,6 +41,11 @@ export default async function handler(req, res) {
     const { data: cfgRow } = await sb.from('user_config').select('config').eq('user_id', userId).single()
     const delivery = cfgRow?.config?.delivery || {}
     if (!delivery.lojaLat || !delivery.lojaLng) { res.status(400).json({ error: 'Loja sem coordenadas (Configurações)' }); return }
+    const SANDBOX = despachoSandbox(delivery)
+    if (!lalamoveConfigured(SANDBOX)) { res.status(500).json({ error: `Lalamove ${SANDBOX ? 'sandbox' : 'produção'} não configurado` }); return }
+    // Motorista de verdade liga pra loja: sem telefone não despacha
+    const telLoja = brPhone(delivery.lojaPhone)
+    if (!SANDBOX && telLoja.length < 13) { res.status(400).json({ error: 'Cadastre o telefone da loja em Configurações › Delivery (o motorista liga pra ele)' }); return }
 
     // Paradas: loja (remetente) + cada pedido (destinatário)
     const stops = [
@@ -61,13 +64,13 @@ export default async function handler(req, res) {
     const recipients = qd.stops.slice(1).map((s, i) => ({
       stopId: s.stopId,
       name:   pedidos[i]?.cliente || 'Cliente',
-      phone:  brPhone(pedidos[i]?.contato) || '+5521999990000',
+      phone:  brPhone(pedidos[i]?.contato) || telLoja || '+5521999990000',   // sem telefone do cliente: o motorista liga pra loja
       remarks: pedidos[i]?.obs || '',
     }))
     const order = await lalamove('POST', '/v3/orders', {
       data: {
         quotationId: qd.quotationId,
-        sender: { stopId: qd.stops[0].stopId, name: delivery.lojaNome || 'Guaxi Confeitaria', phone: brPhone(delivery.lojaPhone) || '+5521999990000' },
+        sender: { stopId: qd.stops[0].stopId, name: delivery.lojaNome || 'Guaxí Pâtisserie', phone: telLoja || '+5521999990000' },
         recipients,
       },
     }, { sandbox: SANDBOX })
@@ -109,6 +112,7 @@ export default async function handler(req, res) {
       share_link:   od.shareLink || null,
       status:       od.status || 'ASSIGNING_DRIVER',
       price_total:  C,
+      sandbox:      SANDBOX,
     }).eq('id', envioId)
 
     res.status(200).json({

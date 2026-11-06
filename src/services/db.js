@@ -2618,6 +2618,17 @@ async function headersComLogin() {
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token || ''}` }
 }
 
+// Cadastra na Lalamove o endereço dos avisos (motorista aceitou, saiu, entregou)
+export async function configurarAvisosLalamove(sandbox = false) {
+  const r = await fetch('/api/lalamove-webhook-setup', {
+    method: 'POST', headers: await headersComLogin(),
+    body: JSON.stringify({ sandbox }),
+  })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j.error || 'Falha ao configurar os avisos da Lalamove')
+  return j
+}
+
 export async function despacharEnvio(userId, envioId) {
   const r = await fetch('/api/lalamove-order', {
     method: 'POST', headers: await headersComLogin(),

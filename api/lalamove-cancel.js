@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { lalamove, lalamoveConfigured } from './_lalamove.js'
+import { lalamove, lalamoveConfigured, envioSandbox } from './_lalamove.js'
 import { usuarioLogado } from './_auth.js'
 
 // Cancela um envio: cancela a order na Lalamove (se despachada), desvincula os
@@ -9,7 +9,6 @@ import { usuarioLogado } from './_auth.js'
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY
-const SANDBOX      = process.env.LALAMOVE_DISPATCH_SANDBOX !== 'false'
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
@@ -26,6 +25,7 @@ export default async function handler(req, res) {
     if (!envio) { res.status(404).json({ error: 'Envio não encontrado' }); return }
 
     let lalamoveCancel = 'n/a'
+    const SANDBOX = envioSandbox(envio)
     if (envio.order_id && lalamoveConfigured(SANDBOX)) {
       const r = await lalamove('DELETE', `/v3/orders/${envio.order_id}`, null, { sandbox: SANDBOX })
       lalamoveCancel = r.ok ? 'cancelado' : (r.json?.errors?.[0]?.message || `falha (${r.status})`)
