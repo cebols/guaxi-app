@@ -1110,3 +1110,6 @@ a { touch-action: manipulation; }
   .int-pessoa { padding: 12px 0; }
   .int-x { width: 40px; height: 40px; }
 }
+/* pedido do cardápio esperando o Pix: apagado, ainda não é pedido confirmado */
+.pd-card.esperando { background: transparent; border-style: dashed; border-color: #3a3a3a; }
+.pd-card.esperando > * { opacity: .8; }

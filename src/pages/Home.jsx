@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
 import {
-  getEncomendas, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas,
+  getEncomendas, aguardandoPix, getInsumos, getEmbalagens, getProdutos, getProducoes, computeAjustesPendentes, getReceitas,
   insumosDoCardapio, reconciliarBaixasPedidos, reservasPorProduto, updateStatusEncomenda,
   getProntidaoLotes, getInteresses, moverProntidao, desfazerMovimento, embalarProduto, desfazerEmbalar,
   descartarVencidosProntidao, marcarEtapaPronta, desfazerEtapaPronta,
@@ -13,6 +13,7 @@ import {
   fluxoAtivo, analisarProduto, etapasDoProduto, hhmm, GRUPOS_TAREFA, FEITO, grupoDe, montarTarefas, destinosEmbalar,
 } from '../lib/prontidao'
 import { NovoPedidoSheet } from './Pedidos'
+import { usePedidoMudou } from '../hooks/useRealtimePedidos'
 
 // Código de cores do Início: cinza = normal; âmbar = precisa de você agora;
 // verde = ação principal / navegação.
@@ -152,6 +153,7 @@ export default function Home() {
   const [agora, setAgora] = useState(Date.now())
 
   const { data: encomendas, reload: reloadEnc } = useData(getEncomendas)
+  usePedidoMudou(() => reloadEnc())   // Pix caiu, pedido novo, cancelou sozinho: atualiza na hora
   const { data: insumos, reload: reloadIns } = useData(getInsumos)
   const { data: embalagens, reload: reloadEmb } = useData(getEmbalagens)
   const { data: produtos, reload: reloadProd } = useData(getProdutos)
@@ -255,19 +257,19 @@ export default function Home() {
   // ── Pedidos: hoje e amanhã (+ atrasados e entregues sem pagar) ──
   const pedidos = useMemo(() => (encomendas || [])
     .filter(e => {
-      if (e.status === 'Cancelado' || !e.dataEntrega) return false
+      if (e.status === 'Cancelado' || !e.dataEntrega || aguardandoPix(e)) return false   // esperando o Pix ainda não conta
       if (e.status === 'Entregue') return e.pgto !== 'Pago' && e.saldo > 0 && diasAte(e.dataEntrega) <= 1
       return diasAte(e.dataEntrega) <= 1
     })
     .sort((a, b) => diaDe(a.dataEntrega) - diaDe(b.dataEntrega)), [encomendas])
   const abertosJanela = pedidos.filter(e => e.status !== 'Entregue').length
   const proximoPedido = useMemo(() => (encomendas || [])
-    .find(e => e.status !== 'Cancelado' && e.status !== 'Entregue' && e.dataEntrega && diasAte(e.dataEntrega) > 1), [encomendas])
+    .find(e => e.status !== 'Cancelado' && e.status !== 'Entregue' && !aguardandoPix(e) && e.dataEntrega && diasAte(e.dataEntrega) > 1), [encomendas])
 
   const vendidoSemana = useMemo(() => {
     const seg = hoje0(); seg.setDate(seg.getDate() - ((seg.getDay() + 6) % 7))
     return (encomendas || [])
-      .filter(e => e.status !== 'Cancelado' && e.createdAt && diaDe(e.createdAt) >= seg)
+      .filter(e => e.status !== 'Cancelado' && !aguardandoPix(e) && e.createdAt && diaDe(e.createdAt) >= seg)
       .reduce((s, e) => s + (Number(e.valor) || 0), 0)
   }, [encomendas])
 

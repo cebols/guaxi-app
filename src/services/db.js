@@ -957,6 +957,8 @@ export async function getEncomendas() {
     periodo: r.periodo || null,
     rastreioAuto: r.rastreio_auto ?? true,
     rastreioEnviadoEm: r.rastreio_enviado_em || null,
+    aguardaPixAte: r.aguarda_pix_ate || null,   // pedido do cardápio esperando o Pix (cancela sozinho depois)
+    pixPagoEm: r.pix_pago_em || null,
     envio: r.envios ? { id: r.envios.id, status: r.envios.status, shareLink: r.envios.share_link || null, periodo: r.envios.periodo || null } : null,
     createdAtTs: r.created_at || null,
     itens: (r.encomenda_itens || []).map(i => ({
@@ -2504,6 +2506,10 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
   return data
 }
 
+// Pedido do cardápio que ainda espera o Pix do cliente: não conta como confirmado
+// (fica fora das contas, da produção e dos envios) e se cancela sozinho no prazo
+export const aguardandoPix = (p) => !!p?.aguardaPixAte && p.pgto !== 'Pago' && p.status === 'Pendente'
+
 // Pix automático (Mercado Pago): cria ou reaproveita o Pix do pedido. O cliente manda
 // o segredo do pedido (chave); a dona logada não precisa. Devolve { codigo, qr, expira_em, valor } ou { pago: true }.
 async function chamarPix(acao, pedido, chave) {
@@ -2534,7 +2540,7 @@ const FINAIS = ['Entregue', 'Cancelado']
 export async function getPedidosParaAgrupar() {
   const { data, error } = await supabase
     .from('encomendas')
-    .select('id, cliente, contato, canal, endereco, obs, valor, frete, data_entrega, periodo, entrega_lat, entrega_lng, entrega_frag, status, pgto, encomenda_itens(produto, quantidade)')
+    .select('id, cliente, contato, canal, endereco, obs, valor, frete, data_entrega, periodo, entrega_lat, entrega_lng, entrega_frag, status, pgto, aguarda_pix_ate, encomenda_itens(produto, quantidade)')
     .eq('tipo_entrega', 'Entrega')
     .is('envio_id', null)
     .not('data_entrega', 'is', null)
@@ -2543,6 +2549,7 @@ export async function getPedidosParaAgrupar() {
   if (error) throw error
   return (data || [])
     .filter(r => !FINAIS.includes(r.status))
+    .filter(r => !(r.aguarda_pix_ate && r.pgto !== 'Pago'))   // ainda esperando o Pix: não vai pra rota
     .map(r => ({
       id: r.id, cliente: r.cliente, contato: r.contato || '', canal: r.canal || '', endereco: r.endereco || '',
       obs: r.obs || '', valor: r.valor || 0, frete: r.frete || 0, status: r.status, pgto: r.pgto,

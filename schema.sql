@@ -487,6 +487,8 @@ ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_codigo    text;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_valor     numeric;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_expira_em timestamptz;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_pago_em   timestamptz;
+-- Pedido do cardápio com Pix gerado: segura o estoque até aqui (2h); sem pagar, cancela sozinho
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS aguarda_pix_ate timestamptz;
 
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS produto_id bigint references produtos(id) on delete set null;
@@ -786,7 +788,7 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
       'data', e.data_entrega, 'periodo', e.periodo, 'tipo', e.tipo_entrega, 'criado', e.created_at,
       'itens', (SELECT coalesce(jsonb_agg(jsonb_build_object('produto', i.produto, 'qtd', i.quantidade) ORDER BY i.id), '[]'::jsonb)
                   FROM encomenda_itens i WHERE i.encomenda_id = e.id AND i.produto NOT LIKE '↳%'),
-      'envio', v.status,
+      'envio', v.status, 'pague_ate', e.aguarda_pix_ate,
       'rastreio', CASE WHEN v.status IN ('ON_GOING', 'PICKED_UP') THEN v.share_link END
     ) AS x
     FROM encomendas e LEFT JOIN envios v ON v.id = e.envio_id
@@ -1019,8 +1021,27 @@ REVOKE ALL ON FUNCTION avisar_rastreio_envio() FROM public, anon, authenticated;
 CREATE OR REPLACE TRIGGER envio_rastreio AFTER UPDATE OF status, share_link ON envios
   FOR EACH ROW EXECUTE FUNCTION avisar_rastreio_envio();
 
+-- Pix do cardápio que venceu sem pagamento (2h): a função pix-mercadopago confere no
+-- Mercado Pago (se caiu, marca pago), cancela o Pix e o pedido e devolve o estoque.
+CREATE OR REPLACE FUNCTION cancelar_pix_vencidos() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE segredo text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM encomendas WHERE aguarda_pix_ate < now()
+                   AND pgto IS DISTINCT FROM 'Pago' AND status = 'Pendente') THEN RETURN; END IF;
+  SELECT decrypted_secret INTO segredo FROM vault.decrypted_secrets WHERE name = 'guaxi_cron_secret' LIMIT 1;
+  IF segredo IS NULL THEN RETURN; END IF;
+  PERFORM net.http_post(
+    url     := 'https://xhnzbmguobhfvcmwhhwi.supabase.co/functions/v1/pix-mercadopago?acao=vencidos',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-guaxi-segredo', segredo),
+    body    := '{}'::jsonb
+  );
+END $$;
+REVOKE ALL ON FUNCTION cancelar_pix_vencidos() FROM public, anon, authenticated;
+
 -- Agenda (rodar de novo só atualiza o mesmo agendamento)
 SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar_lembretes_push()');
+SELECT cron.schedule('guaxi-pix-vencidos', '*/5 * * * *', 'SELECT cancelar_pix_vencidos()');
 
 
 -- =============================================================================

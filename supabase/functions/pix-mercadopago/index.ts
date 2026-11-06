@@ -6,6 +6,10 @@
 //   POST ?acao=criar     { pedido, chave? }  → { codigo, qr, expira_em, valor } | { pago: true }
 //   POST ?acao=conferir  { pedido, chave? }  → { pago, status }   (a página do cliente pergunta de tempos em tempos)
 //   POST ?acao=aviso                          ← webhook do Mercado Pago
+//   POST ?acao=vencidos                       ← o banco, a cada 5 min (segredo do Vault)
+//
+// Pedido do cardápio: o Pix vale 2h (aguarda_pix_ate). Sem pagar até lá, o pedido é
+// cancelado sozinho e o estoque volta. Pedidos que a dona anota no app não têm prazo.
 //
 // Quem pode criar/conferir: o cliente com o segredo do pedido (chave_cliente, guardado
 // no aparelho dele), a dona logada ou a GuaxiMina (chave de serviço, no recibo do WhatsApp). O aviso do Mercado Pago não é confiado: a função
@@ -31,13 +35,43 @@ interface Pedido {
   id: string; user_id: string; cliente: string; contato: string; valor: number; sinal: number
   pgto: string; status: string; chave_cliente: string | null
   pix_mp_id: string | null; pix_codigo: string | null; pix_valor: number | null; pix_expira_em: string | null
+  canal: string | null; created_at: string; aguarda_pix_ate: string | null; obs: string | null
 }
 interface Pagamento {
   id: number; status: string; external_reference?: string; transaction_amount?: number; date_of_expiration?: string
   point_of_interaction?: { transaction_data?: { qr_code?: string; qr_code_base64?: string } }
 }
 
-const CAMPOS = 'id, user_id, cliente, contato, valor, sinal, pgto, status, chave_cliente, pix_mp_id, pix_codigo, pix_valor, pix_expira_em'
+const CAMPOS = 'id, user_id, cliente, contato, valor, sinal, pgto, status, chave_cliente, pix_mp_id, pix_codigo, pix_valor, pix_expira_em, canal, created_at, aguarda_pix_ate, obs'
+const PRAZO_CARDAPIO_MS = 2 * 3600e3
+const horaBR = (iso: string) => new Date(new Date(iso).getTime() - 3 * 3600e3).toISOString().slice(11, 16)
+
+// Prazo pra pagar: só pedido do cardápio, contado de quando foi feito. Pedido antigo
+// (de antes do Pix automático) ou anotado pela dona não tem prazo.
+function prazoDe(p: Pedido): number | null {
+  if (p.aguarda_pix_ate) return new Date(p.aguarda_pix_ate).getTime()
+  if (p.canal !== 'FormExterno') return null
+  const fim = new Date(p.created_at).getTime() + PRAZO_CARDAPIO_MS
+  return fim > Date.now() ? fim : null
+}
+
+// Mensagem pro cliente pelo WhatsApp da Guaxí, se a conversa estiver aberta (janela de 24h)
+async function whatsCliente(sb: SupabaseClient, contato: string, userId: string, texto: string) {
+  const fim = soDigitos(contato).slice(-8)
+  if (fim.length !== 8) return
+  const { data: ats } = await sb.from('atendimentos').select('telefone, ultima_msg_cliente_em').like('telefone', `%${fim}`)
+  const at = (ats || []).find(a => a.ultima_msg_cliente_em && Date.now() - new Date(a.ultima_msg_cliente_em).getTime() < 24 * 3600e3)
+  if (!at) return
+  const r = await fetch(`https://graph.facebook.com/v19.0/${Deno.env.get('META_PHONE_NUMBER_ID')}/messages`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${Deno.env.get('META_ACCESS_TOKEN')}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messaging_product: 'whatsapp', to: at.telefone, type: 'text', text: { body: texto } }),
+  }).catch(() => null)
+  if (r?.ok) {
+    await sb.from('agent_conversas').insert({ telefone: at.telefone, role: 'assistant', conteudo: texto, user_id: userId })
+    await sb.from('atendimentos').update({ ultima_msg_em: new Date().toISOString() }).eq('telefone', at.telefone)
+  }
+}
 const falta = (p: Pedido) => Math.max(0, Math.round((Number(p.valor) - Number(p.sinal || 0)) * 100) / 100)
 
 function mp(path: string, init: RequestInit = {}) {
@@ -93,24 +127,8 @@ async function marcarPago(sb: SupabaseClient, pedidoId: string, pag: Pagamento) 
   })
   if (error) console.error('avisar_dono', error.message)
 
-  // WhatsApp da Guaxí, se a conversa com o cliente estiver aberta (janela de 24h da Meta)
-  const fim = soDigitos(p.contato).slice(-8)
-  if (fim.length === 8) {
-    const { data: ats } = await sb.from('atendimentos').select('telefone, ultima_msg_cliente_em').like('telefone', `%${fim}`)
-    const at = (ats || []).find(a => a.ultima_msg_cliente_em && Date.now() - new Date(a.ultima_msg_cliente_em).getTime() < 24 * 3600e3)
-    if (at) {
-      const texto = `Recebi seu Pix do pedido *${p.id}* ✅ Tá confirmadíssimo${nome ? `, ${nome}` : ''}! Qualquer coisa é só me chamar aqui 💛`
-      const r = await fetch(`https://graph.facebook.com/v19.0/${Deno.env.get('META_PHONE_NUMBER_ID')}/messages`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${Deno.env.get('META_ACCESS_TOKEN')}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messaging_product: 'whatsapp', to: at.telefone, type: 'text', text: { body: texto } }),
-      }).catch(() => null)
-      if (r?.ok) {
-        await sb.from('agent_conversas').insert({ telefone: at.telefone, role: 'assistant', conteudo: texto, user_id: p.user_id })
-        await sb.from('atendimentos').update({ ultima_msg_em: agora }).eq('telefone', at.telefone)
-      }
-    }
-  }
+  await whatsCliente(sb, p.contato, p.user_id,
+    `Recebi seu Pix do pedido *${p.id}* ✅ Tá confirmadíssimo${nome ? `, ${nome}` : ''}! Qualquer coisa é só me chamar aqui 💛`)
   return true
 }
 
@@ -118,15 +136,19 @@ async function criar(sb: SupabaseClient, p: Pedido) {
   if (p.status === 'Cancelado') return json({ error: 'Pedido cancelado' }, 409)
   const valor = falta(p)
   if (p.pgto === 'Pago' || valor <= 0) return json({ pago: true })
+  const prazo = prazoDe(p)
+  if (prazo && prazo <= Date.now()) return json({ vencido: true, error: 'O prazo pra pagar esse pedido acabou' }, 410)
+  const pagueAte = prazo ? new Date(prazo).toISOString() : null
 
-  // Já tem um Pix desse valor ainda valendo (com folga de 10 min): reaproveita
+  // Já tem um Pix desse valor ainda valendo: reaproveita
+  const folga = prazo ? 60e3 : 10 * 60e3
   const valendo = p.pix_mp_id && p.pix_codigo && centavos(Number(p.pix_valor)) === centavos(valor)
-    && p.pix_expira_em && new Date(p.pix_expira_em).getTime() > Date.now() + 10 * 60e3
+    && p.pix_expira_em && new Date(p.pix_expira_em).getTime() > Date.now() + folga
   if (valendo) {
     const pag = await lerPagamento(p.pix_mp_id!)
     if (pag?.status === 'approved' && pag.external_reference === p.id) { await marcarPago(sb, p.id, pag); return json({ pago: true }) }
     if (pag && ['pending', 'in_process'].includes(pag.status)) {
-      return json({ codigo: p.pix_codigo, qr: pag.point_of_interaction?.transaction_data?.qr_code_base64 || null, expira_em: p.pix_expira_em, valor })
+      return json({ codigo: p.pix_codigo, qr: pag.point_of_interaction?.transaction_data?.qr_code_base64 || null, expira_em: p.pix_expira_em, pague_ate: pagueAte, valor })
     }
   }
   // O Pix antigo (outro valor ou vencendo) não vale mais
@@ -137,7 +159,8 @@ async function criar(sb: SupabaseClient, p: Pedido) {
   }
 
   const nome = String(p.cliente || '').trim().split(/\s+/)[0] || 'Cliente'
-  const expiraMs = Date.now() + 24 * 3600e3
+  // Cardápio: vence no prazo do pedido (o Mercado Pago pede no mínimo ~30 min; o cancelamento segue o prazo)
+  const expiraMs = prazo ? Math.max(prazo, Date.now() + 31 * 60e3) : Date.now() + 24 * 3600e3
   const r = await mp('/v1/payments', {
     method: 'POST',
     // mesma chave em 10 min = mesmo Pix (duas abas abertas não geram duas cobranças)
@@ -160,12 +183,13 @@ async function criar(sb: SupabaseClient, p: Pedido) {
     return json({ error: 'Não deu pra gerar o Pix agora', detalhe: pag?.message || r.status }, 502)
   }
   const expira = pag.date_of_expiration ? new Date(pag.date_of_expiration).toISOString() : new Date(expiraMs).toISOString()
-  await sb.from('encomendas').update({ pix_mp_id: String(pag.id), pix_codigo: codigo, pix_valor: valor, pix_expira_em: expira }).eq('id', p.id)
-  return json({ codigo, qr: pag.point_of_interaction?.transaction_data?.qr_code_base64 || null, expira_em: expira, valor })
+  await sb.from('encomendas').update({ pix_mp_id: String(pag.id), pix_codigo: codigo, pix_valor: valor, pix_expira_em: expira, aguarda_pix_ate: pagueAte }).eq('id', p.id)
+  return json({ codigo, qr: pag.point_of_interaction?.transaction_data?.qr_code_base64 || null, expira_em: expira, pague_ate: pagueAte, valor })
 }
 
 async function conferir(sb: SupabaseClient, p: Pedido) {
   if (p.pgto === 'Pago') return json({ pago: true })
+  if (p.status === 'Cancelado') return json({ pago: false, cancelado: true, status: 'cancelled' })
   if (!p.pix_mp_id) return json({ pago: false, status: 'sem_pix' })
   const pag = await lerPagamento(p.pix_mp_id)
   if (pag?.status === 'approved' && pag.external_reference === p.id) { await marcarPago(sb, p.id, pag); return json({ pago: true }) }
@@ -190,6 +214,46 @@ async function aviso(sb: SupabaseClient, req: Request) {
   return json({ ok: true, marcou })
 }
 
+// Pedidos do cardápio que passaram do prazo sem pagar: confere no Mercado Pago (se caiu,
+// marca pago), senão cancela o Pix e o pedido, devolve o estoque e avisa a dona e o cliente
+async function vencidos(sb: SupabaseClient, req: Request) {
+  const { data: ok } = await sb.rpc('conferir_segredo_guaxi', { p_segredo: req.headers.get('x-guaxi-segredo') || '' })
+  if (ok !== true) return json({ error: 'Forbidden' }, 403)
+  const { data: lista } = await sb.from('encomendas').select(CAMPOS)
+    .lt('aguarda_pix_ate', new Date().toISOString()).neq('pgto', 'Pago').eq('status', 'Pendente').limit(20)
+  const feitos: string[] = []
+  for (const p of (lista || []) as Pedido[]) {
+    if (p.pix_mp_id) {
+      let pag = await lerPagamento(p.pix_mp_id)
+      if (pag?.status === 'approved' && pag.external_reference === p.id) { await marcarPago(sb, p.id, pag); continue }
+      if (pag?.status === 'pending') {
+        const r = await mp(`/v1/payments/${p.pix_mp_id}`, { method: 'PUT', body: JSON.stringify({ status: 'cancelled' }) })
+        if (!r.ok) {   // pode ter caído agora mesmo
+          pag = await lerPagamento(p.pix_mp_id)
+          if (pag?.status === 'approved' && pag.external_reference === p.id) { await marcarPago(sb, p.id, pag); continue }
+          if (!pag || pag.status === 'pending') continue   // tenta de novo na próxima rodada
+        }
+      } else if (!pag) continue   // Mercado Pago fora do ar: tenta de novo depois
+    }
+    const nota = `⌛ Cancelado sozinho: o Pix não foi pago até ${horaBR(p.aguarda_pix_ate!)}.`
+    const { data: upd } = await sb.from('encomendas')
+      .update({ status: 'Cancelado', obs: p.obs ? `${nota}\n${p.obs}` : nota })
+      .eq('id', p.id).eq('status', 'Pendente').neq('pgto', 'Pago').select('id')
+    if (!upd?.length) continue
+    feitos.push(p.id)
+    const nome = String(p.cliente || '').trim().split(/\s+/)[0]
+    const { error } = await sb.rpc('avisar_dono', {
+      p_user_id: p.user_id, p_titulo: `⌛ ${p.id} cancelado`,
+      p_corpo: `${nome || 'O cliente'} não pagou o Pix em 2h. O estoque voltou pro cardápio.`,
+      p_url: '/pedidos', p_tag: `pix-${p.id}`,
+    })
+    if (error) console.error('avisar_dono', error.message)
+    await whatsCliente(sb, p.contato, p.user_id,
+      `Oi${nome ? `, ${nome}` : ''}! O Pix do pedido *${p.id}* venceu e o pedido foi cancelado. Se ainda quiser, é só fazer de novo pelo cardápio 💛 https://guaxi-app.vercel.app/pedido/${p.user_id}`)
+  }
+  return json({ cancelados: feitos })
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   if (!Deno.env.get('MERCADOPAGO_ACCESS_TOKEN')) return json({ error: 'Mercado Pago não configurado' }, 503)
@@ -197,6 +261,7 @@ Deno.serve(async (req: Request) => {
   const acao = new URL(req.url).searchParams.get('acao')
   try {
     if (acao === 'aviso') return await aviso(sb, req)
+    if (acao === 'vencidos') return await vencidos(sb, req)
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
     let body: { pedido?: string; chave?: string; acao?: string } = {}
     try { body = await req.json() } catch { return json({ error: 'Corpo inválido' }, 400) }

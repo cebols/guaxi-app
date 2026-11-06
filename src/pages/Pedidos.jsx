@@ -7,8 +7,9 @@ import NovoPedidoForm from '../components/NovoPedidoForm'
 import {
   getProdutos, getEncomendas, getClientes, updateStatusEncomenda, updateEncomendaItens, deletePedido,
   reconciliarBaixasPedidos, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
-  atualizarPedido, loadUserConfig, pixDoPedido,
+  atualizarPedido, loadUserConfig, pixDoPedido, aguardandoPix,
 } from '../services/db'
+import { usePedidoMudou } from '../hooks/useRealtimePedidos'
 import { pixCopiaECola } from '../lib/pix'
 
 // ── Pedidos: lista agrupada por dia e período + detalhe com mensagens ────────
@@ -77,8 +78,11 @@ function nomesSubs(subs) {
 }
 const resumoItens = itens => agruparItens(itens).map(i => `${fmtQ(i.quantidade)}× ${i.produto}${i.subs.length ? ` (${nomesSubs(i.subs)})` : ''}`).join(' · ') || '—'
 
+const horaDe = (iso) => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+
 function alertasDe(p) {
   const out = []
+  if (aguardandoPix(p)) return out   // ainda não é pedido confirmado: nada pra cobrar nem fazer
   const n = p.dataEntrega ? diasAte(p.dataEntrega) : null
   if (aberto(p) && n != null && n < 0) out.push('atrasado')
   if (faltaPagar(p) > 0 && (p.status === 'Entregue' || (n != null && n <= 0))) out.push(p.pgto === 'Atrasado' ? 'pagamento atrasado' : 'falta pagar')
@@ -87,9 +91,10 @@ function alertasDe(p) {
 }
 
 function estadoTexto(p) {
+  if (aguardandoPix(p)) return `aguardando o Pix · cancela sozinho às ${horaDe(p.aguardaPixAte)}`
   const st = p.status === 'Pendente' ? 'a fazer' : p.status === 'Pronto' ? 'pronto' : p.status === 'Entregue' ? 'entregue' : 'cancelado'
   const jaAvisou = alertasDe(p).some(a => a.includes('pag'))
-  const pg = p.pgto === 'Pago' ? 'pago' : jaAvisou ? null : p.sinal > 0 ? `sinal ${fmtR(p.sinal)}` : 'a receber'
+  const pg = p.pgto === 'Pago' ? (p.pixPagoEm ? 'pago no Pix ✓' : 'pago') : jaAvisou ? null : p.sinal > 0 ? `sinal ${fmtR(p.sinal)}` : 'a receber'
   const env = p.envio && p.status !== 'Entregue' ? ENVIO_STATUS[p.envio.status] : null
   return [st, env ? `envio ${env}` : null, p.status === 'Cancelado' ? null : pg].filter(Boolean).join(' · ')
 }
@@ -185,12 +190,13 @@ function CardPedido({ p, onAbrir, onAcao }) {
   const alertas = alertasDe(p)
   const combinar = alertas.includes('combinar o período')
   const outros = alertas.filter(a => a !== 'combinar o período')
-  const prox = proximaAcao(p)
+  const esperando = aguardandoPix(p)
+  const prox = esperando ? null : proximaAcao(p)
   const cobrar = faltaPagar(p) > 0 && p.status !== 'Entregue' && p.status !== 'Cancelado'
   const rodar = key => async e => { e.stopPropagation(); setOcupado(true); try { await onAcao(p, key) } finally { setOcupado(false) } }
   const entrega = p.tipoEntrega === 'Entrega'
   return (
-    <article className={`pd-card${alertas.length ? ' alerta' : ''}`} onClick={onAbrir} tabIndex={0}
+    <article className={`pd-card${alertas.length ? ' alerta' : ''}${esperando ? ' esperando' : ''}`} onClick={onAbrir} tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter') onAbrir() }} aria-label={`Pedido ${p.id} de ${p.cliente}`}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 15, fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.cliente}</span>
@@ -211,7 +217,7 @@ function CardPedido({ p, onAbrir, onAcao }) {
           {combinar
             ? <button className="pd-btn ambar" disabled={ocupado} onClick={e => { e.stopPropagation(); onAcao(p, 'combinar') }}>Combinar</button>
             : <>
-                {cobrar && <button className="pd-btn vazado" disabled={ocupado} onClick={rodar('cobrar')}>Cobrar</button>}
+                {cobrar && <button className="pd-btn vazado" disabled={ocupado} onClick={rodar('cobrar')}>{esperando ? 'Lembrar' : 'Cobrar'}</button>}
                 {prox && <button className="pd-btn" disabled={ocupado} onClick={rodar(prox.key)}>{prox.label}</button>}
               </>}
         </div>
@@ -329,6 +335,12 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
           </div>
           {criado && <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>Feito {SEM[criado.getDay()]} {ddmm(criado)} às {criado.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>}
           {alertasDe(p).length > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: AMBAR }}>{alertasDe(p).join(' · ')}</div>}
+          {aguardandoPix(p) && (
+            <div className="pd-janela fechada" role="status">
+              <i style={{ background: '#8a8a8a' }} />
+              <span><b style={{ color: 'var(--text-primary)' }}>Aguardando o Pix do cliente.</b> Quando cair, o pedido se confirma sozinho. Se não pagar até {horaDe(p.aguardaPixAte)}, ele é cancelado e o estoque volta.</span>
+            </div>
+          )}
           {p.status === 'Cancelado' ? (
             <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>Pedido cancelado.</div>
           ) : (
@@ -347,7 +359,7 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
               ))}
             </ol>
           )}
-          {prox && (
+          {prox && !aguardandoPix(p) && (
             <button className={`pd-grande${prox.key === 'reabrir' ? ' neutro' : ''}`} disabled={ocupado}
               onClick={async () => { setOcupado(true); try { await onAcao(p, prox.key) } finally { setOcupado(false) } }}>{prox.longo}</button>
           )}
@@ -463,6 +475,9 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
                   <button className={p.pgto !== 'Pago' ? 'on' : ''} disabled={ocupado} onClick={() => p.pgto === 'Pago' && salvarPgto('Aguardando')}>A receber</button>
                   <button className={p.pgto === 'Pago' ? 'on' : ''} disabled={ocupado} onClick={() => p.pgto !== 'Pago' && salvarPgto('Pago')}>Pago</button>
                 </div>
+                {p.pgto === 'Pago' && p.pixPagoEm && (
+                  <div style={{ fontSize: 13, color: '#34d39a', fontWeight: 700 }}>Pago no Pix (Mercado Pago) às {horaDe(p.pixPagoEm)} ✓</div>
+                )}
                 {p.pgto !== 'Pago' && (
                   <>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -624,6 +639,16 @@ export default function Pedidos() {
 
   const recarregar = () => Promise.all([reloadPedidos(), reloadContatos()])
 
+  // Pedido mudou em outro lugar (Pix caiu, cancelou sozinho, pedido novo): atualiza na hora
+  usePedidoMudou(d => {
+    reloadPedidos()
+    if (d?.pgto === 'Pago' && d.pix_pago_em && Date.now() - new Date(d.pix_pago_em).getTime() < 3 * 60e3) {
+      setAviso({ msg: `💸 ${d.id} pagou no Pix${d.cliente ? ` (${String(d.cliente).split(' ')[0]})` : ''}` })
+    } else if (d?.status === 'Cancelado' && String(d.obs || '').startsWith('⌛')) {
+      setAviso({ msg: `⌛ ${d.id} cancelado: o Pix não foi pago` })
+    }
+  })
+
   async function mudarStatus(p, novo) {
     const antes = { status: p.status, pgto: p.pgto }
     const pgto = novo === 'Entregue' && p.pgto !== 'Pago' ? 'Atrasado' : (p.status === 'Entregue' && p.pgto === 'Atrasado' ? 'Aguardando' : p.pgto)
@@ -669,6 +694,8 @@ export default function Pedidos() {
         setAviso({ msg: `${primeiroNome(p) || p.id}: pago`, undo: async () => { await updateStatusEncomenda(p.id, p.status, antes, p.tipoEntrega, p.frete, p.valor); await recarregar(); setAviso({ msg: 'Desfeito' }) } })
         return
       }
+      // esperando o Pix: abre o pedido com o lembrete e o código do Mercado Pago
+      if (key === 'cobrar' && aguardandoPix(p)) { rolagem.current = rolador().scrollTop; setModo({ id: p.id, msg: 'cobrar' }); return }
       if (key === 'cobrar') return await cobrar(p)
       if (key === 'rastreio') { window.open(p.envio.shareLink, '_blank'); return }
       if (key === 'envios') { navigate('/envios'); return }
@@ -677,19 +704,21 @@ export default function Pedidos() {
   }
 
   // ── Lista filtrada e agrupada ──
+  // Pedidos do cardápio esperando o Pix ficam num grupo à parte, fora das contas
+  const confirmados = useMemo(() => (pedidos || []).filter(p => !aguardandoPix(p)), [pedidos])
   const resumo = useMemo(() => {
-    const ab = (pedidos || []).filter(aberto)
+    const ab = confirmados.filter(aberto)
     return {
       hoje: ab.filter(p => p.dataEntrega && diasAte(p.dataEntrega) <= 0).length,
       semana: ab.filter(p => p.dataEntrega && diasAte(p.dataEntrega) >= 0 && diasAte(p.dataEntrega) <= 7).length,
-      receber: (pedidos || []).reduce((s, p) => s + faltaPagar(p), 0),
+      receber: confirmados.reduce((s, p) => s + faltaPagar(p), 0),
     }
-  }, [pedidos])
+  }, [confirmados])
 
   const grupos = useMemo(() => {
     const q = busca.trim().toLowerCase()
     const dig = q.replace(/\D/g, '')
-    let lista = (pedidos || []).filter(p => {
+    let lista = confirmados.filter(p => {
       if (filtro === 'proximos') return aberto(p)
       if (filtro === 'receber') return faltaPagar(p) > 0
       if (filtro === 'entregues') return p.status === 'Entregue'
@@ -728,12 +757,20 @@ export default function Pedidos() {
         subs, mostrarSubs: subs.length > 1 || subs.some(s => s.key !== 'nenhum'),
       }
     })
+  }, [pedidos, confirmados, filtro, busca])
+
+  const esperandoPix = useMemo(() => {
+    if (filtro !== 'proximos' && filtro !== 'todos') return []
+    const q = busca.trim().toLowerCase()
+    return (pedidos || []).filter(aguardandoPix)
+      .filter(p => !q || (p.cliente || '').toLowerCase().includes(q) || (p.id || '').toLowerCase().includes(q))
+      .sort((a, b) => String(a.aguardaPixAte).localeCompare(String(b.aguardaPixAte)))
   }, [pedidos, filtro, busca])
 
   const contagem = useMemo(() => ({
-    proximos: (pedidos || []).filter(aberto).length,
-    receber: (pedidos || []).filter(p => faltaPagar(p) > 0).length,
-  }), [pedidos])
+    proximos: confirmados.filter(aberto).length,
+    receber: confirmados.filter(p => faltaPagar(p) > 0).length,
+  }), [confirmados])
 
   if (loadingPed && !pedidos) return <div className="loading">Carregando...</div>
 
@@ -795,7 +832,22 @@ export default function Pedidos() {
           ))}
         </nav>
 
-        {grupos.length === 0 && (
+        {esperandoPix.length > 0 && (
+          <section className="pd-dia" aria-label="Aguardando Pix">
+            <div className="pd-dia-topo">
+              <h2>Aguardando Pix</h2>
+              <span>{esperandoPix.length === 1 ? '1 pedido do cardápio · confirma sozinho quando o Pix cai' : `${esperandoPix.length} pedidos do cardápio · confirmam sozinhos quando o Pix cai`}</span>
+            </div>
+            <div className="pd-grade">
+              {esperandoPix.map(p => (
+                <CardPedido key={p.id} p={p} onAcao={acao}
+                  onAbrir={() => { rolagem.current = rolador().scrollTop; setModo({ id: p.id }) }} />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {grupos.length === 0 && !esperandoPix.length && (
           <div className="pd-vazio">
             {busca ? 'Nenhum pedido encontrado.' : filtro === 'proximos' ? 'Nenhum pedido em aberto. ' : 'Nada por aqui.'}
             {filtro === 'proximos' && !busca && <button className="pd-link" onClick={() => setModo('novo')}>Criar pedido</button>}

@@ -140,7 +140,7 @@ function usePixAutomatico(pedido, chave, ligado) {
     setPix({ estado: 'carregando' })
     pixDoPedido(pedido, chave)
       .then(d => { if (vivo) setPix(d?.pago ? { estado: 'pago' } : d?.codigo ? { estado: 'aguardando', ...d } : { estado: 'erro' }) })
-      .catch(() => { if (vivo) setPix({ estado: 'erro' }) })
+      .catch(e => { if (vivo) setPix({ estado: /prazo/i.test(e?.message || '') ? 'vencido' : 'erro' }) })
     return () => { vivo = false }
   }, [pedido, chave, ligado])
   useEffect(() => {
@@ -149,7 +149,11 @@ function usePixAutomatico(pedido, chave, ligado) {
     const inicio = Date.now()
     const checar = async () => {
       if (parado || document.hidden) return
-      try { const d = await conferirPix(pedido, chave); if (!parado && d?.pago) setPix(x => ({ ...x, estado: 'pago' })) } catch { /* tenta de novo */ }
+      try {
+        const d = await conferirPix(pedido, chave)
+        if (!parado && d?.pago) setPix(x => ({ ...x, estado: 'pago' }))
+        else if (!parado && d?.cancelado) setPix(x => ({ ...x, estado: 'vencido' }))
+      } catch { /* tenta de novo */ }
     }
     const agendar = () => {
       if (Date.now() - inicio > 3 * 3600e3) return
@@ -175,6 +179,14 @@ function PagamentoPix({ pix, estatico, valor }) {
       </div>
     )
   }
+  if (pix.estado === 'vencido') {
+    return (
+      <div role="status" style={{ marginTop: 8, padding: '12px 14px', borderRadius: 12, background: '#FFF1F1', border: '1px solid #F3C9C9', color: '#9B2C2C' }}>
+        <div style={{ fontWeight: 800, fontSize: 15 }}>O prazo do Pix acabou</div>
+        <div style={{ fontSize: 13.5, marginTop: 2 }}>O pedido foi cancelado. Se ainda quiser, é só fazer de novo pelo cardápio 💛</div>
+      </div>
+    )
+  }
   if (pix.estado === 'carregando') {
     return <div style={{ marginTop: 10, height: 46, borderRadius: 12, background: 'linear-gradient(90deg, #F2E8EB 25%, #FFFFFF 50%, #F2E8EB 75%)', backgroundSize: '200% 100%', animation: 'gx-brilho 1.3s linear infinite' }} className="gx-anim" aria-label="Gerando seu Pix" />
   }
@@ -185,7 +197,10 @@ function PagamentoPix({ pix, estatico, valor }) {
         <div role="status" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 800, color: '#8A5A00', background: '#FFF4DC', borderRadius: 99, padding: '4px 10px' }}>
           <i className="gx-anim" style={{ width: 8, height: 8, borderRadius: '50%', background: '#E59A00', animation: 'gx-pulsa 1.4s ease-in-out infinite' }} /> Aguardando o Pix
         </div>
-        <div style={{ color: C.tinta2, fontSize: 13, margin: '6px 0 10px', lineHeight: 1.45 }}>Copie o código e cole no app do seu banco. Assim que cair, o pedido se confirma sozinho — pode deixar esta tela aberta.</div>
+        <div style={{ color: C.tinta2, fontSize: 13, margin: '6px 0 10px', lineHeight: 1.45 }}>
+          Copie o código e cole no app do seu banco. Assim que cair, o pedido se confirma sozinho — pode deixar esta tela aberta.
+          {pix.pague_ate && <> <b style={{ color: C.tinta }}>Pague até {new Date(pix.pague_ate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</b> pra garantir seu pedido.</>}
+        </div>
         <PixCopiar codigo={pix.codigo} valor={pix.valor ?? valor} />
         {pix.qr && (
           <div style={{ textAlign: 'center', marginTop: 8 }}>
@@ -260,7 +275,7 @@ function SeusPedidos({ pedidos, pix, pixPor = {}, produtos, onPedirDeNovo }) {
             ) : falta > 0 && (
               <div style={{ marginTop: 10 }}>
                 <div style={{ fontSize: 13, color: C.tinta2, marginBottom: 6 }}>
-                  Falta pagar <b style={{ color: C.tinta }}>{fmtR(falta)}</b>{codigo ? ' — é só copiar e colar no app do banco' : ''}{auto?.estado === 'aguardando' ? '. Confirma sozinho quando cair.' : codigo ? ':' : ''}
+                  Falta pagar <b style={{ color: C.tinta }}>{fmtR(falta)}</b>{p.pague_ate ? <> até <b style={{ color: C.tinta }}>{new Date(p.pague_ate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</b></> : ''}{codigo ? ' — é só copiar e colar no app do banco' : ''}{auto?.estado === 'aguardando' ? '. Confirma sozinho quando cair.' : codigo ? ':' : ''}
                 </div>
                 <PixCopiar codigo={codigo} valor={falta} />
               </div>
