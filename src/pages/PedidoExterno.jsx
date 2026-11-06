@@ -6,9 +6,9 @@ const fmtR = (v) =>
   Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 // ── Animated check ────────────────────────────────────────────
-function CheckAnim() {
+function CheckAnim({ size = 72 }) {
   return (
-    <svg viewBox="0 0 52 52" style={{ width: 72, height: 72 }}>
+    <svg viewBox="0 0 52 52" style={{ width: size, height: size }}>
       <style>{`
         @keyframes stroke { to { stroke-dashoffset: 0 } }
         @keyframes scale  { 0%,100%{transform:none} 50%{transform:scale3d(1.1,1.1,1)} }
@@ -279,6 +279,25 @@ function CalculandoFrete({ etapa }) {
           {[0, 1, 2].map(k => <div key={k} className="gx-anim" style={{ ...fantasma, animationDelay: `${k * 0.15}s` }} />)}
         </div>
       )}
+    </div>
+  )
+}
+
+// Número do WhatsApp da Guaxí (o mesmo do agente GuaxiMina)
+const WHATS_GUAXI = '5521998718459'
+const RECIBO_CSS = `
+  @keyframes gx-cai { 0% { transform: translateY(0) rotate(0); opacity: 0 } 12% { opacity: 1 } 100% { transform: translateY(240px) rotate(300deg); opacity: 0 } }
+  @keyframes gx-pula { 0% { transform: scale(.6) translateY(24px); opacity: 0 } 70% { transform: scale(1.05) translateY(-4px); opacity: 1 } 100% { transform: none; opacity: 1 } }
+  @keyframes gx-acena { 0%, 100% { transform: rotate(0) } 30% { transform: rotate(-5deg) } 60% { transform: rotate(4deg) } }
+  @media (prefers-reduced-motion: reduce) { .gx-anim { animation: none !important } }
+`
+// Linha picotada de comanda, com os "furinhos" nas laterais
+function Picote() {
+  return (
+    <div aria-hidden="true" style={{ position: 'relative', height: 18 }}>
+      <div style={{ position: 'absolute', left: 18, right: 18, top: 8, borderTop: `2px dashed ${C.linha}` }} />
+      <div style={{ position: 'absolute', left: -9, top: 0, width: 18, height: 18, borderRadius: '50%', background: C.creme }} />
+      <div style={{ position: 'absolute', right: -9, top: 0, width: 18, height: 18, borderRadius: '50%', background: C.creme }} />
     </div>
   )
 }
@@ -662,55 +681,105 @@ export default function PedidoExterno() {
     margin: '0 auto',
   }
 
-  // ── Confirmation ─────────────────────────────────────────────
+  // ── Confirmation (recibo) ────────────────────────────────────
   if (step === 'confirm') {
+    const primeiro = (form.nome || '').trim().split(/\s+/)[0]
+    const ehEntrega = form.tipoEntrega === 'Entrega'
+    const dia = ehEntrega ? (frete?.dia || diaSel) : null
+    const enderecoTxt = [form.ruaBairro, form.numero, form.complemento].filter(Boolean).join(', ')
+    const freteValor = ehEntrega && frete ? frete.valor : 0
+    const msgWa = `Oi, GuaxiMina! Acabei de fazer o pedido ${pedidoId} pelo cardápio 🧁`
+    const linkWa = `https://wa.me/${WHATS_GUAXI}?text=${encodeURIComponent(msgWa)}`
+    const CONFETES = ['#185D9C', '#F4A3B5', '#F6C453', '#7FB8E8', '#FFFFFF', '#0E3C68', '#F4A3B5', '#F6C453', '#7FB8E8', '#185D9C', '#FFFFFF', '#F4A3B5']
+    const linha = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, fontSize: 14, padding: '7px 0' }
     return (
-      <div style={shell}>
-        <div style={{ padding: '60px 24px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: 20 }}>
-          <CheckAnim />
-          <div style={{ fontSize: 24, fontWeight: 700 }}>Pedido enviado!</div>
-          <div style={{ fontSize: 14, color: '#5B6878', lineHeight: 1.6, maxWidth: 300 }}>
-            Seu pedido <strong style={{ color: '#185D9C' }}>{pedidoId}</strong> foi recebido.<br />
-            Entraremos em contato pelo WhatsApp em breve.
+      <div style={{ ...shell, background: C.creme }}>
+        <style>{RECIBO_CSS}</style>
+        {/* Topo da marca com confete */}
+        <div style={{ background: C.rosa, padding: '26px 20px 70px', textAlign: 'center', position: 'relative', overflow: 'hidden' }}>
+          {CONFETES.map((cor, i) => (
+            <i key={i} aria-hidden="true" className="gx-anim" style={{
+              position: 'absolute', top: -12, left: `${6 + i * 8}%`, width: i % 3 ? 7 : 5, height: i % 3 ? 12 : 5, borderRadius: i % 3 ? 2 : '50%',
+              background: cor, animation: `gx-cai ${1.6 + (i % 4) * 0.35}s ease-in ${(i % 5) * 0.12}s both`,
+            }} />
+          ))}
+          <div style={{ position: 'relative', width: 124, margin: '0 auto' }}>
+            <img src="/brand/guaxinim.png" alt="Guaxí" className="gx-anim" style={{ width: 124, height: 'auto', display: 'block', animation: 'gx-pula .7s cubic-bezier(.2,.9,.3,1.3) both, gx-acena 2.4s ease-in-out .9s 2' }} />
+            <div style={{ position: 'absolute', right: -6, bottom: 2, width: 44, height: 44, borderRadius: '50%', background: '#FFFFFF', display: 'grid', placeItems: 'center', boxShadow: '0 4px 12px rgba(14,60,104,.18)' }}>
+              <CheckAnim size={34} />
+            </div>
           </div>
+          <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 32, color: C.azul, lineHeight: 1.1, marginTop: 10 }}>Pedido recebido!</div>
+          <div style={{ fontSize: 15, color: C.azulEsc, marginTop: 6 }}>
+            {primeiro ? `Obrigada, ${primeiro}!` : 'Obrigada!'} Já tá tudo anotadinho aqui 💛
+          </div>
+        </div>
 
-          {/* Receipt */}
-          <div style={{ width: '100%', maxWidth: 400, marginTop: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#5B6878', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>Resumo do pedido</div>
-            <div style={{ background: '#FFFFFF', borderRadius: 12, overflow: 'hidden' }}>
-              {carrinhoItens.map((it, i) => (
-                <div key={it.produto.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '12px 16px',
-                  borderBottom: i < carrinhoItens.length - 1 ? '1px solid #EBCDD5' : 'none',
-                  fontSize: 14,
-                }}>
-                  <span>
-                    <span style={{ fontWeight: 600 }}>{it.produto.nome}</span>
-                    <span style={{ color: '#5B6878', marginLeft: 6 }}>×{it.qtd}</span>
-                  </span>
-                  <span style={{ fontWeight: 600 }}>{fmtR((it.produto.precoDireta || 0) * it.qtd)}</span>
+        <div style={{ padding: '0 16px 36px', marginTop: -50, position: 'relative' }}>
+          {/* Recibo em formato de comanda */}
+          <div style={{ background: '#FFFFFF', borderRadius: 18, boxShadow: '0 10px 30px rgba(14,60,104,.12)', position: 'relative', maxWidth: 440, margin: '0 auto' }}>
+            <div style={{ padding: '18px 18px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 20, letterSpacing: '.08em', color: C.azul, lineHeight: 1 }}>GUAXÍ</div>
+                <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 10, letterSpacing: '.3em', color: C.azul }}>PÂTISSERIE</div>
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 800, color: C.azul, background: C.azulClaro, padding: '5px 10px', borderRadius: 99 }}>{pedidoId}</span>
+            </div>
+            <Picote />
+            <div style={{ padding: '6px 18px 4px' }}>
+              {carrinhoItens.map(it => (
+                <div key={it.produto.id} style={linha}>
+                  <span><b style={{ fontWeight: 700 }}>{it.qtd}×</b> {it.produto.nome}</span>
+                  <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtR((it.produto.precoDireta || 0) * it.qtd)}</span>
                 </div>
               ))}
-            </div>
-            {frete && frete.valor > 0 && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 4px', fontSize: 13, color: '#5B6878', borderTop: '1px solid #EBCDD5' }}>
-                <span>Frete {frete.viaDias ? `(${diaLabel(frete.dia)})` : `(${frete.distKm.toFixed(1)} km)`}</span>
-                <span>{fmtR(frete.valor)}</span>
+              {freteValor > 0 && (
+                <div style={{ ...linha, color: C.tinta2, fontSize: 13 }}>
+                  <span>Frete</span><span>{fmtR(freteValor)}</span>
+                </div>
+              )}
+              <div style={{ ...linha, fontSize: 18, fontWeight: 800, paddingTop: 10 }}>
+                <span>Total</span><span style={{ color: C.azul }}>{fmtR(total + freteValor)}</span>
               </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 4px', fontWeight: 700, fontSize: 17, borderTop: frete && frete.valor > 0 ? '1px solid #EBCDD5' : 'none' }}>
-              <span>Total</span>
-              <span style={{ color: '#185D9C' }}>{fmtR(total + (frete ? frete.valor : 0))}</span>
+            </div>
+            <Picote />
+            <div style={{ padding: '8px 18px 18px', display: 'flex', flexDirection: 'column', gap: 10, fontSize: 14 }}>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <span style={{ fontSize: 18 }}>{ehEntrega ? '🛵' : '🏠'}</span>
+                <div>
+                  <b>{ehEntrega ? (dia ? `Entrega ${diaLabel(dia)}` : 'Entrega') : 'Retirada'}</b>
+                  <div style={{ color: C.tinta2, fontSize: 13, marginTop: 1 }}>
+                    {ehEntrega ? (enderecoTxt || 'no endereço informado') : 'a gente combina o dia e o horário pelo WhatsApp'}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <span style={{ fontSize: 18 }}>💸</span>
+                <div>
+                  <b>Pagamento por Pix</b>
+                  <div style={{ color: C.tinta2, fontSize: 13, marginTop: 1 }}>a chave vai pelo WhatsApp</div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <button
-            onClick={() => { setStep('catalog'); setCarrinho({}) }}
-            style={{ marginTop: 8, padding: '12px 32px', borderRadius: 10, background: '#185D9C', color: '#fff', border: 'none', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}
-          >
-            Fechar
-          </button>
+          {/* WhatsApp da Guaxí */}
+          <div style={{ maxWidth: 440, margin: '18px auto 0', textAlign: 'center' }}>
+            <a href={linkWa} target="_blank" rel="noreferrer" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 54, borderRadius: 16,
+              background: '#25D366', color: '#073B1E', fontWeight: 800, fontSize: 16, textDecoration: 'none',
+              boxShadow: '0 8px 20px rgba(37,211,102,.35)', fontFamily: FONTE,
+            }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20l1.3-3.9A8 8 0 1 1 8 19z" stroke="#073B1E" strokeWidth="2" strokeLinejoin="round" /><path d="M9 9.5c.3 1.7 1.8 3.6 3.6 4.4l1.1-1.1 1.8.8-.4 1.6c-3.2.2-6.6-3-6.6-6.3l1.6-.4.8 1.8z" fill="#073B1E" /></svg>
+              Confirmar no WhatsApp
+            </a>
+            <div style={{ fontSize: 13, color: C.tinta2, marginTop: 10, lineHeight: 1.45 }}>
+              A <b style={{ color: C.azul }}>GuaxiMina</b> te manda o recibo por lá e tira qualquer dúvida&nbsp;🦝
+            </div>
+            <button onClick={() => { setStep('catalog'); setCarrinho({}); window.scrollTo(0, 0) }} style={{
+              marginTop: 18, background: 'none', border: 'none', color: C.azul, fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: FONTE, padding: 8,
+            }}>Voltar ao cardápio</button>
+          </div>
         </div>
       </div>
     )

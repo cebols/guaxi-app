@@ -6,6 +6,7 @@ import {
   type Cardapio,
 } from './cardapio.ts'
 import { avisarDono, marcarPrecisaHumano, pedeHumano, registrarContato, tocarConversa } from './atendimento.ts'
+import { reciboDoPedido } from './recibo.ts'
 
 const client = new Anthropic()
 
@@ -381,6 +382,18 @@ export async function runAgent(
     await avisarDono(supabase, `💬 ${contato.nome || telefone}`, userMessage.slice(0, 150), telefone)
     return null
   }
+  // "Fiz o pedido PED-021" (botão do recibo do cardápio): manda o recibo na hora
+  const recibo = await reciboDoPedido(supabase, telefone, userMessage).catch((e) => { console.error('recibo', e); return null })
+  if (recibo) {
+    if (recibo.outroNumero) {
+      await marcarPrecisaHumano(supabase, telefone, `Confirmar pedido ${recibo.pedidoId} (feito com outro número)`)
+      await avisarDono(supabase, `🧾 ${contato.nome || telefone} quer confirmar o ${recibo.pedidoId}`, 'O pedido foi feito com outro número de WhatsApp', telefone)
+    }
+    await saveMessage(supabase, telefone, 'assistant', recibo.resposta)
+    await tocarConversa(supabase, telefone)
+    return recibo.resposta
+  }
+
   // Pediu gente de verdade (ou reclamação): vem pra você na hora, sem passar pelo bot
   if (pedeHumano(userMessage)) {
     await marcarPrecisaHumano(supabase, telefone, 'Cliente pediu pra falar com uma pessoa')
