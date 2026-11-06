@@ -866,7 +866,9 @@ function ConfigSheet({ prod, onClose, onDone }) {
               <div key={e.key} style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr 1fr', gap: 6, alignItems: 'center', marginBottom: 6 }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: LOCAL[e.local].cor }}>{e.nome}</span>
                 <input style={campo} inputMode="decimal" placeholder={fmtN(e.meta)} value={o.meta ?? ''} onChange={ev => setCampo(e.key, 'meta', ev.target.value)} />
-                <input style={campo} inputMode="decimal" placeholder={fmtN(e.tempoH)} value={o.tempoH ?? ''} onChange={ev => setCampo(e.key, 'tempoH', ev.target.value)} />
+                {e.key === 'degelo'
+                  ? <span style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-tertiary)' }}>na hora</span>
+                  : <input style={campo} inputMode="decimal" placeholder={fmtN(e.tempoH)} value={o.tempoH ?? ''} onChange={ev => setCampo(e.key, 'tempoH', ev.target.value)} />}
                 <input style={campo} inputMode="decimal" placeholder={e.validadeH ? fmtN(e.validadeH) : '—'} value={o.validadeH ?? ''} onChange={ev => setCampo(e.key, 'validadeH', ev.target.value)} />
               </div>
             )

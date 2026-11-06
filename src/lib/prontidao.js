@@ -24,7 +24,7 @@ export const FLUXOS = {
     exemplo: 'barras, brownie, entremet, mousse, tartes',
     etapas: [
       { key: 'freezer', nome: 'Freezer', local: 'freezer' },
-      { key: 'degelo',  nome: 'Degelo',  local: 'geladeira', tempoH: 4, validadeH: 72 },
+      { key: 'degelo',  nome: 'Degelo',  local: 'geladeira', tempoH: 0, validadeH: 72 },
     ],
     verbos: { 'freezer>degelo': 'Tirar pro degelo' },
   },
@@ -42,7 +42,7 @@ export const FLUXOS = {
     etapas: [
       { key: 'cru',    nome: 'Massa crua', local: 'freezer' },
       { key: 'assado', nome: 'Assado',     local: 'freezer' },
-      { key: 'degelo', nome: 'Degelo',     local: 'ambiente', tempoH: 1, validadeH: 72 },
+      { key: 'degelo', nome: 'Degelo',     local: 'ambiente', tempoH: 0, validadeH: 72 },
     ],
     verbos: { 'cru>assado': 'Assar', 'assado>degelo': 'Tirar pro degelo' },
   },
@@ -80,11 +80,11 @@ export function sugerirConfig(prod) {
   if (/cookie/.test(n))       return { fluxo: 'assado', embalar: true, etapas: { degelo: { meta } } }
   if (/cheesecake/.test(n))   return { fluxo: 'direto', embalar: false, noPedido: 'micro-ondas fraco 1 min + geleia' }
   if (/bombo|bombom/.test(n)) return { fluxo: 'direto', embalar: true, noPedido: 'sai fechado, degela no trajeto' }
-  if (/barra/.test(n))        return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, tempoH: 8, validadeH: 720 } } }
-  if (/tarte|torta/.test(n))  return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, tempoH: 4, validadeH: 48 } } }
-  if (/entreme/.test(n))      return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, tempoH: 4, validadeH: 72 } } }
-  if (/mousse/.test(n))       return { fluxo: 'degelo', embalar: false, etapas: { degelo: { meta, tempoH: 3, validadeH: 48 } } }
-  if (/brownie/.test(n))      return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, tempoH: 3, validadeH: 120 } } }
+  if (/barra/.test(n))        return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, validadeH: 720 } } }
+  if (/tarte|torta/.test(n))  return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, validadeH: 48 } } }
+  if (/entreme/.test(n))      return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, validadeH: 72 } } }
+  if (/mousse/.test(n))       return { fluxo: 'degelo', embalar: false, etapas: { degelo: { meta, validadeH: 48 } } }
+  if (/brownie/.test(n))      return { fluxo: 'degelo', embalar: true, etapas: { degelo: { meta, validadeH: 120 } } }
   return { fluxo: 'degelo', embalar: false, etapas: { degelo: { meta } } }
 }
 
@@ -106,7 +106,8 @@ export function etapasDoProduto(prod) {
     if (meta == null) meta = (i > 0 && ultima) ? metaPadrao(prod) : 0
     return {
       ...e,
-      tempoH:    o.tempoH    ?? e.tempoH    ?? 0,
+      // Degelo = pronto pra sair: tirou do freezer (normalmente na véspera), já conta como pronto
+      tempoH:    e.key === 'degelo' ? 0 : (o.tempoH ?? e.tempoH ?? 0),
       validadeH: o.validadeH ?? e.validadeH ?? null,
       meta:      i === 0 ? 0 : (Number(meta) || 0),
       engatilho: ultima,

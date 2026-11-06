@@ -20,8 +20,9 @@ const DIAS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sáb
 const VENDAVEL: Record<string, string[]> = {
   degelo: ['degelo'], assado: ['degelo'], choux: ['cascas', 'reassadas'], direto: ['freezer'],
 }
+// Degelo conta como pronto na hora (tirou do freezer = pronto pra sair)
 const TEMPO_PADRAO: Record<string, Record<string, number>> = {
-  degelo: { degelo: 4 }, assado: { degelo: 1 }, choux: { reassadas: 0.25 },
+  choux: { reassadas: 0.25 },
 }
 
 export interface ProdutoCardapio {
@@ -112,7 +113,7 @@ export async function carregarCardapio(sb: SupabaseClient, agora = Date.now()): 
     for (const l of lotes) {
       if (Number(l.produto_id) !== id || !vendaveis.includes(String(l.etapa))) continue
       const etapa = String(l.etapa)
-      const tempoH = Number(over[etapa]?.tempoH ?? TEMPO_PADRAO[fluxo]?.[etapa] ?? 0)
+      const tempoH = etapa === 'degelo' ? 0 : Number(over[etapa]?.tempoH ?? TEMPO_PADRAO[fluxo]?.[etapa] ?? 0)
       const pronto = new Date(String(l.entrou_em)).getTime() + tempoH * 3600e3
       if (pronto > agora) {
         finalizando += Number(l.qtd) || 0
