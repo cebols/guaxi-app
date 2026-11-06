@@ -10,6 +10,7 @@ import {
 } from '../services/db'
 import {
   FLUXOS, LOCAL, fluxoAtivo, analisarProduto, sugerirConfig, etapasDoProduto, metaPadrao, hhmm, fmtDuracao, usaEmbalagem,
+  GRUPOS_TAREFA as GRUPOS, FEITO, grupoDe, montarTarefas,
 } from '../lib/prontidao'
 import { suportaPush, ativarLembrete, lerLembrete, desativarLembrete, testarLembrete } from '../lib/push'
 
@@ -100,15 +101,7 @@ export default function Prontidao() {
       : filtro === 'mim' ? x.a.status !== 'pronto'
       : x.prod.secao === filtro)
 
-  const tarefas = analises
-    .flatMap(x => [
-      ...x.a.sugestoes.map(s => ({ ...s, prod: x.prod, status: x.a.status })),
-      ...(x.a.vendaveis > 0 && interessadosPor[x.prod.id]?.length
-        ? [{ tipo: 'avisar', prod: x.prod, n: interessadosPor[x.prod.id].length, status: x.a.status }] : []),
-      ...x.a.etapas.filter(e => e.pendentes > 0 && e.tempoH > 0)
-        .map(e => ({ tipo: 'aguardando', etapa: e.key, n: e.pendentes, prontoAs: e.proxPronto, tempoH: e.tempoH, prod: x.prod, status: x.a.status })),
-    ])
-    .sort((a, b) => STATUS[a.status].ordem - STATUS[b.status].ordem)
+  const tarefas = montarTarefas(analises, interessadosPor)
 
   function abrirTarefa(t) {
     if (t.tipo === 'mover') setMover({ prod: t.prod, de: t.de, para: t.para, n: t.n })
@@ -342,21 +335,7 @@ export default function Prontidao() {
   )
 }
 
-// ── Quadro de ações: agrupado pelo tipo de trabalho ──────────────────────────
-const GRUPOS = [
-  { key: 'embalar',   icon: '📦', nome: 'Embalar',   cor: '#c084fc', match: t => t.tipo === 'mover' && t.verbo === 'Embalar' },
-  { key: 'forno',     icon: '🔥', nome: 'Forno',     cor: '#fb923c', match: t => (t.tipo === 'mover' && (t.verbo === 'Assar' || t.verbo === 'Reassar')) || (t.tipo === 'aguardando' && t.etapa !== 'degelo') },
-  { key: 'degelo',    icon: '💧', nome: 'Degelo',    cor: '#2dd4bf', match: t => (t.tipo === 'mover' && t.verbo === 'Tirar pro degelo') || (t.tipo === 'aguardando' && t.etapa === 'degelo') },
-  { key: 'rechear',   icon: '🧁', nome: 'Rechear',   cor: '#4ade80', match: t => t.tipo === 'mover' && t.verbo === 'Rechear' },
-  { key: 'congelar',  icon: '❄', nome: 'Voltar pro freezer', cor: '#60a5fa', match: t => t.tipo === 'mover' && t.verbo === 'Congelar de volta' },
-  { key: 'mover',     icon: '➡️', nome: 'Mover',     cor: '#94a3b8', match: t => t.tipo === 'mover' },
-  { key: 'produzir',  icon: '🧾', nome: 'Produzir',  cor: '#14b8a6', match: t => t.tipo === 'produzir' },
-  { key: 'avisar',    icon: '🔔', nome: 'Avisar',    cor: '#60a5fa', match: t => t.tipo === 'avisar' },
-  { key: 'descartar', icon: '🗑', nome: 'Descartar', cor: '#f87171', match: t => t.tipo === 'vencidos' },
-]
-const FEITO = { Embalar: 'Embalei', Assar: 'Assei', Reassar: 'Reassei', 'Tirar pro degelo': 'Tirei', Rechear: 'Recheei', Mover: 'Movi', 'Congelar de volta': 'Congelei' }
-const grupoDe = (t) => (GRUPOS.find(g => g.key !== 'mover' && g.key !== 'descartar' && g.match(t)) || GRUPOS.find(g => g.match(t)))?.key
-
+// ── Quadro de ações: agrupado pelo tipo de trabalho (GRUPOS em lib/prontidao) ──
 function QuadroAcoes({ tarefas, analises, agora, grupoSel, setGrupoSel, onExecutar, onPlanejarTudo }) {
   const porGrupo = {}
   for (const t of tarefas) (porGrupo[grupoDe(t)] ||= []).push(t)

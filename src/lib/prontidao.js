@@ -209,6 +209,49 @@ export function analisarProduto(prod, lotes, agora = Date.now(), reservado = 0) 
   return { etapas: det, sugestoes, status, rotulo, vendaveis, total, reservado }
 }
 
+// ── Tarefas "o que fazer agora" (quadro da Prontidão e lista do Início) ──────
+export const GRUPOS_TAREFA = [
+  { key: 'embalar',   icon: '📦', nome: 'Embalar',   cor: '#c084fc', match: t => t.tipo === 'mover' && t.verbo === 'Embalar' },
+  { key: 'forno',     icon: '🔥', nome: 'Forno',     cor: '#fb923c', match: t => (t.tipo === 'mover' && (t.verbo === 'Assar' || t.verbo === 'Reassar')) || (t.tipo === 'aguardando' && t.etapa !== 'degelo') },
+  { key: 'degelo',    icon: '💧', nome: 'Degelo',    cor: '#2dd4bf', match: t => (t.tipo === 'mover' && t.verbo === 'Tirar pro degelo') || (t.tipo === 'aguardando' && t.etapa === 'degelo') },
+  { key: 'rechear',   icon: '🧁', nome: 'Rechear',   cor: '#4ade80', match: t => t.tipo === 'mover' && t.verbo === 'Rechear' },
+  { key: 'congelar',  icon: '❄', nome: 'Voltar pro freezer', cor: '#60a5fa', match: t => t.tipo === 'mover' && t.verbo === 'Congelar de volta' },
+  { key: 'mover',     icon: '➡️', nome: 'Mover',     cor: '#94a3b8', match: t => t.tipo === 'mover' },
+  { key: 'produzir',  icon: '🧾', nome: 'Produzir',  cor: '#14b8a6', match: t => t.tipo === 'produzir' },
+  { key: 'avisar',    icon: '🔔', nome: 'Avisar',    cor: '#60a5fa', match: t => t.tipo === 'avisar' },
+  { key: 'descartar', icon: '🗑', nome: 'Descartar', cor: '#f87171', match: t => t.tipo === 'vencidos' },
+]
+export const FEITO = { Embalar: 'Embalei', Assar: 'Assei', Reassar: 'Reassei', 'Tirar pro degelo': 'Tirei', Rechear: 'Recheei', Mover: 'Movi', 'Congelar de volta': 'Congelei' }
+export const grupoDe = (t) => (GRUPOS_TAREFA.find(g => g.key !== 'mover' && g.key !== 'descartar' && g.match(t)) || GRUPOS_TAREFA.find(g => g.match(t)))?.key
+
+const ORDEM_STATUS = { pausar: 0, atencao: 1, pronto: 2 }
+
+// analises: [{ prod, a: analisarProduto(...) }]; interessadosPor: { produtoId: [interesse] }
+export function montarTarefas(analises, interessadosPor = {}) {
+  return analises
+    .flatMap(x => [
+      ...x.a.sugestoes.map(s => ({ ...s, prod: x.prod, status: x.a.status })),
+      ...(x.a.vendaveis > 0 && interessadosPor[x.prod.id]?.length
+        ? [{ tipo: 'avisar', prod: x.prod, n: interessadosPor[x.prod.id].length, status: x.a.status }] : []),
+      ...x.a.etapas.filter(e => e.pendentes > 0 && e.tempoH > 0)
+        .map(e => ({ tipo: 'aguardando', etapa: e.key, n: e.pendentes, prontoAs: e.proxPronto, tempoH: e.tempoH, prod: x.prod, status: x.a.status })),
+    ])
+    .sort((a, b) => ORDEM_STATUS[a.status] - ORDEM_STATUS[b.status])
+}
+
+// Embalar com dois destinos: o que falta no engatilho já vai direto pra ele,
+// o resto pra etapa seguinte (ex: freezer). null = destino único.
+export function destinosEmbalar(t, a, qtd = t.n) {
+  const etapas = a?.etapas || []
+  const iEmb = etapas.findIndex(e => e.key === 'embalar')
+  const prox = iEmb >= 0 ? etapas[iEmb + 1] : null
+  const eng = etapas[etapas.length - 1]
+  if (t.de !== 'embalar' || !prox || !eng || prox.key === eng.key) return null
+  const faltaEng = Math.max(0, (eng.meta || 0) + (a?.reservado || 0) - (eng.prontos + eng.pendentes))
+  const nEng = Math.min(faltaEng, qtd)
+  return [{ etapa: prox.key, qtd: qtd - nEng }, { etapa: eng.key, qtd: nEng }].filter(d => d.qtd > 0)
+}
+
 export function hhmm(ts) {
   const d = new Date(ts)
   const hoje = new Date()
