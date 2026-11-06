@@ -657,6 +657,16 @@ function EtapaSheet({ prod, etapaKey, lotes, agora, onClose, onDone }) {
   const e = a.etapas.find(x => x.key === etapaKey) || a.etapas[0]
   const atual = e.qtd
   const [contei, setContei] = useState('')
+  // Aumentou? Por padrão, o que entrou veio das etapas de trás (da mais próxima pra trás)
+  const idx = a.etapas.findIndex(x => x.key === e.key)
+  const deTras = a.etapas.slice(0, Math.max(0, idx)).reverse().filter(x => x.qtd - (x.vencidos || 0) > 0)
+  const [puxar, setPuxar] = useState(true)
+  const novo = parseFloat(contei)
+  const aMais = !isNaN(novo) && novo > atual ? novo - atual : 0
+  const plano = []
+  { let resta = aMais
+    for (const x of deTras) { if (resta <= 0) break; const n = Math.min(resta, x.qtd - (x.vencidos || 0)); plano.push({ ...x, n }); resta -= n }
+    if (resta > 0) plano.push({ key: '_novos', nome: 'unidades novas', n: resta }) }
   const [baixa, setBaixa] = useState('1')
   const [salvando, setSalvando] = useState(false)
 
@@ -702,13 +712,31 @@ function EtapaSheet({ prod, etapaKey, lotes, agora, onClose, onDone }) {
       )}
 
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Contei agora</div>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: aMais > 0 && deTras.length ? 10 : 16 }}>
         <input className="field-input" type="text" inputMode="decimal" placeholder={fmtN(atual)} value={contei}
           onChange={ev => setContei(ev.target.value.replace(',', '.'))} style={{ marginBottom: 0, flex: 1, fontSize: 18, fontWeight: 700 }} />
         <button disabled={salvando || contei === '' || isNaN(parseFloat(contei))}
-          onClick={() => rodar(() => corrigirEtapaProntidao(prod.id, e.key, parseFloat(contei), e.tempoH), 'Contagem salva')}
+          onClick={() => rodar(async () => {
+            const r = await corrigirEtapaProntidao(prod.id, e.key, parseFloat(contei), e.tempoH, puxar ? deTras.map(x => x.key) : [], prod)
+            return r
+          }, puxar && aMais > 0 && deTras.length ? `${fmtN(aMais)} passaram pra ${e.nome.toLowerCase()}` : 'Contagem salva')}
           style={{ padding: '0 18px', borderRadius: 10, border: 'none', background: 'var(--teal)', color: '#fff', fontWeight: 700, cursor: 'pointer' }}>Salvar</button>
       </div>
+      {aMais > 0 && deTras.length > 0 && (
+        <button onClick={() => setPuxar(p => !p)} style={{ width: '100%', display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', marginBottom: 16, borderRadius: 10, cursor: 'pointer', textAlign: 'left',
+          border: `1.5px solid ${puxar ? 'var(--teal)' : '#333'}`, background: puxar ? 'rgba(34,184,134,.08)' : 'transparent', color: 'var(--text-primary)' }}>
+          <span style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 800, marginTop: 1,
+            border: `2px solid ${puxar ? 'var(--teal)' : '#555'}`, background: puxar ? 'var(--teal)' : 'transparent', color: '#fff' }}>{puxar ? '✓' : ''}</span>
+          <span style={{ flex: 1, fontSize: 13.5 }}>
+            <b>Os {fmtN(aMais)} a mais vieram de trás</b>
+            <span style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+              {puxar
+                ? plano.map(x => x.key === '_novos' ? `+${fmtN(x.n)} novas` : `tira ${fmtN(x.n)} de ${x.nome.toLowerCase()} (fica ${fmtN(x.qtd - x.n)})`).join(' · ')
+                : 'Desmarcado: contam como unidades novas, sem mexer nas outras etapas'}
+            </span>
+          </span>
+        </button>
+      )}
 
       {atual > 0 && (
         <>

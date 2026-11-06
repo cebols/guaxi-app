@@ -829,15 +829,29 @@ export async function desfazerMovimento(mov) {
 }
 
 // Contagem dentro do board: define o total físico de uma etapa
-export async function corrigirEtapaProntidao(produtoId, etapa, novoTotal, tempoH = 0) {
+// Contagem de uma etapa. Se aumentou e `anteriores` foi passado (etapas de trás,
+// da mais próxima pra mais distante), o que entrou SAIU de lá: tira das etapas
+// anteriores (mais antigos primeiro) e entra nesta agora, como um movimento.
+// Da etapa "Sem embalagem", embalar também baixa as embalagens do produto.
+// O que faltar (ou sem `anteriores`) conta como unidades novas, já prontas.
+export async function corrigirEtapaProntidao(produtoId, etapa, novoTotal, tempoH = 0, anteriores = [], prod = null) {
   const { data, error } = await supabase.from('prontidao_lotes').select('qtd').eq('produto_id', produtoId).eq('etapa', etapa)
   if (error) throw error
   const atual = (data || []).reduce((s, l) => s + (Number(l.qtd) || 0), 0)
-  const diff = novoTotal - atual
-  // O que você contou fisicamente já está lá: entra como pronto
+  let diff = novoTotal - atual
+  const movidos = []
+  for (const de of (diff > 0 ? anteriores : [])) {
+    if (diff <= 0) break
+    let n = 0
+    if (de === 'embalar' && prod) n = (await embalarProduto(prod, [{ etapa, qtd: diff }]).catch(() => ({ n: 0 }))).n
+    else n = (await moverProntidao(produtoId, de, etapa, diff).catch(() => ({ n: 0 }))).n
+    if (n > 0) { movidos.push({ de, n }); diff -= n }
+  }
+  // O que você contou fisicamente e não veio de trás já está lá: entra como pronto
   if (diff > 0) await inserirLote(produtoId, etapa, diff, new Date(Date.now() - (tempoH || 0) * 3600e3).toISOString())
   else if (diff < 0) await consumirLotes(produtoId, [etapa], -diff)
-  return syncEstoqueProdutoFluxo(produtoId)
+  await syncEstoqueProdutoFluxo(produtoId)
+  return { movidos, novos: Math.max(0, diff) }
 }
 
 export async function baixaProntidao(produtoId, etapa, n) {
