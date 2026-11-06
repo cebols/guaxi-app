@@ -7,7 +7,9 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
 export const OWNER_USER_ID = Deno.env.get('OWNER_USER_ID') || '62d922d0-b6cc-403f-9c0d-e2f7887c1404'
 export const APP_BASE = Deno.env.get('APP_BASE_URL') || 'https://guaxi-app.vercel.app'
-export const LINK_CARDAPIO = `${APP_BASE}/pedido/${OWNER_USER_ID}`
+// Link curto (vercel.json redireciona /cardapio pro cardápio da loja)
+export const LINK_CARDAPIO = Deno.env.get('LINK_CARDAPIO') || `${APP_BASE}/cardapio`
+const LINK_PRODUTO = `${APP_BASE}/pedido/${OWNER_USER_ID}?produto=`
 
 const FUSO = 'America/Sao_Paulo'
 const DIAS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado']
@@ -170,7 +172,7 @@ export function textoCardapio(c: Cardapio, agora = Date.now()): string {
   const linhas: string[] = [
     `AGORA: ${h.dia}, ${h.data}, ${h.hora} (horário de Brasília).`,
     `Link do cardápio (fotos, vídeos e pedido online): ${LINK_CARDAPIO}`,
-    `Link de um produto: ${LINK_CARDAPIO}?produto=<id>`,
+    `Link de um produto: ${LINK_PRODUTO}<id>`,
     dias.length ? `Entregas: ${dias.join(', ')}. Retirada também.` : 'Entregas: a combinar. Retirada também.',
     c.freteGratis > 0 ? `Frete grátis em pedidos a partir de ${fmtR(c.freteGratis)}.` : '',
     '',

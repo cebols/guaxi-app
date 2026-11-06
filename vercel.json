@@ -1,3 +1,86 @@
 {
-  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]
+  "redirects": [
+    {
+      "source": "/cardapio",
+      "destination": "/pedido/62d922d0-b6cc-403f-9c0d-e2f7887c1404",
+      "permanent": false
+    },
+    {
+      "source": "/c",
+      "destination": "/pedido/62d922d0-b6cc-403f-9c0d-e2f7887c1404",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "cardapioguaxi.vercel.app"
+        }
+      ],
+      "destination": "/pedido/62d922d0-b6cc-403f-9c0d-e2f7887c1404",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "guaxipatisserie.vercel.app"
+        }
+      ],
+      "destination": "/pedido/62d922d0-b6cc-403f-9c0d-e2f7887c1404",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "guaxipatisserie.com.br"
+        }
+      ],
+      "destination": "/pedido/62d922d0-b6cc-403f-9c0d-e2f7887c1404",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.guaxipatisserie.com.br"
+        }
+      ],
+      "destination": "/pedido/62d922d0-b6cc-403f-9c0d-e2f7887c1404",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "guaxi.com.br"
+        }
+      ],
+      "destination": "/pedido/62d922d0-b6cc-403f-9c0d-e2f7887c1404",
+      "permanent": false
+    },
+    {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "www.guaxi.com.br"
+        }
+      ],
+      "destination": "/pedido/62d922d0-b6cc-403f-9c0d-e2f7887c1404",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
 }
