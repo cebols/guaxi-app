@@ -303,7 +303,6 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
 
   const platFields = [
     { key: 'precoDireta', label: 'Direta',  sub: 'Venda própria', sugerido: precos.base,   taxa: 0,                      sacola: 0,              color: PLAT_COLOR.Direta    },
-    { key: 'preco99',     label: '99Food',  sub: `taxa ${cfg.taxa99 || 0}%`,  sugerido: precos.p99,    taxa: (cfg.taxa99 || 0) / 100,    sacola: sacolaDelivery, color: PLAT_COLOR['99Food'] },
     { key: 'precoIfood',  label: 'iFood',   sub: `taxa ${cfg.taxaIfood || 0}%`, sugerido: precos.pIfood, taxa: (cfg.taxaIfood || 0) / 100, sacola: sacolaDelivery, color: PLAT_COLOR.iFood     },
   ]
 
@@ -331,9 +330,16 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
     }, recItems, embItems]
   }
 
+  // O timer do salvamento automático dispara depois de um render novo: lê sempre
+  // o formulário mais recente (antes gravava o valor de uma tecla atrás).
+  const payloadRef = useRef(buildSavePayload)
+  payloadRef.current = buildSavePayload
+
   const doSilentSave = async () => {
-    if (!form.nome || !item?.id) return
-    try { await onSave(...buildSavePayload()); setAutoSaved(true); setTimeout(() => setAutoSaved(false), 1500) }
+    autoSaveTimer.current = null
+    const payload = payloadRef.current()
+    if (!payload[0].nome || !item?.id) return
+    try { await onSave(...payload); setAutoSaved(true); setTimeout(() => setAutoSaved(false), 1500) }
     catch (_) {}
   }
 
@@ -341,6 +347,12 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
     if (!item?.id) return
     clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = setTimeout(doSilentSave, 700)
+  }
+
+  // Fechar pela seta/fundo com preço ainda não salvo: salva antes de sair
+  const fechar = () => {
+    if (autoSaveTimer.current) { clearTimeout(autoSaveTimer.current); doSilentSave() }
+    onClose()
   }
 
   const handle = async () => {
@@ -375,7 +387,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
 
   return (
     <>
-      <div className="sheet-overlay" onClick={onClose} />
+      <div className="sheet-overlay" onClick={fechar} />
       <div style={{
         position: 'fixed', inset: 0, zIndex: 120,
         background: 'var(--bg-primary)', display: 'flex', flexDirection: 'column',
@@ -388,7 +400,7 @@ function ProdutoForm({ item, receitas, embalagens, produtos, insumos, fornecedor
           flexShrink: 0,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
+            <button onClick={fechar} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <path d="M12 4l-6 6 6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
@@ -880,9 +892,7 @@ function PlatPrecos({ prod, cfg, custoSacola }) {
   const precos = calcPrecos(prod.custoTotal, cfg, custoSacola)
   return (
     <span>
-      <span style={{ color: PLAT_COLOR['99Food'] }}>99 {fmtR(prod.preco99 ?? precos.p99)}</span>
-      {' · '}
-      <span style={{ color: PLAT_COLOR.iFood }}>iF {fmtR(prod.precoIfood ?? precos.pIfood)}</span>
+      <span style={{ color: PLAT_COLOR.iFood }}>iFood {fmtR(prod.precoIfood ?? precos.pIfood)}</span>
     </span>
   )
 }

@@ -7,7 +7,6 @@ const ESTADOS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT
 const CANAIS = [
   { key: 'direto', icon: '👥', label: 'Encomendas diretas', sub: 'WhatsApp, Instagram, telefone, pessoalmente...' },
   { key: 'ifood',  icon: '🛵', label: 'iFood',              sub: 'Pedidos pelo app de delivery' },
-  { key: '99food', icon: '🛵', label: '99Food',             sub: 'Pedidos pelo app de delivery' },
 ]
 
 function ProgressDots({ step, total }) {

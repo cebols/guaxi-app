@@ -12,7 +12,6 @@ const ESTADOS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG
 const CANAIS_OPTS = [
   { value: 'direto',  label: 'Venda Direta' },
   { value: 'ifood',   label: 'iFood' },
-  { value: '99food',  label: '99Food' },
 ]
 const AVATAR_RADIUS = 12 // border-radius in px for the mask preview
 

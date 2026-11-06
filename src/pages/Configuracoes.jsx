@@ -216,7 +216,7 @@ export default function Configuracoes() {
   const rateio = cfg.unidadesProjetadas > 0 ? custoFixoMensal / cfg.unidadesProjetadas : 0
   const cfgComTotal = { ...cfg, custoFixoMensal }
   const mediaDelivery = getCustoSacolaDelivery(cfgComTotal, embalagens || [])
-  const { base, p99, pIfood } = calcPrecos(exemplo, cfgComTotal, mediaDelivery)
+  const { base, pIfood } = calcPrecos(exemplo, cfgComTotal, mediaDelivery)
 
   // Vendas reais mês atual
   const realStats = useMemo(() => {
@@ -373,10 +373,9 @@ export default function Configuracoes() {
           <div className="cfg-label" style={{ marginBottom: 12 }}>Taxas de plataforma</div>
           <div style={{ display: 'flex' }}>
             {[
-              { label: '99Food', key: 'taxa99',    color: '#f59e0b', border: true },
               { label: 'iFood',  key: 'taxaIfood', color: '#ef4444', border: false },
             ].map(({ label, key, color, border }) => (
-              <div key={key} style={{ flex: 1, paddingRight: border ? 16 : 0, paddingLeft: border ? 0 : 16, borderRight: border ? '1px solid #2a2a2a' : 'none' }}>
+              <div key={key} style={{ flex: 1, paddingRight: border ? 16 : 0, paddingLeft: 0, borderRight: border ? '1px solid #2a2a2a' : 'none' }}>
                 <div className="cfg-label" style={{ color }}>{label}</div>
                 <NumPill
                   value={cfg[key]}
@@ -444,7 +443,6 @@ export default function Configuracoes() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <PriceCol label="Direta" price={fmtR(base)}   sub={`margem ${fmtPct(cfg.margem)}%`} color="var(--teal)" bg="rgba(34,184,134,0.10)" />
-            <PriceCol label="99Food" price={fmtR(p99)}    sub={`−${fmtPct(cfg.taxa99)}% taxa`}  color="#f59e0b"     bg="rgba(245,158,11,0.10)" />
             <PriceCol label="iFood"  price={fmtR(pIfood)} sub={`−${fmtPct(cfg.taxaIfood)}% taxa`} color="#ef4444"   bg="rgba(239,68,68,0.10)" />
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 11, textAlign: 'center' }}>

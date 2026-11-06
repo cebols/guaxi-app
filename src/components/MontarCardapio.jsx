@@ -7,7 +7,6 @@ const fmtR = v => Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits
 
 const PRECO_OPTS = [
   { id: 'direta', label: 'Direta' },
-  { id: 'p99',    label: '99Food' },
   { id: 'ifood',  label: 'iFood' },
 ]
 
@@ -26,7 +25,6 @@ export function MontarCardapio({ produtos, nomeLoja, cfg, custoSacola, secoesOrd
   const precoFor = (prod) => {
     const precos = calcPrecos(prod.custoTotal, cfg, custoSacola)
     if (precoTipo === 'direta') return prod.precoDireta ?? precos.base
-    if (precoTipo === 'p99')    return prod.preco99 ?? precos.p99
     return prod.precoIfood ?? precos.pIfood
   }
 

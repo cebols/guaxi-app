@@ -3,11 +3,11 @@ import { useLocation, useNavigate as useRRNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
-import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, saveCliente, savePedido, updateStatusEncomenda, updateEncomendaItens, deletePedido, reconciliarBaixasPedidos, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp } from '../services/db'
+import NovoPedidoForm from '../components/NovoPedidoForm'
+import { getProdutos, getInsumos, getReceitas, getEncomendas, getClientes, updateStatusEncomenda, updateEncomendaItens, deletePedido, reconciliarBaixasPedidos, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp } from '../services/db'
 
 const STATUS_OPTS = ['Pendente', 'Pronto', 'Entregue', 'Cancelado']
 const PGTO_OPTS   = ['Aguardando', 'Pago', 'Atrasado']
-const CANAL_OPTS  = ['WhatsApp', 'Instagram']
 const PIPE_STEPS  = ['Pendente', 'Pronto', 'Entregue']
 
 // Urgency/temporal filters (row 1)
@@ -226,356 +226,9 @@ function DateChipsForm({ value, onChange }) {
   )
 }
 
-// ── Product modal ─────────────────────────────────────────────
-function ProdModal({ produtos, itens, onAdd, onClose }) {
-  const [search, setSearch] = useState('')
-  const [showCustom, setShowCustom] = useState(false)
-  const [customNome, setCustomNome] = useState('')
-  const [customPreco, setCustomPreco] = useState('')
-
-  const filtered = (produtos || []).filter(p =>
-    !search || p.nome.toLowerCase().includes(search.toLowerCase())
-  )
-
-  const addProd = (prod) => {
-    onAdd({ produto: prod.nome, produtoId: prod.id, quantidade: 1, precoUnit: String(prod.precoDireta ?? prod.precoPraticado ?? prod.precoSugerido ?? 0) })
-  }
-
-  const addCustom = () => {
-    if (!customNome.trim()) return
-    const preco = parseFloat(customPreco.replace(',', '.')) || 0
-    onAdd({ produto: customNome.trim(), quantidade: 1, precoUnit: String(preco), avulso: true })
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', flexDirection: 'column', background: 'var(--bg-primary)' }}>
-      {/* Header */}
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 15, fontWeight: 600, cursor: 'pointer', padding: 0 }}>
-          ← Voltar
-        </button>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>Escolher produto</span>
-      </div>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
-        <input
-          className="field-input"
-          style={{ background: 'var(--bg-secondary)', margin: 0 }}
-          placeholder="Buscar produto..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          autoFocus
-        />
-      </div>
-
-      {/* List */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {filtered.map(p => {
-          const existing = itens.find(it => it.produto === p.nome)
-          return (
-            <div
-              key={p.nome}
-              onClick={() => addProd(p)}
-              style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '11px 14px', borderBottom: '1px solid var(--border)',
-                background: existing ? 'var(--teal-light)' : 'transparent', cursor: 'pointer',
-              }}
-            >
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{p.nome}</div>
-                {existing && <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 2 }}>{existing.quantidade} no pedido</div>}
-              </div>
-              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)' }}>
-                R$ {fmtR(p.precoDireta ?? p.precoPraticado ?? p.precoSugerido ?? 0)}
-              </span>
-            </div>
-          )
-        })}
-
-        {/* Custom item */}
-        <div style={{ padding: '10px 14px' }}>
-          {!showCustom ? (
-            <button
-              onClick={() => setShowCustom(true)}
-              style={{
-                width: '100%', padding: 12, background: 'transparent',
-                border: '1.5px dashed #444', borderRadius: 10, fontSize: 13,
-                color: 'var(--text-secondary)', cursor: 'pointer', textAlign: 'left',
-                display: 'flex', alignItems: 'center', gap: 10,
-              }}
-            >
-              <span style={{ fontSize: 18 }}>✏️</span>
-              <div>
-                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                  {search ? `"${search}" não está no cardápio` : 'Item personalizado'}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                  Adicionar com nome e preço livres
-                </div>
-              </div>
-            </button>
-          ) : (
-            <div style={{ background: 'var(--bg-secondary)', borderRadius: 10, padding: 12 }}>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
-                Item avulso
-              </div>
-              <input
-                className="field-input"
-                style={{ marginBottom: 8 }}
-                placeholder="Nome do item"
-                value={customNome}
-                onChange={e => setCustomNome(e.target.value)}
-                autoFocus
-              />
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input
-                  className="field-input"
-                  style={{ flex: 1, marginBottom: 0 }}
-                  placeholder="Preço (R$)"
-                  inputMode="decimal"
-                  value={customPreco}
-                  onChange={e => setCustomPreco(e.target.value)}
-                />
-                <button
-                  onClick={addCustom}
-                  disabled={!customNome.trim()}
-                  style={{
-                    padding: '11px 16px', background: 'var(--teal)', color: '#000',
-                    border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700,
-                    cursor: 'pointer', opacity: customNome.trim() ? 1 : 0.4,
-                  }}
-                >Adicionar</button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Item row (form) ───────────────────────────────────────────
-function ItemRow({ item, onChange, onRemove, canRemove }) {
-  const total = (parseFloat(item.precoUnit) || 0) * (parseFloat(item.quantidade) || 1)
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10,
-      padding: 10, background: 'var(--bg-secondary)', borderRadius: 10, marginBottom: 6,
-      borderLeft: item.avulso ? '2px solid #555' : 'none',
-    }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: item.avulso ? 2 : 0 }}>{item.produto}</div>
-        {item.avulso && <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>item avulso</div>}
-      </div>
-      <input
-        type="text" inputMode="numeric"
-        value={item.quantidade}
-        onChange={e => onChange('quantidade', e.target.value)}
-        style={{
-          width: 52, textAlign: 'center', padding: '5px 6px',
-          background: 'var(--bg-tertiary)', border: '1px solid var(--border)',
-          borderRadius: 7, color: 'var(--text-primary)', fontSize: 14, fontWeight: 700,
-        }}
-      />
-      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>un</span>
-      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--teal)', whiteSpace: 'nowrap' }}>R$ {fmtR(total)}</span>
-      {canRemove && (
-        <button onClick={onRemove} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 18, cursor: 'pointer', padding: '0 2px' }}>×</button>
-      )}
-    </div>
-  )
-}
-
-// ── Form fields (shared between NovoView + NovoPedidoSheet) ───
-function FormFields({ form, setField, itens, setItens, produtos, clientes, showModal, setShowModal, showMore, setShowMore }) {
-  const handleClienteChange = (nome) => {
-    setField('cliente', nome)
-    const existing = (clientes || []).find(c => c.nome.toLowerCase() === nome.toLowerCase())
-    if (existing?.telefone && !form.contato) setField('contato', existing.telefone)
-  }
-
-  const addItem = (item) => {
-    setItens(prev => {
-      const existing = prev.findIndex(it => it.produto === item.produto)
-      if (existing >= 0) {
-        return prev.map((it, i) => i === existing ? { ...it, quantidade: (parseInt(it.quantidade)||1) + 1 } : it)
-      }
-      return [...prev, item]
-    })
-    setShowModal(false)
-  }
-
-  const changeItem = (i, k, v) => setItens(prev => prev.map((it, idx) => idx === i ? { ...it, [k]: v } : it))
-  const removeItem = (i) => setItens(prev => prev.filter((_, idx) => idx !== i))
-
-  return (
-    <>
-      {showModal && (
-        <ProdModal
-          produtos={produtos}
-          itens={itens}
-          onAdd={addItem}
-          onClose={() => setShowModal(false)}
-        />
-      )}
-
-      {/* Cliente */}
-      <div style={{ marginBottom: 14 }}>
-        <div className="field-label">Cliente</div>
-        <input
-          className="field-input"
-          list="clientes-list"
-          placeholder="Nome do cliente"
-          value={form.cliente}
-          onChange={e => handleClienteChange(e.target.value)}
-          autoComplete="off"
-        />
-        <datalist id="clientes-list">
-          {(clientes || []).map(c => <option key={c.id} value={c.nome} />)}
-        </datalist>
-      </div>
-
-      {/* Data */}
-      <div style={{ marginBottom: 14 }}>
-        <div className="field-label">Data de entrega</div>
-        <DateChipsForm value={form.dataEntrega} onChange={v => setField('dataEntrega', v)} />
-      </div>
-
-      {/* Itens */}
-      <div style={{ marginBottom: 14 }}>
-        <div className="field-label">Itens</div>
-        {itens.map((it, i) => (
-          <ItemRow
-            key={i}
-            item={it}
-            onChange={(k, v) => changeItem(i, k, v)}
-            onRemove={() => removeItem(i)}
-            canRemove={itens.length > 1}
-          />
-        ))}
-        <button
-          onClick={() => setShowModal(true)}
-          style={{
-            width: '100%', padding: 10, background: 'transparent',
-            border: '1.5px dashed #333', borderRadius: 9, fontSize: 13,
-            color: 'var(--teal)', fontWeight: 600, cursor: 'pointer',
-          }}
-        >+ Adicionar produto</button>
-      </div>
-
-      {/* Mais detalhes toggle */}
-      <button
-        onClick={() => setShowMore(s => !s)}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-          background: 'none', border: 'none', cursor: 'pointer',
-          padding: '6px 0', marginBottom: 10, color: 'var(--text-tertiary)',
-        }}
-      >
-        <div style={{ flex: 1, height: 1, background: 'var(--bg-secondary)' }} />
-        <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', whiteSpace: 'nowrap' }}>
-          {showMore ? '▲ Menos detalhes' : '▼ Mais detalhes'}
-        </span>
-        <div style={{ flex: 1, height: 1, background: 'var(--bg-secondary)' }} />
-      </button>
-
-      {showMore && (
-        <div style={{ marginBottom: 14 }}>
-          {/* Telefone */}
-          <div className="field-label">Telefone</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-            <input
-              className="field-input"
-              style={{ marginBottom: 0, flex: 1 }}
-              placeholder="+55 11 9 ..."
-              value={form.contato}
-              onChange={e => setField('contato', e.target.value)}
-            />
-            {waLink(form.contato) && (
-              <a href={waLink(form.contato)} target="_blank" rel="noreferrer" style={{ background: '#14532d', color: '#4ade80', padding: '9px 12px', borderRadius: 8, fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                📲 WA
-              </a>
-            )}
-          </div>
-
-          {/* Canal + Tipo */}
-          <div className="field-row">
-            <div>
-              <div className="field-label">Canal</div>
-              <select className="field-input" value={form.canal} onChange={e => setField('canal', e.target.value)}>
-                {CANAL_OPTS.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <div className="field-label">Tipo</div>
-              <select className="field-input" value={form.tipoEntrega} onChange={e => setField('tipoEntrega', e.target.value)}>
-                <option>Retirada</option>
-                <option>Entrega</option>
-              </select>
-            </div>
-          </div>
-          {form.tipoEntrega === 'Entrega' && (
-            <>
-              <div className="field-label">Frete (R$)</div>
-              <input className="field-input" type="text" inputMode="decimal" placeholder="0,00"
-                value={form.frete} onChange={e => setField('frete', e.target.value)} />
-            </>
-          )}
-
-          {/* Obs */}
-          <div className="field-label">Observações</div>
-          <textarea
-            className="field-input"
-            rows={3}
-            placeholder="Anotações, endereço, preferências..."
-            value={form.obs}
-            onChange={e => setField('obs', e.target.value)}
-            style={{ resize: 'none' }}
-          />
-        </div>
-      )}
-    </>
-  )
-}
-
 // ── New order view (full page) ────────────────────────────────
-function NovoView({ produtos, clientes, onBack, onSaved }) {
+function NovoView({ produtos, clientes, pedidos, onBack, onSaved }) {
   const { toast, show } = useToast()
-  const [form, setFormState] = useState({
-    cliente: '', contato: '', canal: 'WhatsApp',
-    dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
-    tipoEntrega: 'Entrega', frete: '10',
-  })
-  const [itens, setItens]       = useState([])
-  const [saving, setSaving]     = useState(false)
-  const [showModal, setShowModal] = useState(false)
-  const [showMore, setShowMore] = useState(false)
-
-  const setField = (k, v) => setFormState(f => ({ ...f, [k]: v }))
-
-  const frete = form.tipoEntrega === 'Entrega' ? (parseFloat(form.frete) || 0) : 0
-  const itensTotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit)||0) * (parseInt(it.quantidade)||1), 0)
-  const total = itensTotal + frete
-
-  const handleSave = async () => {
-    if (!form.cliente)     { show('Preencha o nome do cliente'); return }
-    if (!form.dataEntrega) { show('Preencha a data de entrega'); return }
-    if (itens.length === 0){ show('Adicione ao menos um item'); return }
-    setSaving(true)
-    try {
-      const isClienteNovo = form.cliente.trim().length > 1 &&
-        !(clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
-      if (isClienteNovo) await saveCliente({ nome: form.cliente, telefone: form.contato })
-      const id = await savePedido(form, itens)
-      show(`Pedido ${id} salvo!`)
-      setTimeout(() => { onSaved(); onBack() }, 700)
-    } catch (e) {
-      show('Erro: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
     <>
       <div className="topbar">
@@ -586,35 +239,9 @@ function NovoView({ produtos, clientes, onBack, onSaved }) {
           <div className="topbar-title">Novo pedido</div>
         </div>
       </div>
-
-      <div className="page-inner" style={{ paddingTop: 16, paddingBottom: 0 }}>
-        <FormFields
-          form={form} setField={setField}
-          itens={itens} setItens={setItens}
-          produtos={produtos} clientes={clientes}
-          showModal={showModal} setShowModal={setShowModal}
-          showMore={showMore} setShowMore={setShowMore}
-        />
-      </div>
-
-      {/* Total bar */}
-      <div style={{
-        position: 'sticky', bottom: 0, background: 'var(--bg-card)',
-        borderTop: '1px solid var(--border)', padding: '8px 16px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>Total</span>
-        <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>R$ {fmtR(total)}</span>
-      </div>
-      <div style={{ padding: '8px 16px 16px', background: 'var(--bg-card)' }}>
-        <button
-          className="btn-primary"
-          onClick={handleSave}
-          disabled={saving || !form.cliente || !form.dataEntrega || itens.length === 0}
-          style={{ opacity: (!form.cliente || !form.dataEntrega || itens.length === 0) ? 0.4 : 1 }}
-        >
-          {saving ? 'Salvando...' : 'Salvar pedido'}
-        </button>
+      <div className="page-inner" style={{ paddingTop: 16, paddingBottom: 0, maxWidth: 640 }}>
+        <NovoPedidoForm variante="pagina" produtos={produtos} clientes={clientes} encomendas={pedidos}
+          show={show} onSaved={onSaved} onClose={onBack} />
       </div>
       {toast && <div className="toast">{toast}</div>}
     </>
@@ -1009,68 +636,17 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
   const { toast, show }   = useToast()
   const { data: produtos } = useData(getProdutos)
   const { data: clientes } = useData(getClientes)
-
-  const [form, setFormState] = useState({
-    cliente: '', contato: '', canal: 'WhatsApp',
-    dataEntrega: '', pgto: 'Aguardando', status: 'Pendente', obs: '',
-    tipoEntrega: 'Entrega', frete: '10',
-  })
-  const [itens, setItens]       = useState([])
-  const [saving, setSaving]     = useState(false)
-  const [showModal, setShowModal] = useState(false)
-  const [showMore, setShowMore] = useState(false)
-
-  const setField = (k, v) => setFormState(f => ({ ...f, [k]: v }))
-
-  const frete = form.tipoEntrega === 'Entrega' ? (parseFloat(form.frete) || 0) : 0
-  const itensTotal = itens.reduce((s, it) => s + (parseFloat(it.precoUnit)||0) * (parseInt(it.quantidade)||1), 0)
-  const total = itensTotal + frete
-
-  const handleSave = async () => {
-    if (!form.cliente)     { show('Preencha o nome do cliente'); return }
-    if (!form.dataEntrega) { show('Preencha a data de entrega'); return }
-    if (itens.length === 0){ show('Adicione ao menos um item'); return }
-    setSaving(true)
-    try {
-      const isClienteNovo = form.cliente.trim().length > 1 &&
-        !(clientes || []).some(c => c.nome.toLowerCase() === form.cliente.toLowerCase())
-      if (isClienteNovo) await saveCliente({ nome: form.cliente, telefone: form.contato })
-      const id = await savePedido(form, itens)
-      show(`Pedido ${id} salvo!`)
-      setTimeout(() => { onSaved?.(); onClose() }, 700)
-    } catch (e) {
-      show('Erro: ' + e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
+  const { data: encomendas } = useData(getEncomendas)
   return (
     <>
       <div className="sheet-overlay" onClick={onClose} />
-      <div className="sheet" style={{ maxHeight: '92vh', overflowY: 'auto' }}>
+      <div className="sheet np-folha">
         <div className="sheet-title">
           <span>Novo pedido</span>
-          <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
+          <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 24, cursor: 'pointer', padding: '0 4px' }} onClick={onClose} aria-label="Fechar">×</button>
         </div>
-
-        <FormFields
-          form={form} setField={setField}
-          itens={itens} setItens={setItens}
-          produtos={produtos} clientes={clientes}
-          showModal={showModal} setShowModal={setShowModal}
-          showMore={showMore} setShowMore={setShowMore}
-        />
-
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, marginTop: 4 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase' }}>Total</span>
-            <span style={{ fontSize: 20, fontWeight: 700 }}>R$ {fmtR(total)}</span>
-          </div>
-          <button className="btn-primary" onClick={handleSave} disabled={saving} style={{ opacity: (!form.cliente || !form.dataEntrega || itens.length === 0) ? 0.4 : 1 }}>
-            {saving ? 'Salvando...' : 'Salvar pedido'}
-          </button>
-        </div>
+        <NovoPedidoForm variante="sheet" produtos={produtos} clientes={clientes} encomendas={encomendas}
+          show={show} onSaved={onSaved} onClose={onClose} />
       </div>
       {toast && <div className="toast">{toast}</div>}
     </>
@@ -1190,7 +766,7 @@ export default function Pedidos() {
   if ((loadingPed && !pedidos) || (loadingProd && !produtos)) return <div className="loading">Carregando...</div>
 
   if (mode === 'novo') {
-    return <NovoView produtos={produtos||[]} clientes={clientes||[]} onBack={() => setMode('list')} onSaved={() => { reloadPedidos(); reloadClientes() }} />
+    return <NovoView produtos={produtos||[]} clientes={clientes||[]} pedidos={pedidos||[]} onBack={() => setMode('list')} onSaved={() => { reloadPedidos(); reloadClientes() }} />
   }
   if (mode !== 'list') {
     return <DetalheView pedido={mode} alertMap={alertMap} onBack={() => setMode('list')} onSaved={reloadPedidos} />

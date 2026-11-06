@@ -33,7 +33,7 @@ function DateInput({ value, onChange, className, style }) {
   )
 }
 
-const PLATAFORMAS = ['Direta', '99Food', 'iFood']
+const PLATAFORMAS = ['Direta', 'iFood']
 const PLAT_COLOR  = { 'Direta': 'var(--teal)', '99Food': '#f59e0b', 'iFood': '#ef4444' }
 const CANAL_TO_PLAT = { 'iFood': 'iFood', '99Food': '99Food' } // others → 'Direta'
 const PROD_COLORS = ['#14b8a6','#f59e0b','#6366f1','#ec4899','#10b981','#f97316','#8b5cf6','#06b6d4','#84cc16','#e11d48']
@@ -1298,8 +1298,7 @@ export default function Vendas() {
             {!loading && Object.keys(statsPerPlat).some(k => statsPerPlat[k].revenue > 0) && (() => {
               const totalCanal = Object.values(statsPerPlat).reduce((s, p) => s + p.revenue, 0)
               const entries = [['Direta', statsPerPlat['Direta']?.revenue || 0, 'var(--teal)'],
-                               ['iFood',  statsPerPlat['iFood']?.revenue  || 0, '#ef4444'],
-                               ['99Food', statsPerPlat['99Food']?.revenue || 0, '#f59e0b']]
+                               ['iFood',  statsPerPlat['iFood']?.revenue  || 0, '#ef4444']]
                 .filter(([, v]) => v > 0)
               return (
                 <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
@@ -1337,7 +1336,6 @@ export default function Vendas() {
           const canalData = [
             { label: 'Direta', valor: statsPerPlat['Direta']?.revenue || 0, cor: 'var(--teal)' },
             { label: 'iFood',  valor: statsPerPlat['iFood']?.revenue  || 0, cor: '#ef4444' },
-            { label: '99Food', valor: statsPerPlat['99Food']?.revenue || 0, cor: '#f59e0b' },
           ]
           return (
             <>
