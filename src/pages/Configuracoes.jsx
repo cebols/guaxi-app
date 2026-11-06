@@ -1,725 +1,544 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
-import { getConfig, saveConfig, calcPrecos, getCustoSacolaDelivery, CONFIG_DEFAULTS } from '../hooks/useConfig'
-import { getVendas, getEncomendas, getEmbalagens, loadUserConfig, saveUserConfig, configurarAvisosLalamove } from '../services/db'
-import { useAuth } from '../contexts/AuthContext'
+import { getConfig, getCustoSacolaDelivery, salvarConfigParcial, DEFAULT_ITENS } from '../hooks/useConfig'
+import { getVendas, getEncomendas, getEmbalagens, getProdutos, loadUserConfig, configurarAvisosLalamove } from '../services/db'
+import { resumoFinanceiro } from '../lib/financeiro'
+import { ContaLoja } from './Perfil'
 
-function fmtPct(v) { return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) }
-function fmtR(v) {
-  const rounded = Math.ceil(Number(v) * 100) / 100
-  return Number(rounded).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 5) }
+// ── Configurações ────────────────────────────────────────────────────────────
+// Uma tela só, em abas: Financeiro (o mês de verdade: ponto de equilíbrio, meta,
+// pra onde vai o dinheiro), Custos (o que entra no preço sugerido), Entrega
+// (loja, Lalamove, Pix, frete) e Conta (loja e login).
 
-function fmtR2(v) { return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+const ABAS = [
+  { key: 'financeiro', nome: 'Financeiro' },
+  { key: 'custos', nome: 'Custos' },
+  { key: 'entrega', nome: 'Entrega' },
+  { key: 'conta', nome: 'Conta' },
+]
+const MIN_UNIDADES_AUTO = 30   // abaixo disso a média de vendas não serve pra ratear o custo fixo
 
-function MultiSelectDropdown({ embalagens, selectedIds, onChange, placeholder = 'Selecionar embalagens…' }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef(null)
-  useEffect(() => {
-    const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-  const selected = (embalagens || []).filter(e => selectedIds.includes(e.id))
-  const media = selected.length ? selected.reduce((s, e) => s + (e.custoUnit || 0), 0) / selected.length : null
-  return (
-    <div ref={ref} style={{ position: 'relative', marginBottom: 8 }}>
-      <div
-        onClick={() => setOpen(o => !o)}
-        style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minHeight: 40, padding: '6px 10px', paddingRight: 28,
-          background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', alignItems: 'center', position: 'relative' }}
-      >
-        {selected.length === 0
-          ? <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>{placeholder}</span>
-          : selected.map(e => (
-            <span key={e.id} style={{ fontSize: 11, background: 'rgba(13,148,136,0.15)', color: 'var(--teal)', borderRadius: 12, padding: '2px 8px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              {e.nome}
-              <span onClick={ev => { ev.stopPropagation(); onChange(e.id) }} style={{ cursor: 'pointer', fontWeight: 700, lineHeight: 1 }}>×</span>
-            </span>
-          ))
-        }
-        <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 10, color: 'var(--text-tertiary)' }}>{open ? '▲' : '▼'}</span>
-      </div>
-      {open && (
-        <div style={{ position: 'absolute', zIndex: 100, top: '100%', left: 0, right: 0, marginTop: 4,
-          background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.3)', maxHeight: 220, overflowY: 'auto' }}>
-          {(embalagens || []).length === 0
-            ? <div style={{ padding: '10px 14px', fontSize: 13, color: 'var(--text-tertiary)' }}>Nenhuma embalagem cadastrada.</div>
-            : (embalagens || []).map(e => {
-              const sel = selectedIds.includes(e.id)
-              return (
-                <div key={e.id} onClick={() => onChange(e.id)}
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '9px 14px', cursor: 'pointer', fontSize: 13,
-                    background: sel ? 'rgba(13,148,136,0.08)' : 'transparent',
-                    color: sel ? 'var(--teal)' : 'var(--text-primary)' }}>
-                  <span>{sel ? '✓ ' : ''}{e.nome}</span>
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>R$ {fmtR2(e.custoUnit)}</span>
-                </div>
-              )
-            })
-          }
-        </div>
-      )}
-      {media !== null && (
-        <div style={{ fontSize: 11, color: 'var(--teal)', marginTop: 4 }}>
-          Média por saída: R$ {fmtR2(media)} ({selected.length} embalagem{selected.length > 1 ? 's' : ''})
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Big editable number with tight prefix/suffix and a clear field affordance
-function NumPill({ value, onChange, prefix, suffix, size = 26 }) {
-  const str = String(value ?? '')
-  const len = Math.max(1.5, str.length)
-  const aff = Math.round(size * 0.5)
-  return (
-    <label className="cfg-pill">
-      {prefix && <span style={{ fontSize: aff, fontWeight: 700, color: 'var(--text-tertiary)' }}>{prefix}</span>}
-      <input
-        type="text" inputMode="decimal"
-        value={value}
-        onChange={onChange}
-        style={{
-          fontSize: size, fontWeight: 700, letterSpacing: '-0.02em',
-          color: 'var(--text-primary)',
-          width: `calc(${len}ch + 2px)`,
-          textAlign: 'center',
-        }}
-      />
-      {suffix && <span style={{ fontSize: aff, fontWeight: 700, color: 'var(--text-tertiary)' }}>{suffix}</span>}
-    </label>
-  )
-}
-
-// One of the 3 equal-weight price columns in the simulator
-function PriceCol({ label, price, sub, color, bg }) {
-  return (
-    <div style={{ flex: 1, background: bg, borderRadius: 10, padding: '11px 6px', textAlign: 'center' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color, marginBottom: 5 }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, color, letterSpacing: '-0.03em' }}>R$ {price}</div>
-      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 3 }}>{sub}</div>
-    </div>
-  )
-}
+const num = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0 }
+const fmtR = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const fmtR0 = (v) => `R$ ${Math.round(Number(v) || 0).toLocaleString('pt-BR')}`
+const fmtSinal = (v) => `${v >= 0 ? '+' : '−'} ${fmtR0(Math.abs(v))}`
+const pct = (x) => `${Math.round((x || 0) * 100)}%`
+const novoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5)
+const iguais = (a, b) => JSON.stringify(a) === JSON.stringify(b)
+const somaItens = (itens) => (itens || []).reduce((s, i) => s + num(i.valor), 0)
 
 export default function Configuracoes() {
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+  const aba = ABAS.some(a => a.key === params.get('aba')) ? params.get('aba') : 'financeiro'
+  const irPara = (key) => setParams(key === 'financeiro' ? {} : { aba: key }, { replace: true })
   const { toast, show } = useToast()
-  const { profile } = useAuth()
   const [cfg, setCfg] = useState(getConfig)
-  const margemRef = useRef(null)
-  const step3Done = cfg.custoFixoMensal > 0 || cfg.margem !== CONFIG_DEFAULTS.margem
-  const showMargemHint = profile?.onboardingDone && !step3Done
-  const [exemplo, setExemplo] = useState(10)
-  const [modoMeta, setModoMeta] = useState(false)
-  const [metaLucro, setMetaLucro] = useState(1000)
-  const [novoNome, setNovoNome] = useState('')
-  const [adicionando, setAdicionando] = useState(false)
-  const [descontoPromo, setDescontoPromo] = useState(20)
-  const { data: vendas }      = useData(getVendas)
-  const { data: encomendas }  = useData(getEncomendas)
-  const { data: embalagens }  = useData(getEmbalagens)
+  const { data: vendas } = useData(getVendas)
+  const { data: encomendas } = useData(getEncomendas)
+  const { data: embalagens } = useData(getEmbalagens)
+  const { data: produtos } = useData(getProdutos)
 
-  const [deliveryCfg, setDeliveryCfg] = useState({ lojaCEP: '', lojaEndereco: '', freteGratis: 0, freteTiers: [], diasEntrega: [], lojaLat: null, lojaLng: null, freteMargemPct: 10, freteMargemMin: 1 })
+  // o banco é a fonte (o cache do aparelho pode estar velho)
+  useEffect(() => { loadUserConfig().then(r => { if (r) setCfg(c => ({ ...c, ...r, custoFixoMensal: somaItens(r.custoItens || c.custoItens) })) }).catch(() => {}) }, [])
+
+  const custoSacola = getCustoSacolaDelivery(cfg, embalagens || [])
+  const fin = useMemo(() => (encomendas && vendas && produtos)
+    ? resumoFinanceiro({ encomendas, vendas, produtos, cfg: { ...cfg, custoFixoMensal: somaItens(cfg.custoItens) }, custoSacola, metaLucro: cfg.metaLucro })
+    : null, [encomendas, vendas, produtos, cfg, custoSacola])
+
+  // Unidades por mês no automático: segue as vendas dos últimos 30 dias (é o que rateia o custo fixo no preço)
+  const sincronizou = useRef(false)
   useEffect(() => {
-    loadUserConfig().then(cfg => {
-      if (cfg?.delivery) setDeliveryCfg(d => ({ ...d, ...cfg.delivery }))
-    }).catch(() => {})
-  }, [])
-
-  const setDel = (k, v) => setDeliveryCfg(d => ({ ...d, [k]: v }))
-  const toggleDia = (n) => setDeliveryCfg(d => {
-    const has = (d.diasEntrega || []).includes(n)
-    if (has) return { ...d, diasEntrega: d.diasEntrega.filter(x => x !== n) }
-    return { ...d, diasEntrega: [...(d.diasEntrega || []), n].sort() }
-  })
-  const addTier = () => setDeliveryCfg(d => ({ ...d, freteTiers: [...d.freteTiers, { ate: '', valor: '' }] }))
-  const removeTier = (i) => setDeliveryCfg(d => ({ ...d, freteTiers: d.freteTiers.filter((_, idx) => idx !== i) }))
-  const updateTier = (i, k, v) => setDeliveryCfg(d => ({ ...d, freteTiers: d.freteTiers.map((t, idx) => idx === i ? { ...t, [k]: v } : t) }))
-
-  // Geocodifica o CEP da loja para guardar coords (usado no frete por dia, server-side)
-  async function geocodeCep(cep) {
-    const clean = (cep || '').replace(/\D/g, '')
-    if (clean.length !== 8) return null
-    try {
-      const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${clean}`)
-      if (!r.ok) return null
-      const d = await r.json()
-      if (d.latitude && d.longitude) return { lat: parseFloat(d.latitude), lng: parseFloat(d.longitude) }
-      const query = [d.neighborhood, d.city, d.state, 'Brazil'].filter(Boolean).join(', ')
-      const nr = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`, { headers: { 'User-Agent': 'GuaxiApp/1.0' } })
-      const nd = await nr.json()
-      if (nd?.[0]) return { lat: parseFloat(nd[0].lat), lng: parseFloat(nd[0].lon) }
-    } catch { /* ignore */ }
-    return null
-  }
-
-  const handleSaveDelivery = async () => {
-    const tiers = deliveryCfg.freteTiers
-      .filter(t => t.ate !== '' && t.valor !== '')
-      .map(t => ({ ate: parseFloat(t.ate) || 0, valor: parseFloat(t.valor) || 0 }))
-      .sort((a, b) => a.ate - b.ate)
-    const coords = await geocodeCep(deliveryCfg.lojaCEP)
-    const existing = await loadUserConfig()
-    const payload = {
-      ...(existing?.delivery || {}),   // preserva campos salvos em outras telas (nome/telefone da loja)
-      lojaCEP: deliveryCfg.lojaCEP, lojaEndereco: deliveryCfg.lojaEndereco,
-      pix: (deliveryCfg.pix || '').trim(),
-      lojaPhone: (deliveryCfg.lojaPhone || '').trim(),
-      lalamoveProducao: deliveryCfg.lalamoveProducao === true,
-      freteMargemPct: deliveryCfg.freteMargemPct === '' ? 10 : (parseFloat(deliveryCfg.freteMargemPct) || 0),
-      freteMargemMin: deliveryCfg.freteMargemMin === '' ? 1 : (parseFloat(deliveryCfg.freteMargemMin) || 0),
-      freteGratis: parseFloat(deliveryCfg.freteGratis) || 0, freteTiers: tiers,
-      diasEntrega: deliveryCfg.diasEntrega || [],
-      lojaLat: coords?.lat ?? deliveryCfg.lojaLat ?? null,
-      lojaLng: coords?.lng ?? deliveryCfg.lojaLng ?? null,
-    }
-    await saveUserConfig({ ...(existing || {}), delivery: payload })
-    setDeliveryCfg(d => ({ ...d, freteTiers: tiers, lojaLat: payload.lojaLat, lojaLng: payload.lojaLng }))
-    // Acabou de ligar o Lalamove valendo: cadastra lá o endereço dos avisos (motorista saiu, entregou)
-    if (payload.lalamoveProducao && !existing?.delivery?.lalamoveProducao) {
-      try { await configurarAvisosLalamove(false); show('Delivery salvo! Lalamove valendo, com avisos ligados.') }
-      catch (e) { show(`Delivery salvo, mas os avisos da Lalamove falharam: ${e.message}`) }
-      return
-    }
-    show(coords ? 'Delivery salvo!' : 'Delivery salvo (não consegui geocodar o CEP da loja)')
-  }
-
-  const toggleEmb = (key, id) => setCfg(c => {
-    const ids = c[key] || []
-    return { ...c, [key]: ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id] }
-  })
-
-  const set = (k, v) => setCfg(c => ({ ...c, [k]: parseFloat(v) || 0 }))
-
-  // ── Item management ──────────────────────────────────────────
-  const updateItem = (id, valor) => setCfg(c => ({
-    ...c,
-    custoItens: c.custoItens.map(i => i.id === id ? { ...i, valor: parseFloat(valor) || 0 } : i),
-  }))
-
-  const removeItem = (id) => setCfg(c => ({
-    ...c,
-    custoItens: c.custoItens.filter(i => i.id !== id),
-  }))
-
-  const addItem = () => {
-    const nome = novoNome.trim()
-    if (!nome) return
-    setCfg(c => ({
-      ...c,
-      custoItens: [...c.custoItens, { id: newId(), nome, valor: 0 }],
-    }))
-    setNovoNome('')
-    setAdicionando(false)
-  }
-
-  // ── Derived values ───────────────────────────────────────────
-  const custoFixoMensal = (cfg.custoItens || []).reduce((s, i) => s + (parseFloat(i.valor) || 0), 0)
-  const rateio = cfg.unidadesProjetadas > 0 ? custoFixoMensal / cfg.unidadesProjetadas : 0
-  const cfgComTotal = { ...cfg, custoFixoMensal }
-  const mediaDelivery = getCustoSacolaDelivery(cfgComTotal, embalagens || [])
-  const { base, pIfood } = calcPrecos(exemplo, cfgComTotal, mediaDelivery)
-
-  // Vendas reais mês atual
-  const realStats = useMemo(() => {
-    const mes = new Date().toISOString().slice(0, 7)
-    let unidades = 0; let receita = 0
-    for (const v of (vendas || [])) {
-      if (v.data?.startsWith(mes)) {
-        unidades += v.quantidade || 0
-        receita  += (v.quantidade || 0) * (v.precoUnit || 0)
-      }
-    }
-    for (const e of (encomendas || [])) {
-      if (e.status === 'Cancelado') continue
-      if (e.dataEntrega?.startsWith(mes)) {
-        for (const it of (e.itens || [])) {
-          unidades += it.quantidade || 0
-          receita  += (it.quantidade || 0) * (it.precoUnit || 0)
-        }
-      }
-    }
-    return { unidades, receita }
-  }, [vendas, encomendas])
-
-  // Ponto de equilíbrio: unidades/mês necessárias pra cobrir custos fixos
-  const margemUnit = exemplo > 0 ? base - exemplo : 0
-  const pontoEquilibrio = margemUnit > 0 ? Math.ceil(custoFixoMensal / margemUnit) : null
-  const unidadesMeta = (base - exemplo) > 0 ? Math.ceil((custoFixoMensal + metaLucro) / (base - exemplo)) : null
-
-  // Promo
-  const precoPromo = base * (1 - descontoPromo / 100)
-  const margemPromo = precoPromo > 0 ? ((precoPromo - exemplo - rateio) / precoPromo) * 100 : 0
-  const lucroPromoUnit = precoPromo - exemplo - rateio
-  const promoColor = margemPromo >= 20 ? 'var(--teal)' : margemPromo >= 5 ? '#f59e0b' : 'var(--alert-text)'
-
-  const handleSave = () => {
-    saveConfig({ ...cfg, custoFixoMensal })
-    show('Configurações salvas!')
-  }
-
-  const handleReset = () => {
-    setCfg({ ...CONFIG_DEFAULTS })
-    saveConfig(CONFIG_DEFAULTS)
-    show('Restaurado para padrão')
-  }
+    if (!fin || sincronizou.current || cfg.unidadesAuto === false) return
+    if (fin.unidades30d < MIN_UNIDADES_AUTO || num(cfg.unidadesProjetadas) === fin.unidades30d) return
+    sincronizou.current = true
+    salvarConfigParcial({ unidadesProjetadas: fin.unidades30d }).then(setCfg).catch(() => {})
+  }, [fin, cfg.unidadesAuto, cfg.unidadesProjetadas])
 
   return (
     <>
       <div className="topbar">
         <div className="topbar-inner">
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <button onClick={() => navigate(-1)} aria-label="Voltar" style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
-            <div className="topbar-title">Preços e custos</div>
+            <div className="topbar-title">Configurações</div>
           </div>
         </div>
       </div>
 
-      <div className="page-inner" style={{ paddingTop: 16 }}>
+      <div className="page-inner cf" style={{ paddingTop: 14 }}>
+        <nav className="pd-seg cf-abas" aria-label="Seções">
+          {ABAS.map(a => <button key={a.key} className={aba === a.key ? 'on' : ''} aria-current={aba === a.key ? 'page' : undefined} onClick={() => irPara(a.key)}>{a.nome}</button>)}
+        </nav>
 
-        {/* ── Custos fixos ─────────────────────────────────── */}
-        <div className="card card-flush" style={{ marginBottom: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '11px 14px', borderBottom: '1px solid #2a2a2a' }}>
-            <span className="cfg-label" style={{ marginBottom: 0 }}>Custos fixos mensais</span>
-            <span style={{ fontSize: 17, fontWeight: 800, color: 'var(--teal)', letterSpacing: '-0.02em' }}>R$ {fmtR(custoFixoMensal)}</span>
+        {aba === 'financeiro' && <AbaFinanceiro fin={fin} cfg={cfg} setCfg={setCfg} irPara={irPara} navigate={navigate} show={show} />}
+        {aba === 'custos' && <AbaCustos cfg={cfg} setCfg={setCfg} embalagens={embalagens || []} fin={fin} show={show} />}
+        {aba === 'entrega' && <AbaEntrega show={show} />}
+        {aba === 'conta' && <ContaLoja show={show} />}
+      </div>
+      {toast && <div className="toast">{toast}</div>}
+    </>
+  )
+}
+
+// ── Financeiro ───────────────────────────────────────────────────────────────
+function AbaFinanceiro({ fin, cfg, setCfg, irPara, navigate, show }) {
+  const [meta, setMeta] = useState(cfg.metaLucro != null ? String(cfg.metaLucro) : '')
+  useEffect(() => { setMeta(cfg.metaLucro != null ? String(cfg.metaLucro) : '') }, [cfg.metaLucro])
+  const salvarMeta = async () => {
+    const v = num(meta)
+    if (v === num(cfg.metaLucro)) return
+    setCfg(await salvarConfigParcial({ metaLucro: v }))
+    show('Meta salva')
+  }
+  if (!fin) return <div className="pd-vazio">Carregando o mês…</div>
+
+  const { mes, ult30 } = fin
+  const semFixos = !(fin.fixos > 0)
+  const cobriu = !semFixos && fin.cobertura >= 1
+  const lucroAteAgora = mes.contribuicao - fin.fixos
+  const metaNum = num(cfg.metaLucro)
+
+  // De cada R$ 100 vendidos nos últimos 30 dias (os custos fixos de um mês inteiro)
+  const r = ult30.receita
+  const partes = r > 0 ? [
+    { nome: 'Ingredientes', dica: 'com o desperdício', v: ult30.cmv / r * 100 },
+    { nome: 'Embalagem', dica: 'sacola por pedido', v: ult30.embalagem / r * 100 },
+    ...(ult30.taxas > 0 ? [{ nome: 'Taxa do iFood', v: ult30.taxas / r * 100 }] : []),
+    { nome: 'Custos fixos', dica: 'aluguel, luz, gás…', v: fin.fixos / r * 100 },
+  ] : []
+  const sobra = r > 0 ? 100 - partes.reduce((s, p) => s + p.v, 0) : 0
+
+  return (
+    <>
+      {/* Ponto de equilíbrio do mês */}
+      <section className="cf-card cf-hero" aria-label="Ponto de equilíbrio do mês">
+        <div className="cf-topo">
+          <h2>Ponto de equilíbrio · {fin.nomeMes}</h2>
+          <span className="cf-dim">dia {fin.dia} de {fin.diasNoMes}</span>
+        </div>
+        {semFixos ? (
+          <div className="cf-hint">
+            Cadastre seus custos fixos (aluguel, luz, gás, internet…) pra ver quanto precisa vender pra empatar no mês.
+            <div><button className="pd-btn verde" style={{ marginTop: 10 }} onClick={() => irPara('custos')}>Cadastrar custos fixos</button></div>
           </div>
-
-          {(cfg.custoItens || []).map((item, idx, arr) => (
-            <div key={item.id} style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '4px 14px',
-              borderBottom: idx < arr.length - 1 ? '1px solid #242424' : 'none',
-            }}>
-              <div style={{ flex: 1, fontSize: 13 }}>{item.nome}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>R$</span>
-                <input
-                  className="cfg-cost-input"
-                  type="text" inputMode="decimal" min="0" step="10"
-                  value={item.valor || ''} placeholder="0"
-                  onChange={e => updateItem(item.id, e.target.value)}
-                />
+        ) : (
+          <>
+            <div className="cf-meter-txt">
+              <span>Já cobriu <b>{fmtR0(Math.max(0, mes.contribuicao))}</b> de <b>{fmtR0(fin.fixos)}</b> de custos fixos</span>
+              <b>{pct(Math.min(fin.cobertura, 9.99))}</b>
+            </div>
+            <div className={`cf-meter${cobriu ? ' ok' : ''}`} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(1, fin.cobertura) * 100)}
+              aria-label="Custos fixos cobertos no mês">
+              <i style={{ width: `${Math.min(100, fin.cobertura * 100)}%` }} />
+            </div>
+            {cobriu ? (
+              <div className="cf-status ok">✓ Custos fixos do mês cobertos. Lucro até agora: <b>{fmtR0(lucroAteAgora)}</b></div>
+            ) : fin.falta != null ? (
+              <div className="cf-status atencao">
+                Faltam <b>{fmtR0(fin.falta)}</b> em vendas pra empatar
+                {fin.pedidosFaltam ? <> · ~{fin.pedidosFaltam} {fin.pedidosFaltam === 1 ? 'pedido' : 'pedidos'}</> : null}
+                {' · '}<b>{fmtR0(fin.porDia)}</b> por dia até o fim do mês
               </div>
-              <button onClick={() => removeItem(item.id)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: '0 0 0 2px', lineHeight: 1 }}>×</button>
+            ) : (
+              <div className="cf-hint">Ainda sem vendas suficientes pra calcular a sua margem.</div>
+            )}
+            <div className="cf-dim">Contribuição = o que sobra das vendas depois de ingredientes, embalagem e taxas. É ela que paga os custos fixos.</div>
+          </>
+        )}
+      </section>
+
+      {/* Números do mês */}
+      <section className="cf-kpis" aria-label="Números do mês">
+        <div className="cf-kpi"><span>Vendido em {fin.nomeMes}</span><b>{fmtR0(mes.receita)}</b><small>{mes.pedidos} {mes.pedidos === 1 ? 'pedido' : 'pedidos'} · sem frete</small></div>
+        <div className="cf-kpi"><span>Ticket médio</span><b>{fin.ticket ? fmtR(fin.ticket) : '—'}</b><small>por pedido</small></div>
+        <div className="cf-kpi"><span>Margem de contribuição</span><b>{fin.mc != null ? pct(fin.mc) : '—'}</b><small>de cada R$ 1 vendido</small></div>
+        <div className="cf-kpi">
+          <span>Projeção do mês</span>
+          {fin.projResultado != null && !semFixos
+            ? <><b className={fin.projResultado >= 0 ? 'cf-pos' : 'cf-neg'}>{fmtSinal(fin.projResultado)}</b><small>{fin.projResultado >= 0 ? 'de lucro' : 'de prejuízo'} no ritmo atual</small></>
+            : <><b>—</b><small>falta histórico</small></>}
+        </div>
+      </section>
+
+      <div className="cf-grade duas">
+        {/* Meta de lucro */}
+        <section className="cf-card" aria-label="Meta de lucro">
+          <h2>Meta de lucro</h2>
+          <label className="cf-num">
+            <span>Quero lucrar</span>
+            <span className="cf-campo-num"><i>R$</i><input inputMode="decimal" value={meta} placeholder="0" onChange={e => setMeta(e.target.value)}
+              onBlur={salvarMeta} onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} /></span>
+            <span>por mês</span>
+          </label>
+          {metaNum > 0 && fin.metaReceita != null ? (
+            fin.faltaMeta > 0 ? (
+              <div className="cf-hint">
+                Pra isso, venda <b>{fmtR0(fin.metaReceita)}</b> em {fin.nomeMes}.<br />
+                Faltam <b>{fmtR0(fin.faltaMeta)}</b>{fin.pedidosMeta ? <> · ~{fin.pedidosMeta} pedidos</> : null} · <b>{fmtR0(fin.faltaMeta / fin.diasRestantes)}</b> por dia.
+              </div>
+            ) : <div className="cf-status ok">✓ Meta do mês batida ({fmtR0(fin.metaReceita)} vendidos)</div>
+          ) : <div className="cf-hint">Diga quanto quer tirar de lucro no mês e o app mostra quanto vender por dia.</div>}
+        </section>
+
+        {/* Pra onde vai o dinheiro */}
+        <section className="cf-card" aria-label="De cada 100 reais vendidos">
+          <h2>De cada R$ 100 vendidos</h2>
+          {r > 0 ? (
+            <>
+              <div className="cf-dim" style={{ marginTop: -6 }}>últimos 30 dias · {fmtR0(r)} vendidos</div>
+              <div className="cf-barras">
+                {partes.map(p => (
+                  <div key={p.nome} className="cf-barra" title={`${p.nome}: ${fmtR(p.v)} de cada R$ 100`}>
+                    <span>{p.nome}{p.dica ? <small> · {p.dica}</small> : null}</span>
+                    <i><em style={{ width: `${Math.min(100, Math.max(0, p.v))}%` }} /></i>
+                    <b>{fmtR(p.v)}</b>
+                  </div>
+                ))}
+                <div className={`cf-barra ${sobra >= 0 ? 'lucro' : 'prejuizo'}`} title={`${sobra >= 0 ? 'Lucro' : 'Prejuízo'}: ${fmtR(Math.abs(sobra))} de cada R$ 100`}>
+                  <span>{sobra >= 0 ? 'Sobra (lucro)' : 'Falta (prejuízo)'}</span>
+                  <i><em style={{ width: `${Math.min(100, Math.abs(sobra))}%` }} /></i>
+                  <b>{sobra >= 0 ? '' : '− '}{fmtR(Math.abs(sobra))}</b>
+                </div>
+              </div>
+            </>
+          ) : <div className="cf-hint">Sem vendas nos últimos 30 dias.</div>}
+        </section>
+      </div>
+
+      {/* Últimos meses */}
+      <section className="cf-card" aria-label="Últimos meses">
+        <h2>Últimos meses</h2>
+        <table className="cf-tabela">
+          <thead><tr><th>Mês</th><th>Vendido</th><th>Pedidos</th><th>Resultado</th></tr></thead>
+          <tbody>
+            {fin.meses.filter((m, i, l) => m.atual || m.pedidos > 0 || l.slice(0, i).some(x => x.pedidos > 0)).map(m => (
+              <tr key={m.nome}>
+                <td>{m.nome}{m.atual ? <small>até agora</small> : null}</td>
+                <td>{fmtR0(m.receita)}</td>
+                <td>{m.pedidos}</td>
+                <td className={semFixos ? '' : m.resultado >= 0 ? 'cf-pos' : 'cf-neg'}>{semFixos ? '—' : <>{fmtSinal(m.resultado)}<small>{m.resultado >= 0 ? 'lucro' : 'prejuízo'}</small></>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="cf-dim">Resultado = contribuição das vendas − custos fixos de hoje ({fmtR0(fin.fixos)}/mês).</div>
+      </section>
+
+      {fin.semCusto.length > 0 && (
+        <section className="cf-card cf-aviso" aria-label="Produtos sem custo">
+          <b>{fin.semCusto.length === 1 ? '1 doce vendido sem custo cadastrado' : `${fin.semCusto.length} doces vendidos sem custo cadastrado`}</b>
+          <div className="cf-hint">{fin.semCusto.slice(0, 6).join(', ')}{fin.semCusto.length > 6 ? '…' : ''}. Eles entram com custo zero, então a margem e o lucro aparecem maiores do que são.</div>
+          <div><button className="pd-btn" onClick={() => navigate('/produtos')}>Ver produtos</button></div>
+        </section>
+      )}
+    </>
+  )
+}
+
+// ── Custos ───────────────────────────────────────────────────────────────────
+function formDeCusto(cfg) {
+  return {
+    custoItens: (cfg.custoItens || DEFAULT_ITENS).map(i => ({ ...i, valor: i.valor ? String(i.valor) : '' })),
+    unidadesAuto: cfg.unidadesAuto !== false,
+    unidadesProjetadas: String(cfg.unidadesProjetadas ?? 100),
+    margem: String(cfg.margem ?? 30),
+    fatorDesperdicio: String(cfg.fatorDesperdicio ?? 0),
+    taxaIfood: String(cfg.taxaIfood ?? 27),
+    embalagemDeliveryIds: cfg.embalagemDeliveryIds || [],
+    embalagemEncomendaIds: cfg.embalagemEncomendaIds || [],
+  }
+}
+
+function AbaCustos({ cfg, setCfg, embalagens, fin, show }) {
+  const [inicial, setInicial] = useState(() => formDeCusto(cfg))
+  const [f, setF] = useState(inicial)
+  const [novo, setNovo] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const set = (k, v) => setF(x => ({ ...x, [k]: v }))
+  const sujo = !iguais(f, inicial)
+  const total = somaItens(f.custoItens)
+  const auto30 = fin?.unidades30d || 0
+  const autoValido = auto30 >= MIN_UNIDADES_AUTO
+  const unidades = f.unidadesAuto && autoValido ? auto30 : num(f.unidadesProjetadas)
+  const rateio = unidades > 0 ? total / unidades : 0
+
+  const addItem = () => {
+    const nome = novo.trim()
+    if (!nome) return
+    set('custoItens', [...f.custoItens, { id: novoId(), nome, valor: '' }])
+    setNovo('')
+  }
+  const toggleEmb = (k, id) => set(k, f[k].includes(id) ? f[k].filter(x => x !== id) : [...f[k], id])
+
+  async function salvar() {
+    setSalvando(true)
+    try {
+      const novoCfg = await salvarConfigParcial({
+        custoItens: f.custoItens.filter(i => i.nome.trim()).map(i => ({ id: i.id, nome: i.nome.trim(), valor: num(i.valor) })),
+        unidadesAuto: f.unidadesAuto,
+        unidadesProjetadas: Math.max(1, Math.round(unidades)) || 100,
+        margem: num(f.margem), fatorDesperdicio: num(f.fatorDesperdicio), taxaIfood: num(f.taxaIfood),
+        embalagemDeliveryIds: f.embalagemDeliveryIds, embalagemEncomendaIds: f.embalagemEncomendaIds,
+      })
+      setCfg(novoCfg)
+      const nf = formDeCusto(novoCfg); setInicial(nf); setF(nf)
+      show('Custos salvos — os preços sugeridos já usam os valores novos')
+    } catch (e) { show('Erro ao salvar: ' + e.message) }
+    finally { setSalvando(false) }
+  }
+
+  return (
+    <>
+      <div className="cf-grade duas">
+        <section className="cf-card" aria-label="Custos fixos mensais">
+          <div className="cf-topo"><h2>Custos fixos do mês</h2><b className="cf-total">{fmtR(total)}</b></div>
+          <div className="cf-linhas">
+            {f.custoItens.map(item => (
+              <div key={item.id} className="cf-linha">
+                <span style={{ flex: 1, minWidth: 0 }}>{item.nome}</span>
+                <span className="cf-campo-num"><i>R$</i><input inputMode="decimal" value={item.valor} placeholder="0"
+                  onChange={e => set('custoItens', f.custoItens.map(i => i.id === item.id ? { ...i, valor: e.target.value } : i))} /></span>
+                <button className="cf-x" aria-label={`Tirar ${item.nome}`} onClick={() => set('custoItens', f.custoItens.filter(i => i.id !== item.id))}>×</button>
+              </div>
+            ))}
+            <div className="cf-linha">
+              <input className="pd-input" placeholder="Adicionar custo (ex.: internet, MEI, contador)" value={novo}
+                onChange={e => setNovo(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addItem() }} />
+              <button className="pd-btn verde" disabled={!novo.trim()} onClick={addItem}>Adicionar</button>
+            </div>
+          </div>
+        </section>
+
+        <section className="cf-card" aria-label="Unidades por mês">
+          <h2>Unidades vendidas por mês</h2>
+          <div className="cf-hint" style={{ marginTop: -4 }}>Divide os custos fixos entre os doces: entra no preço sugerido de cada um.</div>
+          <div className="pd-seg" role="group" aria-label="Como contar">
+            <button className={f.unidadesAuto ? 'on' : ''} onClick={() => set('unidadesAuto', true)}>Pelas vendas</button>
+            <button className={!f.unidadesAuto ? 'on' : ''} onClick={() => set('unidadesAuto', false)}>Eu informo</button>
+          </div>
+          {f.unidadesAuto ? (
+            autoValido
+              ? <div className="cf-grande"><b>{auto30}</b><span>un vendidas nos últimos 30 dias</span></div>
+              : <div className="cf-status atencao">Só {auto30} un vendidas nos últimos 30 dias, pouco pra calcular. Enquanto isso vale a sua estimativa:
+                  <span className="cf-campo-num" style={{ marginLeft: 8 }}><input inputMode="numeric" value={f.unidadesProjetadas} onChange={e => set('unidadesProjetadas', e.target.value)} /><i>un</i></span>
+                </div>
+          ) : (
+            <label className="cf-num"><span>Vendo cerca de</span><span className="cf-campo-num"><input inputMode="numeric" value={f.unidadesProjetadas} onChange={e => set('unidadesProjetadas', e.target.value)} /><i>un</i></span><span>por mês</span></label>
+          )}
+          <div className="cf-kv"><span>Custo fixo por unidade</span><b>{fmtR(rateio)}</b></div>
+        </section>
+
+        <section className="cf-card" aria-label="Preço sugerido">
+          <h2>Preço sugerido dos produtos</h2>
+          <div className="cf-tres">
+            <label className="cf-campo"><span>Margem desejada</span><span className="cf-campo-num"><input inputMode="decimal" value={f.margem} onChange={e => set('margem', e.target.value)} /><i>%</i></span><small>quanto do preço fica de lucro</small></label>
+            <label className="cf-campo"><span>Desperdício</span><span className="cf-campo-num"><input inputMode="decimal" value={f.fatorDesperdicio} onChange={e => set('fatorDesperdicio', e.target.value)} /><i>%</i></span><small>sobra, perda, prova</small></label>
+            <label className="cf-campo"><span>Taxa do iFood</span><span className="cf-campo-num"><input inputMode="decimal" value={f.taxaIfood} onChange={e => set('taxaIfood', e.target.value)} /><i>%</i></span><small>preço do iFood já cobre</small></label>
+          </div>
+          <div className="cf-dim">Preço sugerido = (custo do doce + desperdício + {fmtR(rateio)} de custo fixo) com {num(f.margem)}% de margem.</div>
+        </section>
+
+        <section className="cf-card" aria-label="Embalagens">
+          <h2>Embalagens</h2>
+          <div className="cf-campo"><span>Sai em todo pedido (sacola, caixa)</span>
+            <MultiSelect embalagens={embalagens} selecionadas={f.embalagemDeliveryIds} onToggle={id => toggleEmb('embalagemDeliveryIds', id)} placeholder="Escolher a embalagem de saída…" />
+          </div>
+          <div className="cf-campo"><span>Padrão da encomenda</span>
+            <MultiSelect embalagens={embalagens} selecionadas={f.embalagemEncomendaIds} onToggle={id => toggleEmb('embalagemEncomendaIds', id)} placeholder="Escolher a embalagem padrão…" />
+          </div>
+        </section>
+      </div>
+      <BarraSalvar sujo={sujo} salvando={salvando} onSalvar={salvar} onDescartar={() => setF(inicial)} />
+    </>
+  )
+}
+
+function MultiSelect({ embalagens, selecionadas, onToggle, placeholder }) {
+  const [aberto, setAberto] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    const fora = e => { if (ref.current && !ref.current.contains(e.target)) setAberto(false) }
+    document.addEventListener('mousedown', fora)
+    return () => document.removeEventListener('mousedown', fora)
+  }, [])
+  const sel = embalagens.filter(e => selecionadas.includes(e.id))
+  const media = sel.length ? sel.reduce((s, e) => s + (e.custoUnit || 0), 0) / sel.length : null
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" className="cf-select" onClick={() => setAberto(a => !a)} aria-expanded={aberto}>
+        {sel.length ? sel.map(e => e.nome).join(', ') : <span style={{ color: 'var(--text-tertiary)' }}>{placeholder}</span>}
+        <i aria-hidden="true">{aberto ? '▲' : '▼'}</i>
+      </button>
+      {aberto && (
+        <div className="cf-opcoes">
+          {embalagens.length === 0 && <div className="cf-hint" style={{ padding: 12 }}>Nenhuma embalagem cadastrada em Insumos.</div>}
+          {embalagens.map(e => {
+            const on = selecionadas.includes(e.id)
+            return (
+              <button type="button" key={e.id} className={on ? 'on' : ''} onClick={() => onToggle(e.id)}>
+                <span>{on ? '✓ ' : ''}{e.nome}</span><small>{fmtR(e.custoUnit)}</small>
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {media != null && <div className="cf-dim" style={{ marginTop: 6 }}>{fmtR(media)} por pedido{sel.length > 1 ? ` (média de ${sel.length})` : ''}</div>}
+    </div>
+  )
+}
+
+function BarraSalvar({ sujo, salvando, onSalvar, onDescartar }) {
+  return (
+    <div className={`cf-salvar${sujo ? ' sujo' : ''}`}>
+      <span>{sujo ? 'Alterações não salvas' : 'Tudo salvo'}</span>
+      {sujo && <button className="pd-btn vazado" disabled={salvando} onClick={onDescartar}>Desfazer</button>}
+      <button className="pd-btn verde" disabled={!sujo || salvando} onClick={onSalvar}>{salvando ? 'Salvando…' : 'Salvar'}</button>
+    </div>
+  )
+}
+
+// ── Entrega e Pix ────────────────────────────────────────────────────────────
+const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+function formDeEntrega(d = {}) {
+  return {
+    lojaCEP: d.lojaCEP || '', lojaEndereco: String(d.lojaEndereco || '').trim(), lojaPhone: d.lojaPhone || '',
+    lalamoveProducao: d.lalamoveProducao === true, pix: d.pix || '',
+    freteGratis: String(d.freteGratis ?? 0), freteMargemPct: String(d.freteMargemPct ?? 10), freteMargemMin: String(d.freteMargemMin ?? 1),
+    diasEntrega: d.diasEntrega || [], freteTiers: (d.freteTiers || []).map(t => ({ ate: String(t.ate), valor: String(t.valor) })),
+  }
+}
+
+async function geocodeCep(cep) {
+  const clean = (cep || '').replace(/\D/g, '')
+  if (clean.length !== 8) return null
+  try {
+    const r = await fetch(`https://brasilapi.com.br/api/cep/v2/${clean}`)
+    if (!r.ok) return null
+    const d = await r.json()
+    const c = d.location?.coordinates
+    if (c?.latitude && c?.longitude) return { lat: parseFloat(c.latitude), lng: parseFloat(c.longitude) }
+    const query = [d.neighborhood, d.city, d.state, 'Brazil'].filter(Boolean).join(', ')
+    const nr = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`)
+    const nd = await nr.json()
+    if (nd?.[0]) return { lat: parseFloat(nd[0].lat), lng: parseFloat(nd[0].lon) }
+  } catch { /* sem rede */ }
+  return null
+}
+
+function AbaEntrega({ show }) {
+  const [inicial, setInicial] = useState(null)
+  const [f, setF] = useState(null)
+  const [salvando, setSalvando] = useState(false)
+  const [remoto, setRemoto] = useState({})
+  useEffect(() => {
+    loadUserConfig().then(c => { const d = c?.delivery || {}; setRemoto(d); const x = formDeEntrega(d); setInicial(x); setF(x) }).catch(() => { const x = formDeEntrega(); setInicial(x); setF(x) })
+  }, [])
+  if (!f) return <div className="pd-vazio">Carregando…</div>
+  const set = (k, v) => setF(x => ({ ...x, [k]: v }))
+  const sujo = !iguais(f, inicial)
+  const pctM = num(f.freteMargemPct), minM = num(f.freteMargemMin)
+  const exemplo = c => Math.ceil((c + Math.max(minM, c * pctM / 100)) * 2) / 2
+
+  async function salvar() {
+    setSalvando(true)
+    try {
+      const cepMudou = f.lojaCEP.replace(/\D/g, '') !== String(remoto.lojaCEP || '').replace(/\D/g, '')
+      const coords = cepMudou || !remoto.lojaLat ? await geocodeCep(f.lojaCEP) : null
+      const atual = (await loadUserConfig().catch(() => null))?.delivery || remoto
+      const delivery = {
+        ...atual,
+        lojaCEP: f.lojaCEP.trim(), lojaEndereco: f.lojaEndereco.trim(), lojaPhone: f.lojaPhone.trim(),
+        lalamoveProducao: f.lalamoveProducao, pix: f.pix.trim(),
+        freteGratis: num(f.freteGratis), freteMargemPct: f.freteMargemPct === '' ? 10 : num(f.freteMargemPct), freteMargemMin: f.freteMargemMin === '' ? 1 : num(f.freteMargemMin),
+        diasEntrega: [...f.diasEntrega].sort(),
+        freteTiers: f.freteTiers.filter(t => t.ate !== '' && t.valor !== '').map(t => ({ ate: num(t.ate), valor: num(t.valor) })).sort((a, b) => a.ate - b.ate),
+        lojaLat: coords?.lat ?? atual.lojaLat ?? null, lojaLng: coords?.lng ?? atual.lojaLng ?? null,
+      }
+      await salvarConfigParcial({ delivery })
+      setRemoto(delivery)
+      const x = formDeEntrega(delivery); setInicial(x); setF(x)
+      // Acabou de ligar o Lalamove valendo: cadastra lá o endereço dos avisos (motorista saiu, entregou)
+      if (delivery.lalamoveProducao && !atual.lalamoveProducao) {
+        try { await configurarAvisosLalamove(false); show('Salvo! Lalamove valendo, com avisos ligados.') }
+        catch (e) { show(`Salvo, mas os avisos da Lalamove falharam: ${e.message}`) }
+      } else show(cepMudou && !coords ? 'Salvo (não achei a localização desse CEP)' : 'Entrega salva')
+    } catch (e) { show('Erro ao salvar: ' + e.message) }
+    finally { setSalvando(false) }
+  }
+
+  return (
+    <>
+      <div className="cf-grade duas">
+        <section className="cf-card" aria-label="Loja">
+          <h2>Loja</h2>
+          <label className="cf-campo"><span>CEP</span><input className="pd-input" inputMode="numeric" value={f.lojaCEP} onChange={e => set('lojaCEP', e.target.value)} placeholder="00000-000" maxLength={9} /></label>
+          <label className="cf-campo"><span>Endereço completo</span><input className="pd-input" value={f.lojaEndereco} onChange={e => set('lojaEndereco', e.target.value)} placeholder="Rua, número, apto" /><small>Aparece no cardápio, pra retirada, e é de onde o motorista sai.</small></label>
+          <label className="cf-campo"><span>Telefone da loja</span><input className="pd-input" type="tel" inputMode="tel" value={f.lojaPhone} onChange={e => set('lojaPhone', e.target.value)} placeholder="(21) 99999-9999" /><small>O motorista do Lalamove liga aqui na hora da coleta.</small></label>
+        </section>
+
+        <section className={`cf-card${f.lalamoveProducao ? ' cf-valendo' : ''}`} aria-label="Lalamove">
+          <div className="cf-topo">
+            <h2>Lalamove</h2>
+            <button type="button" role="switch" aria-checked={f.lalamoveProducao} aria-label="Lalamove valendo" className={`pd-switch${f.lalamoveProducao ? ' on cf-switch-ambar' : ''}`}
+              onClick={() => {
+                if (!f.lalamoveProducao && !window.confirm('Ligar o Lalamove de verdade?\n\nA partir daí, "Chamar motorista" chama motorista e cobra da sua carteira Lalamove.')) return
+                set('lalamoveProducao', !f.lalamoveProducao)
+              }}><span /></button>
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 800 }}>{f.lalamoveProducao ? 'Valendo' : 'Modo teste'}</div>
+          <div className="cf-hint">{f.lalamoveProducao
+            ? 'O despacho chama motorista de verdade e cobra da sua carteira Lalamove.'
+            : 'O despacho é de mentira (sandbox): nenhum motorista vem e nada é cobrado. O frete do cardápio sempre usa o preço real.'}</div>
+          {f.lalamoveProducao && !f.lojaPhone.trim() && <div className="cf-status atencao">Preencha o telefone da loja: sem ele o app não chama motorista.</div>}
+        </section>
+
+        <section className="cf-card" aria-label="Pix">
+          <h2>Pix</h2>
+          <label className="cf-campo"><span>Chave Pix</span><input className="pd-input" value={f.pix} onChange={e => set('pix', e.target.value)} placeholder="CNPJ, e-mail, telefone ou chave aleatória" />
+            <small>Reserva pro Pix copia e cola quando o Mercado Pago não responder. O normal é o Pix automático (confirma sozinho).</small></label>
+        </section>
+
+        <section className="cf-card" aria-label="Frete">
+          <h2>Frete</h2>
+          <label className="cf-num"><span>Frete grátis acima de</span><span className="cf-campo-num"><i>R$</i><input inputMode="decimal" value={f.freteGratis} onChange={e => set('freteGratis', e.target.value)} /></span></label>
+          <div className="cf-dim" style={{ marginTop: -6 }}>0 = nunca grátis</div>
+          <label className="cf-num"><span>Margem sobre o Lalamove</span>
+            <span className="cf-campo-num"><input inputMode="decimal" value={f.freteMargemPct} onChange={e => set('freteMargemPct', e.target.value)} /><i>%</i></span>
+            <span>mínimo</span><span className="cf-campo-num"><i>R$</i><input inputMode="decimal" value={f.freteMargemMin} onChange={e => set('freteMargemMin', e.target.value)} /></span></label>
+          <div className="cf-dim">Ex.: Lalamove cobra R$ 9 → cliente paga {fmtR(exemplo(9))} · R$ 12 → {fmtR(exemplo(12))} · R$ 20 → {fmtR(exemplo(20))}.</div>
+        </section>
+
+        <section className="cf-card" aria-label="Dias de entrega">
+          <h2>Dias de entrega</h2>
+          <div className="cf-dias" role="group" aria-label="Dias da semana">
+            {DIAS.map((d, n) => {
+              const on = f.diasEntrega.includes(n)
+              return <button key={d} type="button" aria-pressed={on} className={on ? 'on' : ''} onClick={() => set('diasEntrega', on ? f.diasEntrega.filter(x => x !== n) : [...f.diasEntrega, n])}>{d}</button>
+            })}
+          </div>
+          <div className="cf-dim">O cardápio mostra os próximos 6 desses dias, a partir de amanhã.</div>
+        </section>
+
+        <section className="cf-card" aria-label="Faixas de frete">
+          <div className="cf-topo"><h2>Faixas de frete (reserva)</h2><button className="pd-btn vazado" onClick={() => set('freteTiers', [...f.freteTiers, { ate: '', valor: '' }])}>+ Faixa</button></div>
+          <div className="cf-dim" style={{ marginTop: -4 }}>Só usadas se o cálculo do Lalamove falhar.</div>
+          {f.freteTiers.length === 0 && <div className="cf-hint">Nenhuma faixa.</div>}
+          {f.freteTiers.map((t, i) => (
+            <div key={i} className="cf-num">
+              <span>até</span><span className="cf-campo-num"><input inputMode="decimal" value={t.ate} onChange={e => set('freteTiers', f.freteTiers.map((x, j) => j === i ? { ...x, ate: e.target.value } : x))} /><i>km</i></span>
+              <span>→</span><span className="cf-campo-num"><i>R$</i><input inputMode="decimal" value={t.valor} onChange={e => set('freteTiers', f.freteTiers.map((x, j) => j === i ? { ...x, valor: e.target.value } : x))} /></span>
+              <button className="cf-x" aria-label="Tirar faixa" onClick={() => set('freteTiers', f.freteTiers.filter((_, j) => j !== i))}>×</button>
             </div>
           ))}
-
-          {adicionando && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px', borderTop: '1px solid #242424' }}>
-              <input
-                style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', fontSize: 13, color: 'var(--text-primary)' }}
-                placeholder="Nome do custo (ex: Internet)"
-                value={novoNome}
-                onChange={e => setNovoNome(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') addItem(); if (e.key === 'Escape') { setAdicionando(false); setNovoNome('') } }}
-                autoFocus
-              />
-              <button onClick={addItem}
-                style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 7, border: '1px solid var(--teal)', color: 'var(--teal)', background: 'transparent', cursor: 'pointer' }}>
-                OK
-              </button>
-              <button onClick={() => { setAdicionando(false); setNovoNome('') }}
-                style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: 0, lineHeight: 1 }}>×</button>
-            </div>
-          )}
-
-          {!adicionando && (
-            <button onClick={() => setAdicionando(true)}
-              style={{ width: '100%', padding: '9px 14px', background: 'transparent', border: 'none', borderTop: '1px solid #2a2a2a', color: 'var(--teal)', fontSize: 13, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>
-              + Adicionar custo
-            </button>
-          )}
-        </div>
-
-        {/* ── Volume de produção ───────────────────────────── */}
-        <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
-          <div className="cfg-label">Produção / mês</div>
-          <NumPill
-            value={cfg.unidadesProjetadas}
-            onChange={e => set('unidadesProjetadas', e.target.value)}
-            suffix="un"
-          />
-          {rateio > 0 && (
-            <div style={{ marginTop: 13, paddingTop: 11, borderTop: '1px solid #2a2a2a', display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12.5, color: 'var(--text-secondary)' }}>
-              <span>Rateio por unidade</span>
-              <span style={{ fontWeight: 800, fontSize: 14, color: 'var(--teal)' }}>R$ {fmtR(rateio)}</span>
-              <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>· {cfg.unidadesProjetadas} un/mês</span>
-            </div>
-          )}
-        </div>
-
-        {/* ── Fator de desperdício ─────────────────────────── */}
-        <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
-          <div className="cfg-label" style={{ marginBottom: 4 }}>Fator de desperdício</div>
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10 }}>
-            % aplicado sobre o custo de cada produto (sobra, perda, consumo invisível).
-          </div>
-          <NumPill
-            value={cfg.fatorDesperdicio || 0}
-            onChange={e => set('fatorDesperdicio', e.target.value)}
-            suffix="%"
-            size={24}
-          />
-          {(cfg.fatorDesperdicio || 0) > 0 && exemplo > 0 && (
-            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #2a2a2a', display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)' }}>
-              <span>No exemplo (R$ {fmtR(exemplo)})</span>
-              <span style={{ color: '#ef4444', fontWeight: 700 }}>+ R$ {fmtR(exemplo * (cfg.fatorDesperdicio || 0) / 100)} de perda</span>
-            </div>
-          )}
-        </div>
-
-        {/* ── Taxas de plataforma ──────────────────────────── */}
-        <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
-          <div className="cfg-label" style={{ marginBottom: 12 }}>Taxas de plataforma</div>
-          <div style={{ display: 'flex' }}>
-            {[
-              { label: 'iFood',  key: 'taxaIfood', color: '#ef4444', border: false },
-            ].map(({ label, key, color, border }) => (
-              <div key={key} style={{ flex: 1, paddingRight: border ? 16 : 0, paddingLeft: 0, borderRight: border ? '1px solid #2a2a2a' : 'none' }}>
-                <div className="cfg-label" style={{ color }}>{label}</div>
-                <NumPill
-                  value={cfg[key]}
-                  onChange={e => set(key, e.target.value)}
-                  suffix="%"
-                  size={24}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Embalagens ───────────────────────────────────── */}
-        <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
-          <div className="cfg-label" style={{ marginBottom: 12 }}>Embalagens</div>
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Delivery</span>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>sacola por pedido</span>
-            </div>
-            <MultiSelectDropdown
-              embalagens={embalagens || []}
-              selectedIds={cfg.embalagemDeliveryIds || []}
-              onChange={id => toggleEmb('embalagemDeliveryIds', id)}
-              placeholder="Selecionar sacolas de delivery…"
-            />
-          </div>
-          <div style={{ borderTop: '1px solid #2a2a2a', margin: '14px 0' }} />
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Encomenda</span>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>embalagem padrão</span>
-            </div>
-            <MultiSelectDropdown
-              embalagens={embalagens || []}
-              selectedIds={cfg.embalagemEncomendaIds || []}
-              onChange={id => toggleEmb('embalagemEncomendaIds', id)}
-              placeholder="Selecionar embalagens de encomenda…"
-            />
-          </div>
-        </div>
-
-        {/* ── Simulador de precificação ────────────────────── */}
-        <div className="card" style={{ padding: '16px', marginBottom: 10 }}>
-          <div className="cfg-label" style={{ marginBottom: 14 }}>Simulador de precificação</div>
-          <div style={{ display: 'flex', marginBottom: 16 }}>
-            <div ref={margemRef} style={{ flex: 1, paddingRight: 16, borderRight: '1px solid #2a2a2a', textAlign: 'center' }}>
-              <div className="cfg-label" style={{ marginBottom: 8 }}>Margem desejada</div>
-              <NumPill
-                value={cfg.margem}
-                onChange={e => set('margem', e.target.value)}
-                suffix="%"
-                size={22}
-              />
-            </div>
-            <div style={{ flex: 1, paddingLeft: 16, textAlign: 'center' }}>
-              <div className="cfg-label" style={{ marginBottom: 8 }}>Custo do produto</div>
-              <NumPill
-                prefix="R$"
-                value={exemplo}
-                onChange={e => setExemplo(parseFloat(e.target.value) || 0)}
-                size={22}
-              />
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <PriceCol label="Direta" price={fmtR(base)}   sub={`margem ${fmtPct(cfg.margem)}%`} color="var(--teal)" bg="rgba(34,184,134,0.10)" />
-            <PriceCol label="iFood"  price={fmtR(pIfood)} sub={`−${fmtPct(cfg.taxaIfood)}% taxa`} color="#ef4444"   bg="rgba(239,68,68,0.10)" />
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 11, textAlign: 'center' }}>
-            custo R$ {fmtR(exemplo)} + rateio R$ {fmtR(rateio)} · margem {fmtPct(cfg.margem)}%
-          </div>
-
-          {/* ── Meta / equilíbrio ── */}
-          <div style={{ marginTop: 14, paddingTop: 13, borderTop: '1px solid #2a2a2a' }}>
-            <div style={{ display: 'flex', background: '#1a1a1a', borderRadius: 8, padding: 3, marginBottom: 13 }}>
-              {[{ label: 'Pra zerar custos', val: false }, { label: 'Meta de lucro', val: true }].map(({ label, val }) => (
-                <button key={label} onClick={() => setModoMeta(val)}
-                  style={{ flex: 1, padding: '5px 0', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', borderRadius: 6,
-                    background: modoMeta === val ? 'var(--bg-card)' : 'transparent',
-                    color: modoMeta === val ? 'var(--text-primary)' : 'var(--text-tertiary)',
-                    transition: 'all .15s ease' }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {!modoMeta ? (
-              pontoEquilibrio !== null ? (
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-                  <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--teal)', letterSpacing: '-0.03em' }}>{pontoEquilibrio}</span>
-                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>un/mês pra cobrir os custos fixos</span>
-                </div>
-              ) : (
-                <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Preencha o custo acima</div>
-              )
-            ) : (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 11 }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', flexShrink: 0 }}>Quero lucrar</span>
-                  <label className="cfg-pill">
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)' }}>R$</span>
-                    <input type="text" inputMode="decimal" value={metaLucro}
-                      onChange={e => setMetaLucro(parseFloat(e.target.value) || 0)}
-                      style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', textAlign: 'center',
-                        width: `calc(${Math.max(2, String(metaLucro).length)}ch + 2px)`,
-                        background: 'transparent', border: 'none', outline: 'none',
-                        color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }} />
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)' }}>/mês</span>
-                  </label>
-                </div>
-                {unidadesMeta !== null ? (
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-                    <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--teal)', letterSpacing: '-0.03em' }}>{unidadesMeta}</span>
-                    <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>un/mês a R$ {fmtR(base)}</span>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Preencha o custo acima</div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* ── Ponto de equilíbrio ─────────────────────────── */}
-        <div className="card" style={{ padding: '15px 16px', marginBottom: 10 }}>
-          <div className="cfg-label" style={{ marginBottom: 10 }}>Ponto de equilíbrio</div>
-          {pontoEquilibrio !== null ? (
-            <>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 30, fontWeight: 800, color: 'var(--teal)', letterSpacing: '-0.03em' }}>{pontoEquilibrio}</span>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>un/mês pra zerar</span>
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 3 }}>
-                R$ {fmtR(custoFixoMensal)} fixo ÷ R$ {fmtR(margemUnit)}/un (a R$ {fmtR(base)} direta)
-              </div>
-              {realStats.unidades > 0 && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #2a2a2a' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
-                    <div style={{ flex: 1, height: 7, background: '#2a2a2a', borderRadius: 4 }}>
-                      <div style={{ width: `${Math.min(100, (realStats.unidades / pontoEquilibrio) * 100)}%`, height: '100%', background: realStats.unidades >= pontoEquilibrio ? 'var(--teal)' : '#f59e0b', borderRadius: 4 }} />
-                    </div>
-                    <span style={{ fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-                      {realStats.unidades}/{pontoEquilibrio} <span style={{ color: 'var(--text-tertiary)', fontWeight: 600 }}>({Math.round((realStats.unidades / pontoEquilibrio) * 100)}%)</span>
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: realStats.unidades >= pontoEquilibrio ? 'var(--teal)' : '#f59e0b' }}>
-                    {realStats.unidades >= pontoEquilibrio
-                      ? '✓ Você já cobriu os custos fixos do mês'
-                      : `Faltam ${pontoEquilibrio - realStats.unidades} un pra equilíbrio`}
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>Preencha o custo no simulador acima</div>
-          )}
-        </div>
-
-        {/* ── Calculadora de promoção ─────────────────────── */}
-        <div className="card" style={{ padding: '15px 16px', marginBottom: 16 }}>
-          <div className="cfg-label" style={{ marginBottom: 12 }}>Calculadora de promoção</div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Desconto aplicado</span>
-            <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--teal)' }}>{descontoPromo}%</span>
-          </div>
-          <input
-            type="range" min="0" max="60" step="5"
-            value={descontoPromo}
-            onChange={e => setDescontoPromo(parseInt(e.target.value))}
-            style={{ width: '100%', accentColor: 'var(--teal)', marginBottom: 14 }}
-          />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 7 }}>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Preço promo</span>
-            <span style={{ fontSize: 15, fontWeight: 700 }}>R$ {fmtR(precoPromo)} <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)', textDecoration: 'line-through' }}>R$ {fmtR(base)}</span></span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Lucro por unidade</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: promoColor }}>R$ {fmtR(lucroPromoUnit)}</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Margem resultante</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: promoColor }}>{fmtPct(margemPromo)}%</span>
-          </div>
-          {lucroPromoUnit < 0 && (
-            <div style={{ fontSize: 11, color: 'var(--alert-text)', marginTop: 10, padding: '7px 10px', background: '#3b1f1f', borderRadius: 7 }}>
-              ⚠ Você está vendendo no prejuízo. Cada un perde R$ {fmtR(Math.abs(lucroPromoUnit))}
-            </div>
-          )}
-          {lucroPromoUnit >= 0 && margemPromo < 15 && (
-            <div style={{ fontSize: 11, color: '#f59e0b', marginTop: 10, padding: '7px 10px', background: '#3b2700', borderRadius: 7 }}>
-              ⚠ Margem apertada — só vale se compensar em volume
-            </div>
-          )}
-        </div>
-
-        <button className="btn-primary" onClick={handleSave}>Salvar configurações</button>
-        <button className="btn-ghost" onClick={handleReset} style={{ marginTop: 8, fontSize: 13 }}>Restaurar padrão</button>
-
-        {/* ── Delivery / Frete ─────────────────────────────── */}
-        <div style={{ marginTop: 24 }}>
-          <span className="section-label">Delivery por distância</span>
-          <div className="card" style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
-              Configure o endereço da sua loja e as faixas de frete. O valor é calculado automaticamente pela distância de rota (OSRM) ao receber um pedido.
-            </div>
-            <label className="cfg-label">CEP da loja</label>
-            <input
-              value={deliveryCfg.lojaCEP}
-              onChange={e => setDel('lojaCEP', e.target.value)}
-              placeholder="00000-000"
-              maxLength={9}
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
-            />
-            <label className="cfg-label">Endereço completo (aparece no cardápio, pra retirada)</label>
-            <input
-              value={deliveryCfg.lojaEndereco}
-              onChange={e => setDel('lojaEndereco', e.target.value)}
-              placeholder="Rua..., número, cidade"
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
-            />
-            <label className="cfg-label">Telefone da loja (o motorista do Lalamove liga aqui)</label>
-            <input
-              type="tel" inputMode="tel"
-              value={deliveryCfg.lojaPhone || ''}
-              onChange={e => setDel('lojaPhone', e.target.value)}
-              placeholder="(21) 99999-9999"
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', marginBottom: 12, borderRadius: 10,
-              border: `1px solid ${deliveryCfg.lalamoveProducao ? 'rgba(245,181,68,.55)' : 'var(--border)'}`, background: deliveryCfg.lalamoveProducao ? 'rgba(245,181,68,.08)' : 'transparent' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Lalamove {deliveryCfg.lalamoveProducao ? 'valendo' : 'em modo teste'}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, lineHeight: 1.4 }}>
-                  {deliveryCfg.lalamoveProducao
-                    ? 'O despacho chama motorista de verdade e cobra da sua carteira Lalamove.'
-                    : 'O despacho é de mentira (sandbox): nenhum motorista vem e nada é cobrado.'}
-                </div>
-              </div>
-              <button type="button" role="switch" aria-checked={!!deliveryCfg.lalamoveProducao} aria-label="Lalamove valendo"
-                onClick={() => {
-                  if (!deliveryCfg.lalamoveProducao && !window.confirm('Ligar o Lalamove de verdade?\n\nA partir daí, "Despachar" chama motorista e cobra da sua carteira Lalamove. Lembre de salvar.')) return
-                  setDel('lalamoveProducao', !deliveryCfg.lalamoveProducao)
-                }}
-                style={{ width: 52, height: 30, borderRadius: 99, border: 'none', position: 'relative', flexShrink: 0, cursor: 'pointer', background: deliveryCfg.lalamoveProducao ? '#f5b544' : '#3a3a3a' }}>
-                <span style={{ position: 'absolute', top: 3, left: deliveryCfg.lalamoveProducao ? 25 : 3, width: 24, height: 24, borderRadius: '50%', background: '#fff', transition: 'left .15s' }} />
-              </button>
-            </div>
-            <label className="cfg-label">Chave Pix (gera o Pix copia e cola com o valor de cada pedido)</label>
-            <input
-              type="text"
-              value={deliveryCfg.pix || ''}
-              onChange={e => setDel('pix', e.target.value)}
-              placeholder="CNPJ, e-mail, telefone ou chave aleatória"
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 10, boxSizing: 'border-box' }}
-            />
-            <label className="cfg-label">Frete grátis acima de (R$, 0 = desativado)</label>
-            <input
-              type="number" min="0"
-              value={deliveryCfg.freteGratis}
-              onChange={e => setDel('freteGratis', e.target.value)}
-              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, marginBottom: 14, boxSizing: 'border-box' }}
-            />
-            <label className="cfg-label">Margem sobre o frete (Lalamove)</label>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-              <input type="number" min="0" value={deliveryCfg.freteMargemPct ?? 10} onChange={e => setDel('freteMargemPct', e.target.value)}
-                style={{ width: 70, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'center' }} />
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>% do custo, no mínimo R$</span>
-              <input type="number" min="0" step="0.5" value={deliveryCfg.freteMargemMin ?? 1} onChange={e => setDel('freteMargemMin', e.target.value)}
-                style={{ width: 70, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 14, textAlign: 'center' }} />
-            </div>
-            {(() => {
-              const pct = parseFloat(deliveryCfg.freteMargemPct ?? 10) || 0, min = parseFloat(deliveryCfg.freteMargemMin ?? 1) || 0
-              const ex = c => Math.ceil((c + Math.max(min, c * pct / 100)) * 2) / 2
-              const f = v => v.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
-              return (
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 14 }}>
-                  Ex.: Lalamove cobra R$ 9 → cliente paga R$ {f(ex(9))} · R$ 12 → R$ {f(ex(12))} · R$ 20 → R$ {f(ex(20))}. Arredonda pra R$ 0,50. Pedido só com itens robustos vai de moto; com frágil, carro.
-                </div>
-              )
-            })()}
-            <label className="cfg-label">Dias de entrega</label>
-            <div style={{ display: 'flex', gap: 5, marginBottom: 4 }}>
-              {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((lbl, n) => {
-                const on = (deliveryCfg.diasEntrega || []).includes(n)
-                return (
-                  <div key={n} onClick={() => toggleDia(n)} style={{
-                    flex: 1, padding: '7px 0', borderRadius: 6, textAlign: 'center',
-                    fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                    background: on ? 'var(--teal)' : 'var(--bg-secondary)',
-                    color: on ? '#fff' : 'var(--text-tertiary)',
-                    border: '1px solid var(--border)',
-                  }}>{lbl}</div>
-                )
-              })}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 14 }}>
-              Os dias que o cliente verá no formulário, com o frete agrupado calculado por dia.
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span className="cfg-label" style={{ margin: 0 }}>Faixas de frete</span>
-              <button onClick={addTier} style={{ background: 'none', border: '1px solid var(--teal)', borderRadius: 6, padding: '3px 10px', fontSize: 12, color: 'var(--teal)', cursor: 'pointer', fontWeight: 700 }}>+ Faixa</button>
-            </div>
-            {deliveryCfg.freteTiers.length === 0 && (
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8 }}>Nenhuma faixa — frete fixo ou desativado</div>
-            )}
-            {deliveryCfg.freteTiers.map((tier, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>até</span>
-                <input
-                  type="number" min="0"
-                  value={tier.ate}
-                  onChange={e => updateTier(i, 'ate', e.target.value)}
-                  placeholder="km"
-                  style={{ width: 64, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, textAlign: 'center' }}
-                />
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>km → R$</span>
-                <input
-                  type="number" min="0" step="0.5"
-                  value={tier.valor}
-                  onChange={e => updateTier(i, 'valor', e.target.value)}
-                  placeholder="0,00"
-                  style={{ width: 72, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 13, textAlign: 'center' }}
-                />
-                <button onClick={() => removeTier(i)} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: 16, cursor: 'pointer', padding: '0 4px' }}>×</button>
-              </div>
-            ))}
-            <button onClick={handleSaveDelivery} style={{ width: '100%', marginTop: 10, padding: '10px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
-              Salvar delivery
-            </button>
-          </div>
-        </div>
+        </section>
       </div>
-
-      {toast && <div className="toast">{toast}</div>}
+      <BarraSalvar sujo={sujo} salvando={salvando} onSalvar={salvar} onDescartar={() => setF(inicial)} />
     </>
   )
 }

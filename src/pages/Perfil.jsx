@@ -1,10 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import ReactCrop, { centerCrop, makeAspectCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
 import { useAuth } from '../contexts/AuthContext'
-import { useToast } from '../hooks/useToast'
-import { loadUserConfig, saveUserConfig } from '../services/db'
 import { uploadImage } from '../services/storage'
 import { supabase } from '../lib/supabase'
 
@@ -17,22 +15,15 @@ const AVATAR_RADIUS = 12 // border-radius in px for the mask preview
 
 function Field({ label, children }) {
   return (
-    <div style={{ marginBottom: 18 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>{label}</div>
+    <div className="cf-campo">
+      <span>{label}</span>
       {children}
     </div>
   )
 }
 
-function Input({ ...props }) {
-  return (
-    <input style={{
-      width: '100%', padding: '11px 14px', borderRadius: 10,
-      background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-      color: 'var(--text-primary)', fontSize: 15, fontFamily: 'inherit', outline: 'none',
-      boxSizing: 'border-box',
-    }} {...props} />
-  )
+function Input(props) {
+  return <input className="pd-input" {...props} />
 }
 
 function AvatarDisplay({ url, letter, size = 56 }) {
@@ -67,15 +58,18 @@ function getCroppedBlob(image, crop, fileName) {
   return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.88))
 }
 
+// /perfil virou a aba Conta de Configurações
 export default function Perfil() {
-  const navigate = useNavigate()
+  return <Navigate to="/configuracoes?aba=conta" replace />
+}
+
+// Aba "Conta" de Configurações: foto, dados da loja e login
+export function ContaLoja({ show }) {
   const { user, profile, updateProfile } = useAuth()
-  const { toast, show } = useToast()
 
   const [nomeLoja, setNomeLoja]   = useState('')
   const [estado, setEstado]       = useState('SP')
   const [canais, setCanais]       = useState(['direto'])
-  const [endereco, setEndereco]   = useState('')
   const [saving, setSaving]       = useState(false)
   const [sendingReset, setSendingReset] = useState(false)
 
@@ -93,9 +87,6 @@ export default function Perfil() {
       setEstado(profile.estado || 'SP')
       setCanais(profile.canais || ['direto'])
     }
-    loadUserConfig().then(cfg => {
-      if (cfg?.delivery?.lojaEndereco) setEndereco(cfg.delivery.lojaEndereco)
-    }).catch(() => {})
   }, [profile?.nomeLoja])
 
   const onFileChange = (e) => {
@@ -141,9 +132,7 @@ export default function Perfil() {
     setSaving(true)
     try {
       await updateProfile({ nomeLoja, estado, canais })
-      const cfg = await loadUserConfig()
-      await saveUserConfig({ ...(cfg || {}), delivery: { ...(cfg?.delivery || {}), lojaEndereco: endereco } })
-      show('Perfil salvo!')
+      show('Conta salva!')
     } catch (e) {
       show('Erro ao salvar: ' + e.message)
     } finally {
@@ -169,18 +158,7 @@ export default function Perfil() {
 
   return (
     <>
-      <div className="topbar">
-        <div className="topbar-inner">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <button onClick={() => navigate(-1)} style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </button>
-            <div className="topbar-title">Perfil</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="page-inner" style={{ maxWidth: 560 }}>
+      <div style={{ maxWidth: 620 }}>
         {/* Avatar section */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '18px 0 24px' }}>
           <div style={{ position: 'relative' }}>
@@ -261,35 +239,28 @@ export default function Perfil() {
           </div>
         )}
 
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 16 }}>Dados da loja</div>
+        <div className="cf-card" style={{ marginBottom: 14 }}>
+          <h2>Dados da loja</h2>
 
           <Field label="Nome da loja">
             <Input value={nomeLoja} onChange={e => setNomeLoja(e.target.value)} placeholder="Ex: Guaxi Pâtisserie" />
           </Field>
 
           <Field label="Estado">
-            <select value={estado} onChange={e => setEstado(e.target.value)} style={{
-              width: '100%', padding: '11px 14px', borderRadius: 10,
-              background: 'var(--bg-secondary)', border: '1px solid var(--border)',
-              color: 'var(--text-primary)', fontSize: 15, fontFamily: 'inherit', outline: 'none',
-            }}>
+            <select className="pd-input" value={estado} onChange={e => setEstado(e.target.value)}>
               {ESTADOS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
             </select>
           </Field>
 
-          <Field label="Endereço da loja (opcional)">
-            <Input value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua, número, bairro..." />
-          </Field>
 
           <Field label="Canais de venda">
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {CANAIS_OPTS.map(c => {
                 const on = canais.includes(c.value)
                 return (
-                  <button key={c.value} onClick={() => toggleCanal(c.value)} style={{
-                    padding: '8px 16px', borderRadius: 20, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                    border: `1.5px solid ${on ? 'var(--teal)' : 'var(--border)'}`,
+                  <button key={c.value} aria-pressed={on} onClick={() => toggleCanal(c.value)} style={{
+                    minHeight: 40, padding: '0 16px', borderRadius: 20, fontSize: 13.5, fontWeight: 700, cursor: 'pointer',
+                    border: `1.5px solid ${on ? 'rgba(34,184,134,.55)' : '#3a3a3a'}`,
                     background: on ? 'rgba(34,184,134,.12)' : 'transparent',
                     color: on ? 'var(--teal)' : 'var(--text-secondary)',
                   }}>{c.label}</button>
@@ -299,31 +270,20 @@ export default function Perfil() {
           </Field>
         </div>
 
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 16 }}>Conta</div>
+        <div className="cf-card" style={{ marginBottom: 14 }}>
+          <h2>Login</h2>
           <Field label="Email">
-            <Input value={user?.email || ''} readOnly style={{ color: 'var(--text-secondary)', background: 'var(--bg-card)' }} />
+            <Input value={user?.email || ''} readOnly style={{ color: 'var(--text-secondary)' }} />
           </Field>
-          <button onClick={handleResetPassword} disabled={sendingReset} style={{
-            padding: '10px 18px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-secondary)',
-            opacity: sendingReset ? 0.6 : 1,
-          }}>
-            {sendingReset ? 'Enviando...' : '🔑 Redefinir senha por email'}
-          </button>
+          <div><button className="pd-btn vazado" onClick={handleResetPassword} disabled={sendingReset}>
+            {sendingReset ? 'Enviando...' : 'Mandar e-mail pra trocar a senha'}
+          </button></div>
         </div>
 
-        <button onClick={handleSave} disabled={saving} style={{
-          width: '100%', padding: 14, borderRadius: 12,
-          background: 'var(--teal)', color: '#000', border: 'none',
-          fontWeight: 700, fontSize: 15, cursor: 'pointer',
-          opacity: saving ? 0.6 : 1, marginBottom: 32,
-        }}>
-          {saving ? 'Salvando...' : 'Salvar perfil'}
+        <button className="pd-grande" onClick={handleSave} disabled={saving} style={{ width: '100%', opacity: saving ? 0.6 : 1 }}>
+          {saving ? 'Salvando...' : 'Salvar conta'}
         </button>
       </div>
-
-      {toast && <div className="toast">{toast}</div>}
     </>
   )
 }

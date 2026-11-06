@@ -80,8 +80,22 @@ export function saveConfig(updates) {
   next.custoFixoMensal = somaItens(next.custoItens)
   _cache = next
   localStorage.setItem(_key, JSON.stringify(next))
-  saveUserConfig(next)  // async, fire-and-forget
+  // grava só o que mudou em cima do banco (o cache pode estar com a entrega/Pix antigos)
+  loadUserConfig().catch(() => null)
+    .then(remoto => saveUserConfig({ ...(remoto || next), ...updates, custoFixoMensal: next.custoFixoMensal }))
   return next
+}
+
+// Salva só alguns campos, em cima do que está no banco agora. Não sobrescreve o que
+// outra aba salvou (ex.: salvar custos não pode desfazer a entrega salva antes).
+export async function salvarConfigParcial(campos) {
+  const remoto = (await loadUserConfig().catch(() => null)) || getConfig()
+  const next = { ...remoto, ...campos }
+  next.custoFixoMensal = somaItens(next.custoItens || DEFAULT_ITENS)
+  await saveUserConfig(next)
+  _cache = parseRaw(next) || next
+  localStorage.setItem(_key, JSON.stringify(_cache))
+  return _cache
 }
 
 function avgEmbCusto(cfg, embalagens, key) {

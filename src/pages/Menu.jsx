@@ -61,7 +61,7 @@ const SECTIONS = [
     title: 'Financeiro',
     items: [
       {
-        label: 'Preços e Custos', path: '/configuracoes',
+        label: 'Financeiro do mês', path: '/configuracoes',
         icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v14M5 5h6a2 2 0 010 4H6a2 2 0 000 4h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>,
       },
       {
@@ -159,11 +159,6 @@ export default function Menu() {
         }}>
           {[
             {
-              label: 'Perfil',
-              path: '/perfil',
-              icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="6" r="3" stroke="currentColor" strokeWidth="1.4"/><path d="M3 16c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>,
-            },
-            {
               label: 'Configurações',
               path: '/configuracoes',
               icon: <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.4"/><path d="M9 2v2m0 10v2M2 9h2m10 0h2M4.2 4.2l1.4 1.4m7 7l1.4 1.4M13.8 4.2l-1.4 1.4m-7 7l-1.4 1.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>,
@@ -176,7 +171,7 @@ export default function Menu() {
                 display: 'flex', alignItems: 'center', gap: 12,
                 padding: '13px 14px', cursor: 'pointer', width: '100%',
                 background: 'none', border: 'none',
-                borderBottom: i === 0 ? '0.5px solid var(--border-light-color)' : 'none',
+                borderBottom: 'none',
                 color: 'var(--text-primary)', textAlign: 'left',
               }}
             >

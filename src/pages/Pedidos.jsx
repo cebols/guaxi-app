@@ -540,10 +540,10 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
             </section>
 
             <div style={{ display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {p.status !== 'Cancelado' && <button className="pd-btn vazado" onClick={() => onAcao(p, 'cancelar')}>Cancelar pedido</button>}
+              {p.status !== 'Cancelado' && <button className="pd-btn perigo" onClick={() => onAcao(p, 'cancelar')}>Cancelar pedido</button>}
               {!apagar
-                ? <button className="pd-btn vazado" style={{ color: 'var(--text-secondary)' }} onClick={() => setApagar(true)}>Apagar</button>
-                : <button className="pd-btn" style={{ background: '#7f1d1d', borderColor: '#7f1d1d', color: '#fecaca' }}
+                ? <button className="pd-btn perigo" onClick={() => setApagar(true)}>Apagar</button>
+                : <button className="pd-btn perigo-cheio"
                     onClick={() => salvar(async () => { await deletePedido(p.id); onBack() }, 'Pedido apagado')}>Confirmar: apagar {p.id}</button>}
             </div>
           </div>

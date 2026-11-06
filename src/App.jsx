@@ -58,8 +58,7 @@ const MENU_GROUPS = [
     items: [
       { path: '/produtos',      label: 'Produtos',        sub: 'Cardápio e preços',         icon: ProdutosIcon },
       { path: '/cadastros',     label: 'Insumos',         sub: 'Ingredientes e embalagens', icon: CadastrosIcon },
-      { path: '/configuracoes', label: 'Preços e custos', sub: 'Precificação e margens',    icon: ConfigIcon },
-      { path: '/perfil',        label: 'Perfil',          sub: 'Dados da loja e conta',     icon: PerfilIcon },
+      { path: '/configuracoes', label: 'Configurações',   sub: 'Financeiro, custos, entrega e conta', icon: ConfigIcon },
     ],
   },
 ]
