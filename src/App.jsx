@@ -38,7 +38,7 @@ const NAV_BOTTOM = [
   { path: '/',        label: 'Início',   icon: HomeIcon },
   { path: '/pedidos', label: 'Pedidos',  icon: PedidosIcon },
   { path: '/atendimento', label: 'Atendimento', icon: AtendimentoIcon },
-  { path: '/interessados', label: 'Interessados', icon: SinoIcon },
+  { path: '/interessados', label: 'Wishlist', icon: SinoIcon },
   { path: '/envios',  label: 'Envios',   icon: EnviosIcon },
   { path: '/fichas',  label: 'Receitas', icon: FichasIcon },
   { path: '/vendas',  label: 'Vendas',   icon: VendasIcon },

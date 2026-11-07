@@ -198,7 +198,7 @@ export default function Interessados() {
         <div className="topbar-inner">
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <button onClick={() => navigate(-1)} aria-label="Voltar" style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', padding: '0 4px', fontSize: 22, lineHeight: 1 }}>‹</button>
-            <div className="topbar-title">Interessados</div>
+            <div className="topbar-title">Wishlist</div>
           </div>
         </div>
       </div>
