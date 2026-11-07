@@ -69,6 +69,7 @@ export function criarTransacoes({ encomendas, vendas, produtos, cfg, custoSacola
       receita, frete: Number(e.frete) || 0, valor: Number(e.valor) || 0,
       cmv: itens.reduce((s, i) => s + i.custo, 0), embalagem: custoSacola || 0, taxas: canal === 'iFood' ? receita * taxaIfood : 0,
       pago: e.pgto === 'Pago', pixPago: !!e.pixPagoEm, status: e.status, periodo: e.periodo || null,
+      criadoEm: e.createdAtTs || null,   // hora em que o pedido foi feito
       itens, semCusto,
     })
   }

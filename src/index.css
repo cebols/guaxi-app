@@ -1258,6 +1258,13 @@ a { touch-action: manipulation; }
 .vd-cel { height: 32px; border-radius: 6px; border: none; cursor: pointer; padding: 0; }
 .vd-cel.sel, .vd-cel:focus-visible { outline: 2px solid #f2f2f2; outline-offset: 1px; }
 .vd-cel-mini { display: inline-block; width: 14px; height: 8px; border-radius: 2px; }
+.vd-toggle { flex: none; }
+.vd-toggle button { flex: none; min-height: 34px; padding: 0 14px; font-size: 12.5px; }
+/* por hora: dias nas linhas, 8h–23h nas colunas */
+.vd-mapa-h { display: grid; grid-template-columns: 34px repeat(16, minmax(0, 1fr)); gap: 2px; font-size: 10.5px; color: var(--text-secondary); text-align: center; align-items: center; }
+.vd-mapa-h .vd-mapa-nome { font-size: 11.5px; }
+.vd-mapa-h .vd-cel { height: 26px; border-radius: 4px; }
+.vd-mapa-h > span:not(.vd-mapa-nome) { white-space: nowrap; overflow: visible; text-align: left; }
 .vd-n0 { background: #1a1a1a; box-shadow: inset 0 0 0 1px #2a2a2a; }
 .vd-n1 { background: #10305a; }
 .vd-n2 { background: #1d4f8f; }

@@ -11,7 +11,7 @@ import {
 } from '../services/db'
 import { criarTransacoes, resumoFinanceiro, ymd } from '../lib/financeiro'
 import {
-  janela, somar, variacao, porDia, porCanal, momentos, clientes as calcClientes, sumidos as calcSumidos,
+  janela, somar, variacao, porDia, porCanal, momentos, horarios, HORAS, clientes as calcClientes, sumidos as calcSumidos,
   produtosStats, matriz, previsao, csvHistorico, corCanal, CANAIS, DIAS_SEMANA, DIAS_CURTO, diaCurto,
 } from '../lib/vendas'
 import { NovoPedidoSheet } from './Pedidos'
@@ -106,6 +106,8 @@ function AbaResumo({ trans, fin, cfg, sumidos, irPara, navigate }) {
   const [custom, setCustom] = useState({ de: mais(hojeS, -29), ate: hojeS })
   const [sel, setSel] = useState(null)       // dia tocado no gráfico
   const [celSel, setCelSel] = useState(null) // célula tocada no mapa
+  const [modoMapa, setModoMapa] = useState(() => { try { return localStorage.getItem('vendas_mapa') || 'periodos' } catch { return 'periodos' } })
+  useEffect(() => { try { localStorage.setItem('vendas_mapa', modoMapa) } catch { /* sem storage */ } setCelSel(null) }, [modoMapa])
   useEffect(() => { try { localStorage.setItem('vendas_periodo', periodo) } catch { /* sem storage */ } }, [periodo])
   useEffect(() => setSel(null), [periodo, custom.de, custom.ate])
 
@@ -121,6 +123,7 @@ function AbaResumo({ trans, fin, cfg, sumidos, irPara, navigate }) {
   const maxDia = dias ? Math.max(1, ...dias.map(d => Math.max(d.receita, d.data <= hojeS ? d.ref : 0))) : 1
   const canais = porCanal(trans, j.de, j.ate)
   const mom = momentos(trans, mais(hojeS, -89), hojeS)
+  const hrs = horarios(trans, mais(hojeS, -89), hojeS)
   const lucroMes = fin.mes.contribuicao - fin.fixos
 
   // Avisos automáticos
@@ -140,6 +143,9 @@ function AbaResumo({ trans, fin, cfg, sumidos, irPara, navigate }) {
       const quando = per === 'sem' ? DIAS_SEMANA[wd].toLowerCase() : `${DIAS_SEMANA[wd].toLowerCase()} de ${per === 'manha' ? 'manhã' : per}`
       avisos.push({ tipo: 'info', icone: '★', texto: `O seu melhor momento é ${quando}: ${pct(share)} das vendas dos últimos 90 dias. Vale caprichar na produção da véspera.`, acao: 'Planejar', fazer: () => navigate('/mise-en-place') })
     }
+  }
+  if (hrs.melhor && hrs.total >= 10 && hrs.melhor.pct >= 0.3) {
+    avisos.push({ tipo: 'info', icone: '◷', texto: `${pct(hrs.melhor.pct)} dos pedidos chegam entre ${hrs.melhor.de}h e ${hrs.melhor.ate === 24 ? 'meia-noite' : `${hrs.melhor.ate}h`}. Bom horário pra estar de olho no celular e com entrega disponível.`, acao: 'Ver horários', fazer: () => setModoMapa('horas') })
   }
   const prod30 = produtosStats(trans, mais(hojeS, -29), hojeS, null).filter(p => p.receita > 0).sort((a, b) => b.receita - a.receita)
   const rec30 = prod30.reduce((s, p) => s + p.receita, 0)
@@ -235,8 +241,39 @@ function AbaResumo({ trans, fin, cfg, sumidos, irPara, navigate }) {
         </section>
 
         <section className="cf-card" aria-label="Quando você mais vende">
-          <div className="cf-topo"><h2>Quando você mais vende</h2><span className="cf-dim">90 dias</span></div>
-          {mom.total > 0 ? (
+          <div className="cf-topo" style={{ flexWrap: 'wrap' }}>
+            <h2>Quando você mais vende <span className="cf-dim" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>· 90 dias</span></h2>
+            <div className="pd-seg vd-toggle" role="group" aria-label="Ver por">
+              <button className={modoMapa === 'periodos' ? 'on' : ''} aria-pressed={modoMapa === 'periodos'} onClick={() => setModoMapa('periodos')}>Períodos</button>
+              <button className={modoMapa === 'horas' ? 'on' : ''} aria-pressed={modoMapa === 'horas'} onClick={() => setModoMapa('horas')}>Horas</button>
+            </div>
+          </div>
+          {modoMapa === 'horas' ? (hrs.total > 0 ? (
+            <>
+              <div className="vd-mapa-h">
+                <span />
+                {HORAS.map(h => <span key={h}>{h % 2 === 0 ? `${h}h` : ''}</span>)}
+                {hrs.linhas.map(l => [
+                  <span key={l.dia} className="vd-mapa-nome">{DIAS_CURTO[l.dia]}</span>,
+                  ...l.celulas.map(c => {
+                    const k = `h|${l.dia}|${c.h}`
+                    return <button key={k} type="button" className={`vd-cel vd-n${c.nivel}${celSel === k ? ' sel' : ''}`}
+                      aria-label={`${DIAS_SEMANA[l.dia]}, ${c.h}h às ${c.h + 1}h: ${c.n} ${c.n === 1 ? 'pedido' : 'pedidos'}`} title={`${DIAS_SEMANA[l.dia]} · ${c.h}h–${c.h + 1}h: ${c.n} pedidos · ${fmtR0(c.v)}`}
+                      onClick={() => setCelSel(s => s === k ? null : k)} />
+                  }),
+                ])}
+              </div>
+              <div className="vd-dica">
+                {celSel?.startsWith('h|') ? (() => {
+                  const [, wd, h] = celSel.split('|'); const c = hrs.linhas.find(x => String(x.dia) === wd)?.celulas.find(x => String(x.h) === h)
+                  return c ? <><b>{DIAS_SEMANA[wd]} · {h}h às {Number(h) + 1}h</b>: {c.n} {c.n === 1 ? 'pedido' : 'pedidos'} · {fmtR0(c.v)}</> : null
+                })() : (
+                  <span className="vd-legenda">menos <i className="vd-cel-mini vd-n1" /><i className="vd-cel-mini vd-n2" /><i className="vd-cel-mini vd-n3" /><i className="vd-cel-mini vd-n4" /> mais pedidos · pela hora em que o pedido foi feito{hrs.melhor ? ` · pico: ${hrs.melhor.de}h às ${hrs.melhor.ate === 24 ? '0h' : `${hrs.melhor.ate}h`}` : ''}</span>
+                )}
+              </div>
+              {hrs.fora > 0 && <div className="cf-dim">{hrs.fora} {hrs.fora === 1 ? 'pedido feito' : 'pedidos feitos'} entre meia-noite e 8h não {hrs.fora === 1 ? 'aparece' : 'aparecem'} aqui.</div>}
+            </>
+          ) : <div className="cf-hint">Sem pedidos com horário nos últimos 90 dias.</div>) : mom.total > 0 ? (
             <>
               <div className="vd-mapa">
                 <span />

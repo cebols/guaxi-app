@@ -103,6 +103,35 @@ export function momentos(trans, de, ate) {
   }
 }
 
+// Hora do dia em que os pedidos chegam (das 8h às 23h; madrugada fica de fora).
+// É a hora em que o pedido foi feito — da entrega só se sabe o período.
+export const HORAS = Array.from({ length: 16 }, (_, i) => i + 8)
+export function horarios(trans, de, ate) {
+  const cel = {}
+  let total = 0, fora = 0
+  for (const x of trans) {
+    if (x.tipo !== 'pedido' || !x.criadoEm) continue
+    const t = new Date(x.criadoEm)
+    const dia = ymd(t)
+    if (dia < de || dia > ate) continue
+    const h = t.getHours()
+    if (h < HORAS[0]) { fora++; continue }
+    const c = (cel[`${t.getDay()}|${h}`] ||= { n: 0, v: 0 })
+    c.n += 1; c.v += x.receita; total += 1
+  }
+  const max = Math.max(0, ...Object.values(cel).map(c => c.n))
+  const ordem = [1, 2, 3, 4, 5, 6, 0]
+  const linhas = ordem.map(d => ({ dia: d, celulas: HORAS.map(h => { const c = cel[`${d}|${h}`] || { n: 0, v: 0 }; return { h, ...c, nivel: max ? Math.ceil((c.n / max) * 4) : 0 } }) }))
+  // a janela de 3 horas que mais recebe pedido (somando todos os dias)
+  const porHora = HORAS.map(h => ordem.reduce((s, d) => s + (cel[`${d}|${h}`]?.n || 0), 0))
+  let melhor = null
+  for (let i = 0; i + 3 <= HORAS.length; i++) {
+    const n = porHora[i] + porHora[i + 1] + porHora[i + 2]
+    if (!melhor || n > melhor.n) melhor = { de: HORAS[i], ate: HORAS[i] + 3, n }
+  }
+  return { linhas, total, fora, max, melhor: total && melhor ? { ...melhor, pct: melhor.n / total } : null }
+}
+
 // ── Clientes ──
 const chaveCliente = (x) => {
   const d = String(x.contato || '').replace(/\D/g, '').slice(-8)
