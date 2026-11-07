@@ -576,7 +576,7 @@ function NovoView({ produtos, clientes, pedidos, onBack, onSaved }) {
 }
 
 // ── NovoPedidoSheet — usado no Início ─────────────────────────────────────────
-export function NovoPedidoSheet({ onClose, onSaved }) {
+export function NovoPedidoSheet({ onClose, onSaved, modoInicial, titulo = 'Novo pedido' }) {
   const { toast, show }   = useToast()
   const { data: produtos } = useData(getProdutos)
   const { data: clientes } = useData(getClientes)
@@ -586,11 +586,11 @@ export function NovoPedidoSheet({ onClose, onSaved }) {
       <div className="sheet-overlay" onClick={onClose} />
       <div className="sheet np-folha">
         <div className="sheet-title">
-          <span>Novo pedido</span>
+          <span>{titulo}</span>
           <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 24, cursor: 'pointer', padding: '0 4px' }} onClick={onClose} aria-label="Fechar">×</button>
         </div>
         <NovoPedidoForm variante="sheet" produtos={produtos} clientes={clientes} encomendas={encomendas}
-          show={show} onSaved={onSaved} onClose={onClose} />
+          show={show} onSaved={onSaved} onClose={onClose} modoInicial={modoInicial} />
       </div>
       {toast && <div className="toast">{toast}</div>}
     </>

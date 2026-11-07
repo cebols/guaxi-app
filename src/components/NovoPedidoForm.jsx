@@ -226,11 +226,17 @@ function MontarCombo({ combo, produtos, inicial, onConfirmar, onFechar }) {
 }
 
 // ── Formulário ────────────────────────────────────────────────────────────────
-export default function NovoPedidoForm({ produtos, clientes, encomendas, onSaved, onClose, show, variante = 'sheet' }) {
-  const [modo, setModo] = useState('encomenda') // encomenda | feita
-  const [form, setForm] = useState({
-    cliente: '', contato: '', canal: 'WhatsApp', dataEntrega: '', tipoEntrega: 'Entrega', frete: '10',
-    endereco: '', obs: '', pgto: 'Aguardando', sinal: '', periodo: '',
+export default function NovoPedidoForm({ produtos, clientes, encomendas, onSaved, onClose, show, variante = 'sheet', modoInicial = 'encomenda' }) {
+  const [modo, setModo] = useState(modoInicial) // encomenda | feita
+  const [form, setForm] = useState(() => {
+    const f = {
+      cliente: '', contato: '', canal: 'WhatsApp', dataEntrega: '', tipoEntrega: 'Entrega', frete: '10',
+      endereco: '', obs: '', pgto: 'Aguardando', sinal: '', periodo: '',
+    }
+    // Venda de balcão (tela Vendas): já vendida, presencial, retirada, paga hoje
+    return modoInicial === 'feita'
+      ? { ...f, canal: 'Presencial', tipoEntrega: 'Retirada', frete: '0', dataEntrega: isoLocal(diaMais(0)), pgto: 'Pago' }
+      : f
   })
   const [itens, setItens] = useState([])
   const [seletor, setSeletor] = useState(false)

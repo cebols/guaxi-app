@@ -1,1531 +1,643 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useState, useMemo, useEffect } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
 import { getConfig, getCustoSacolaDelivery } from '../hooks/useConfig'
-import { getProdutos, getVendas, saveVenda, deleteVenda, getCompras, getEncomendas, getEmbalagens } from '../services/db'
-
-function DateInput({ value, onChange, className, style }) {
-  function toDisplay(iso) {
-    if (!iso) return ''
-    const [y, m, d] = iso.split('-')
-    return y && m && d ? `${d}/${m}/${y}` : iso
-  }
-  function toISO(digits) {
-    if (digits.length === 8) return `${digits.slice(4)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}`
-    return ''
-  }
-  const [display, setDisplay] = useState(toDisplay(value))
-  const handleChange = (e) => {
-    const digits = e.target.value.replace(/\D/g, '').slice(0, 8)
-    let fmt = digits
-    if (digits.length > 2) fmt = digits.slice(0, 2) + '/' + digits.slice(2)
-    if (digits.length > 4) fmt = digits.slice(0, 2) + '/' + digits.slice(2, 4) + '/' + digits.slice(4)
-    setDisplay(fmt)
-    const iso = toISO(digits)
-    if (iso) onChange(iso)
-    else if (digits.length === 0) onChange('')
-  }
-  return (
-    <input className={className} style={style} type="text" inputMode="numeric"
-      placeholder="dd/mm/aaaa" value={display} onChange={handleChange} maxLength={10} />
-  )
-}
-
-const PLATAFORMAS = ['Direta', 'iFood']
-const PLAT_COLOR  = { 'Direta': 'var(--teal)', '99Food': '#f59e0b', 'iFood': '#ef4444' }
-const CANAL_TO_PLAT = { 'iFood': 'iFood', '99Food': '99Food' } // others → 'Direta'
-const PROD_COLORS = ['#14b8a6','#f59e0b','#6366f1','#ec4899','#10b981','#f97316','#8b5cf6','#06b6d4','#84cc16','#e11d48']
-
-function fmtR(val) {
-  if (!val && val !== 0) return '—'
-  const r = Math.ceil(Number(val) * 100) / 100
-  return `R$ ${r.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-function fmtN(v, dec = 1) {
-  return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: dec })
-}
-function isoToday() { return new Date().toISOString().split('T')[0] }
-
-function precoForPlat(prod, plat) {
-  if (!prod) return ''
-  if (plat === 'Direta') return prod.precoDireta ?? prod.precoPraticado ?? prod.precoSugerido ?? ''
-  if (plat === '99Food') return prod.preco99     ?? prod.precoPraticado ?? prod.precoSugerido ?? ''
-  if (plat === 'iFood')  return prod.precoIfood  ?? prod.precoPraticado ?? prod.precoSugerido ?? ''
-  return prod.precoPraticado ?? prod.precoSugerido ?? ''
-}
-
-// ── Horizontal bar chart ─────────────────────────────────────
-function Barras({ itens }) {
-  const max = Math.max(...itens.map(i => i.valor), 0.01)
-  return (
-    <div>
-      {itens.map((d, i) => (
-        <div key={i} style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-secondary)', width: 90, textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.label}>{d.label}</div>
-          <div style={{ flex: 1, height: 14, background: 'var(--border)', borderRadius: 3 }}>
-            <div style={{ width: `${(d.valor / max) * 100}%`, height: '100%', background: d.cor || 'var(--teal)', borderRadius: 3, transition: 'width 0.4s' }} />
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-secondary)', width: 64, flexShrink: 0 }}>{fmtR(d.valor)}</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── Horizontal bar chart — units ─────────────────────────────
-function BarrasQtd({ itens }) {
-  const max = Math.max(...itens.map(i => i.valor), 0.01)
-  return (
-    <div>
-      {itens.map((d, i) => (
-        <div key={i} style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ fontSize: 11, color: 'var(--text-secondary)', width: 90, textAlign: 'right', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={d.label}>{d.label}</div>
-          <div style={{ flex: 1, height: 14, background: 'var(--border)', borderRadius: 3 }}>
-            <div style={{ width: `${(d.valor / max) * 100}%`, height: '100%', background: d.cor || 'var(--teal)', borderRadius: 3, transition: 'width 0.4s' }} />
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-secondary)', width: 40, flexShrink: 0 }}>{fmtN(d.valor, 0)} un</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── Top/Bottom ranking ───────────────────────────────────────
-function RankingProdutos({ stats, mode = 'top', criterio = 'margem' }) {
-  const items = Object.entries(stats)
-    .filter(([, s]) => s.units > 0)
-    .map(([nome, s]) => {
-      const profit = s.revNet - s.cost
-      const margin = s.revNet > 0 ? (profit / s.revNet) * 100 : 0
-      return { nome, units: s.units, revNet: s.revNet, profit, margin }
-    })
-    .sort((a, b) => criterio === 'margem' ? b.margin - a.margin : b.revNet - a.revNet)
-
-  const list = mode === 'top' ? items.slice(0, 5) : items.slice(-5).reverse()
-  if (list.length === 0) return null
-
-  return (
-    <div>
-      {list.map((it, i) => {
-        const cor = it.margin >= 40 ? 'var(--teal)' : it.margin >= 20 ? '#f59e0b' : 'var(--alert-text)'
-        return (
-          <div key={it.nome} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < list.length - 1 ? '1px solid var(--border)' : 'none' }}>
-            <span style={{ fontSize: 11, color: 'var(--text-tertiary)', width: 16, fontWeight: 700 }}>{i + 1}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.nome}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{fmtN(it.units, 0)} un · {fmtR(it.revNet)}</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: cor }}>{fmtN(it.margin)}%</div>
-              <div style={{ fontSize: 10, color: 'var(--text-tertiary)' }}>margem</div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ── Day-of-week heatmap ──────────────────────────────────────
-function HeatmapDOW({ vendas }) {
-  const DOW_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-  const [platFiltro, setPlatFiltro] = useState('Todas')
-
-  const vendasFiltradas = useMemo(() =>
-    platFiltro === 'Todas' ? vendas : vendas.filter(v => v.plataforma === platFiltro),
-    [vendas, platFiltro]
-  )
-
-  const data = useMemo(() => {
-    const today = new Date()
-    const weeks = 6
-    const grid = Array.from({ length: weeks }, () => Array(7).fill(0))
-    const weekStarts = []
-    for (let w = 0; w < weeks; w++) {
-      const d = new Date(today)
-      d.setDate(today.getDate() - today.getDay() - w * 7)
-      d.setHours(0, 0, 0, 0)
-      weekStarts.push(d)
-    }
-    for (const v of vendasFiltradas) {
-      if (!v.data) continue
-      const d = new Date(v.data + 'T12:00:00')
-      for (let w = 0; w < weeks; w++) {
-        const ws = weekStarts[w]
-        const we = new Date(ws); we.setDate(ws.getDate() + 7)
-        if (d >= ws && d < we) {
-          grid[w][d.getDay()] += (v.quantidade || 0) * (v.precoUnit || 0)
-          break
-        }
-      }
-    }
-    const max = Math.max(...grid.flat(), 0.01)
-    const dowTotals = Array(7).fill(0)
-    for (const row of grid) row.forEach((v, i) => dowTotals[i] += v)
-    return { grid: grid.reverse(), max, dowTotals }
-  }, [vendasFiltradas])
-
-  if (data.max < 0.02) return <div style={{ fontSize: 13, color: 'var(--text-tertiary)', textAlign: 'center' }}>Sem dados suficientes</div>
-
-  const cell = (v) => {
-    const intensity = v / data.max
-    const bg = v === 0 ? 'transparent' : `rgba(20, 184, 166, ${0.15 + intensity * 0.7})`
-    return (
-      <div style={{
-        flex: 1, aspectRatio: '1', borderRadius: 4,
-        background: bg, border: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 9, color: intensity > 0.5 ? '#000' : 'var(--text-tertiary)',
-      }} title={fmtR(v)}>
-        {v > 0 ? fmtN(v, 0) : ''}
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      {/* Filtro plataforma */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-        {['Todas', ...PLATAFORMAS].map(p => {
-          const a = platFiltro === p
-          return (
-            <button key={p} onClick={() => setPlatFiltro(p)} style={{
-              fontSize: 11, padding: '3px 10px', borderRadius: 14, cursor: 'pointer',
-              border: `1px solid ${a ? (PLAT_COLOR[p] || 'var(--teal)') : 'var(--border)'}`,
-              background: a ? (PLAT_COLOR[p] || 'var(--teal)') : 'transparent',
-              color: a ? '#fff' : 'var(--text-secondary)', fontWeight: a ? 700 : 400,
-            }}>{p}</button>
-          )
-        })}
-      </div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-        <div style={{ width: 28, flexShrink: 0 }} />
-        {DOW_LABELS.map(d => <div key={d} style={{ flex: 1, fontSize: 10, color: 'var(--text-tertiary)', textAlign: 'center' }}>{d}</div>)}
-      </div>
-      {data.grid.map((row, i) => (
-        <div key={i} style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-          <div style={{ width: 28, fontSize: 9, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-            -{data.grid.length - 1 - i}s
-          </div>
-          {row.map((v, j) => <div key={j} style={{ flex: 1 }}>{cell(v)}</div>)}
-        </div>
-      ))}
-      <div style={{ display: 'flex', gap: 4, marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-        <div style={{ width: 28, fontSize: 10, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>Σ</div>
-        {data.dowTotals.map((v, i) => (
-          <div key={i} style={{ flex: 1, fontSize: 10, fontWeight: 600, color: 'var(--teal)', textAlign: 'center' }}>
-            {v > 0 ? fmtN(v, 0) : '—'}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ── Weekly stacked bar chart (per product) ───────────────────
-function TendenciaSemanal({ vendas }) {
-  const [hovered, setHovered] = useState(null) // { nome, valor }
-  const { semanas, prodNomes, colorMap } = useMemo(() => {
-    const nomes = [...new Set(vendas.map(v => v.produtoNome))]
-    const colorMap = Object.fromEntries(nomes.map((n, i) => [n, PROD_COLORS[i % PROD_COLORS.length]]))
-
-    const result = []
-    const hoje = new Date()
-    for (let w = 5; w >= 0; w--) {
-      const seg = new Date(hoje)
-      seg.setDate(hoje.getDate() - ((hoje.getDay() || 7) - 1) - w * 7)
-      const dom = new Date(seg); dom.setDate(seg.getDate() + 6)
-      const inicio = seg.toISOString().split('T')[0]
-      const fim    = dom.toISOString().split('T')[0]
-      const weekV  = vendas.filter(v => v.data >= inicio && v.data <= fim)
-
-      const byProd = {}
-      weekV.forEach(v => {
-        byProd[v.produtoNome] = (byProd[v.produtoNome] || 0) + v.quantidade * v.precoUnit
-      })
-      const total = Object.values(byProd).reduce((s, x) => s + x, 0)
-      result.push({
-        label: seg.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }),
-        total, inicio, byProd,
-      })
-    }
-
-    // add week-over-week change to each entry
-    const withChange = result.map((s, i) => ({
-      ...s,
-      change: i > 0 && result[i - 1].total > 0
-        ? ((s.total - result[i - 1].total) / result[i - 1].total) * 100
-        : null,
-    }))
-
-    return { semanas: withChange, prodNomes: nomes, colorMap }
-  }, [vendas])
-
-  const max  = Math.max(...semanas.map(s => s.total), 0.01)
-  const maxH = 72
-  const WEEK_LABEL_H = 14 // approximate px height of week label
-
-  // média das semanas completas (exceto a corrente) para linha de referência
-  const completed = semanas.slice(0, 5).filter(s => s.total > 0)
-  const media = completed.length > 0
-    ? completed.reduce((s, w) => s + w.total, 0) / completed.length
-    : 0
-  const mediaY = media > 0 ? WEEK_LABEL_H + (media / max) * maxH : 0
-
-  return (
-    <div>
-      {/* bar area — position:relative to anchor the média line */}
-      <div style={{ position: 'relative', display: 'flex', alignItems: 'flex-end', gap: 6, height: maxH + 28 }}>
-
-        {/* ── Linha de média ──────────────────────────────── */}
-        {media > 0 && (
-          <div style={{
-            position: 'absolute', left: 0, right: 0,
-            bottom: mediaY,
-            borderTop: '1.5px dashed rgba(255,255,255,0.2)',
-            pointerEvents: 'none', zIndex: 2,
-          }}>
-            <span style={{
-              position: 'absolute', right: 0, bottom: 3,
-              fontSize: 8, color: 'var(--text-tertiary)',
-              background: 'var(--bg-card)', padding: '0 3px', borderRadius: 2,
-            }}>
-              média {fmtR(media).replace('R$ ', '')}
-            </span>
-          </div>
-        )}
-
-        {/* ── Barras ──────────────────────────────────────── */}
-        {semanas.map((s, i) => {
-          const barH       = s.total > 0 ? Math.max(4, (s.total / max) * maxH) : 0
-          const isThisWeek = i === semanas.length - 1
-          const segments   = prodNomes
-            .filter(p => (s.byProd[p] || 0) > 0)
-            .map(p => ({ pct: s.byProd[p] / s.total, color: colorMap[p] }))
-
-          return (
-            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-              <div style={{ fontSize: 9, color: 'var(--text-secondary)', height: 12, display: 'flex', alignItems: 'flex-end' }}>
-                {s.total > 0 ? fmtR(s.total).replace('R$ ', '') : ''}
-              </div>
-              <div style={{ width: '100%', height: barH, borderRadius: '3px 3px 0 0', overflow: 'hidden', display: 'flex', flexDirection: 'column', opacity: isThisWeek ? 1 : 0.65 }}>
-                {s.total > 0 ? segments.map((seg, si) => {
-                  const nome = prodNomes.filter(p => (s.byProd[p] || 0) > 0)[si]
-                  return (
-                    <div key={si} style={{ flex: seg.pct, background: seg.color, cursor: 'default' }}
-                      onMouseEnter={() => setHovered({ nome, valor: s.byProd[nome] })}
-                      onMouseLeave={() => setHovered(null)}
-                    />
-                  )
-                }) : (
-                  <div style={{ height: 2, background: 'var(--border)', marginTop: 'auto', width: '100%' }} />
-                )}
-              </div>
-              <div style={{ fontSize: 9, color: isThisWeek ? 'var(--text-primary)' : 'var(--text-tertiary)', whiteSpace: 'nowrap', fontWeight: isThisWeek ? 700 : 400 }}>
-                {s.label}
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {/* ── Variação semana a semana ─────────────────────── */}
-      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-        {semanas.map((s, i) => {
-          if (s.change === null) return <div key={i} style={{ flex: 1 }} />
-          const up    = s.change > 0
-          const color = up ? 'var(--teal)' : s.change < 0 ? 'var(--alert-text)' : 'var(--text-tertiary)'
-          return (
-            <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 8, color, fontWeight: 700 }}>
-              {up ? '↑' : '↓'}{Math.abs(s.change).toFixed(0)}%
-            </div>
-          )
-        })}
-      </div>
-
-      {/* ── Tooltip hover ───────────────────────────────── */}
-      <div style={{ height: 18, marginBottom: 2 }}>
-        {hovered && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
-            <div style={{ width: 8, height: 8, borderRadius: 2, background: colorMap[hovered.nome], flexShrink: 0 }} />
-            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{hovered.nome}</span>
-            <span style={{ color: 'var(--text-secondary)' }}>{fmtR(hovered.valor)}</span>
-          </div>
-        )}
-      </div>
-
-      {/* ── Legenda produtos ─────────────────────────────── */}
-      {prodNomes.length > 1 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginTop: 4 }}>
-          {prodNomes.map(p => (
-            <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-secondary)' }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: colorMap[p], flexShrink: 0 }} />
-              <span>{p}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Sheets ───────────────────────────────────────────────────
-function DateChips({ value, onChange }) {
-  const today     = new Date().toISOString().split('T')[0]
-  const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0]
-  const fmt = (iso) => { const [, m, d] = iso.split('-'); return `${d}/${m}` }
-  const init = value === yesterday ? 'ontem' : (value && value !== today) ? 'data' : 'hoje'
-  const [chip, setChip] = useState(init)
-  const cs = (id) => {
-    const a = chip === id
-    const base = { padding: '6px 11px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none' }
-    if (!a) return { ...base, background: 'var(--bg-secondary)', outline: '1.5px solid transparent', color: 'var(--text-secondary)' }
-    if (id === 'hoje') return { ...base, background: 'var(--warn-bg)', outline: '1px solid var(--warn-text)', color: 'var(--warn-text)' }
-    return { ...base, background: 'var(--teal-light)', outline: '1px solid var(--teal)', color: 'var(--teal)' }
-  }
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <button style={cs('hoje')}  onClick={() => { setChip('hoje');  onChange(today)    }}>Hoje · {fmt(today)}</button>
-        <button style={cs('ontem')} onClick={() => { setChip('ontem'); onChange(yesterday) }}>Ontem · {fmt(yesterday)}</button>
-        <button style={cs('data')}  onClick={() => setChip('data')}>📅 Agendar</button>
-      </div>
-      {chip === 'data' && <input type="date" className="field-input" defaultValue={value !== today && value !== yesterday ? value : ''} onChange={e => onChange(e.target.value)} style={{ marginTop: 8 }} />}
-    </div>
-  )
-}
-
-function Sheet({ title, children, onClose }) {
-  return (
-    <>
-      <div className="sheet-overlay" onClick={onClose} />
-      <div className="sheet">
-        <div className="sheet-title">
-          <span>{title}</span>
-          <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 20, cursor: 'pointer' }} onClick={onClose}>×</button>
-        </div>
-        {children}
-      </div>
-    </>
-  )
-}
-
-function VendaForm({ produtos, prefill, onSave, onClose }) {
-  const cfg = getConfig()
-  const [selectedProd, setSelectedProd] = useState(prefill || null)
-  const [form, setForm] = useState({
-    data:        isoToday(),
-    produtoNome: prefill?.nome || '',
-    produtoId:   prefill?.id   || null,
-    quantidade:  1,
-    plataforma:  'Direta',
-    precoUnit:   prefill ? (precoForPlat(prefill, 'Direta') || '') : '',
-    custoUnit:   prefill?.custoTotal || '',
-  })
-  const [saving, setSaving] = useState(false)
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-
-  const handleProdSelect = (nome) => {
-    const prod = produtos?.find(p => p.nome === nome) || null
-    setSelectedProd(prod)
-    set('produtoNome', nome)
-    set('produtoId',   prod?.id  || null)
-    set('custoUnit',   prod?.custoTotal || '')
-    if (prod) set('precoUnit', precoForPlat(prod, form.plataforma) || '')
-  }
-
-  const handlePlatChange = (plat) => {
-    set('plataforma', plat)
-    if (selectedProd) set('precoUnit', precoForPlat(selectedProd, plat) || '')
-  }
-
-  const fee     = form.plataforma === '99Food' ? cfg.taxa99 / 100 : form.plataforma === 'iFood' ? cfg.taxaIfood / 100 : 0
-  const revenue = (parseFloat(form.precoUnit) || 0) * (parseFloat(form.quantidade) || 1)
-  const revNet  = revenue * (1 - fee)
-  const cost    = (parseFloat(form.custoUnit) || 0) * (parseFloat(form.quantidade) || 1)
-  const profit  = revNet - cost
-  const margin  = revNet > 0 ? (profit / revNet) * 100 : null
-
-  const handle = async () => {
-    if (!form.produtoNome || !form.precoUnit) return
-    setSaving(true)
-    try { await onSave(form); onClose() }
-    catch (e) { alert(e.message) } finally { setSaving(false) }
-  }
-
-  return (
-    <Sheet title="Lançar venda" onClose={onClose}>
-      <div className="field-label">Data</div>
-      <DateChips value={form.data} onChange={v => set('data', v)} />
-      <div className="field-label">Produto *</div>
-      <input className="field-input" list="prod-venda-list" placeholder="Selecione um produto" value={form.produtoNome} onChange={e => handleProdSelect(e.target.value)} />
-      <datalist id="prod-venda-list">{(produtos || []).map(p => <option key={p.id} value={p.nome} />)}</datalist>
-      <div className="field-row">
-        <div>
-          <div className="field-label">Quantidade</div>
-          <input className="field-input" type="text" inputMode="decimal" min="0.5" step="0.5" value={form.quantidade} onChange={e => set('quantidade', e.target.value)} />
-        </div>
-        <div>
-          <div className="field-label">Plataforma</div>
-          <select className="field-input" value={form.plataforma} onChange={e => handlePlatChange(e.target.value)}>
-            {PLATAFORMAS.map(p => <option key={p}>{p}</option>)}
-          </select>
-        </div>
-      </div>
-      <div className="field-label">Preço cobrado (R$) *</div>
-      <input className="field-input" type="text" inputMode="decimal" min="0" step="0.50" value={form.precoUnit} onChange={e => set('precoUnit', e.target.value)} />
-      {margin !== null && (
-        <div style={{ padding: '8px 12px', background: 'var(--teal-light)', borderRadius: 8, marginBottom: 8 }}>
-          <div style={{ fontSize: 12, color: 'var(--teal)' }}>
-            Faturamento: <strong>{fmtR(revenue)}</strong>
-            {fee > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 6 }}>→ líquido {fmtR(revNet)} (−{fmtN(fee * 100)}% taxa)</span>}
-          </div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: margin >= cfg.margem ? 'var(--teal)' : margin >= 0 ? '#f59e0b' : 'var(--alert-text)', marginTop: 2 }}>
-            Lucro: {fmtR(profit)} · Margem: {fmtN(margin)}%
-            {margin < cfg.margem && <span style={{ marginLeft: 6 }}>⚠ abaixo da meta ({fmtN(cfg.margem)}%)</span>}
-          </div>
-        </div>
-      )}
-      <button className="btn-primary" onClick={handle} disabled={saving || !form.produtoNome || !form.precoUnit}>
-        {saving ? 'Salvando...' : 'Registrar venda'}
-      </button>
-    </Sheet>
-  )
-}
-
-function LancamentoRapido({ produtos, onSave, onClose }) {
-  const [data, setData]           = useState(isoToday())
-  const [plataforma, setPlataforma] = useState('Direta')
-  const [qtds, setQtds]           = useState({})
-  const [saving, setSaving]       = useState(false)
-
-  const comVenda = (produtos || []).filter(p => qtds[p.id] && parseFloat(qtds[p.id]) > 0)
-
-  const handle = async () => {
-    if (comVenda.length === 0) return
-    setSaving(true)
-    try {
-      for (const prod of comVenda) {
-        await onSave({
-          data,
-          produtoNome: prod.nome,
-          produtoId:   prod.id,
-          quantidade:  parseFloat(qtds[prod.id]),
-          plataforma,
-          precoUnit:   precoForPlat(prod, plataforma) || 0,
-          custoUnit:   prod.custoTotal || 0,
-        })
-      }
-      onClose()
-    } catch (e) { alert(e.message) } finally { setSaving(false) }
-  }
-
-  return (
-    <Sheet title="Lançamento rápido" onClose={onClose}>
-      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10 }}>
-        Preencha as quantidades vendidas e salve tudo de uma vez.
-      </div>
-      <div className="field-label">Data</div>
-      <DateChips value={data} onChange={setData} />
-      <div className="field-label">Plataforma</div>
-      <select className="field-input" value={plataforma} onChange={e => setPlataforma(e.target.value)} style={{ marginBottom: 10 }}>
-        {PLATAFORMAS.map(p => <option key={p}>{p}</option>)}
-      </select>
-      <div className="card card-flush" style={{ padding: '0 14px', marginBottom: 8 }}>
-        {(produtos || []).map((prod, i) => {
-          const preco = precoForPlat(prod, plataforma)
-          return (
-            <div key={prod.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < produtos.length - 1 ? '1px solid var(--border)' : 'none' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>{prod.nome}</div>
-                <div style={{ fontSize: 11, color: PLAT_COLOR[plataforma] || 'var(--teal)' }}>{fmtR(preco)}</div>
-              </div>
-              <input
-                className="item-qty"
-                type="text" inputMode="decimal" min="0" step="1" placeholder="0"
-                value={qtds[prod.id] || ''}
-                onChange={e => setQtds(prev => ({ ...prev, [prod.id]: e.target.value }))}
-                style={{ width: 64 }}
-              />
-            </div>
-          )
-        })}
-      </div>
-      {comVenda.length > 0 && (
-        <div style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 8 }}>
-          {comVenda.length} produto(s) · {comVenda.reduce((s, p) => s + parseFloat(qtds[p.id]), 0)} unidades
-        </div>
-      )}
-      <button className="btn-primary" onClick={handle} disabled={saving || comVenda.length === 0}>
-        {saving ? 'Salvando...' : `Salvar ${comVenda.length > 0 ? comVenda.length : ''} venda(s)`}
-      </button>
-    </Sheet>
-  )
-}
-
-// ── Daily revenue bar chart ──────────────────────────────────
-function GraficoDiario({ vendas, periodo }) {
-  const dias = useMemo(() => {
-    const today = new Date()
-    if (periodo === 'semana') {
-      const dow = today.getDay() || 7
-      const seg = new Date(today); seg.setDate(today.getDate() - dow + 1); seg.setHours(0,0,0,0)
-      return Array.from({ length: 7 }, (_, i) => { const d = new Date(seg); d.setDate(seg.getDate() + i); return d.toISOString().split('T')[0] })
-    }
-    const y = today.getFullYear(), m = today.getMonth()
-    const n = new Date(y, m + 1, 0).getDate()
-    return Array.from({ length: n }, (_, i) => `${y}-${String(m+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`)
-  }, [periodo])
-
-  const dadosDia = useMemo(() => {
-    const map = {}
-    vendas.forEach(v => { map[v.data] = (map[v.data] || 0) + v.quantidade * v.precoUnit })
-    return dias.map(d => ({ data: d, valor: map[d] || 0 }))
-  }, [vendas, dias])
-
-  const maxVal = Math.max(...dadosDia.map(d => d.valor), 0.01)
-  const pico   = Math.max(...dadosDia.map(d => d.valor))
-  const total  = dadosDia.reduce((s, d) => s + d.valor, 0)
-  const fmt1   = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
-
-  return (
-    <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6 }}>Receita diária</div>
-        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--teal)' }}>{fmtR(total)}</div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 60 }}>
-        {dadosDia.map((d, i) => {
-          const isPeak = pico > 0 && d.valor === pico
-          const barH   = d.valor > 0 ? Math.max(4, (d.valor / maxVal) * 54) : 3
-          return (
-            <div key={i} style={{ flex: 1, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-              <div style={{ width: '100%', height: barH, borderRadius: '2px 2px 0 0', background: isPeak ? 'var(--teal)' : d.valor > 0 ? 'rgba(34,184,134,0.4)' : '#252525' }} />
-            </div>
-          )
-        })}
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6, fontSize: 10, color: 'var(--text-tertiary)' }}>
-        <span>{fmt1(dias[0])}</span>
-        {pico > 0 && <span>pico {fmtR(pico)}</span>}
-        <span>{fmt1(dias[dias.length - 1])}</span>
-      </div>
-    </div>
-  )
-}
-
-// ── Comparador de produtos ───────────────────────────────────
-const CMP_COLORS = ['#14b8a6', '#f59e0b', '#6366f1', '#ec4899', '#10b981']
-const N_WEEKS = 5
-
-function norm(s) {
-  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-}
-
-function weekStarts(n) {
-  const hoje = new Date()
-  return Array.from({ length: n }, (_, i) => {
-    const seg = new Date(hoje)
-    seg.setDate(hoje.getDate() - ((hoje.getDay() || 7) - 1) - (n - 1 - i) * 7)
-    seg.setHours(0, 0, 0, 0)
-    const dom = new Date(seg); dom.setDate(seg.getDate() + 6)
-    return {
-      inicio: seg.toISOString().split('T')[0],
-      fim: dom.toISOString().split('T')[0],
-      label: seg.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
-    }
-  })
-}
-
-function ComparadorProdutos({ vendas, produtos }) {
-  const [metric, setMetric] = useState('receita') // 'receita' | 'unidades'
-
-  const nomesProdutos = useMemo(() => {
-    const nomes = new Set([
-      ...(produtos || []).map(p => p.nome),
-      ...vendas.map(v => v.produtoNome),
-    ])
-    return [...nomes].sort((a, b) => a.localeCompare(b, 'pt-BR'))
-  }, [produtos, vendas])
-
-  const top3 = useMemo(() => {
-    const map = {}
-    vendas.forEach(v => { map[v.produtoNome] = (map[v.produtoNome] || 0) + v.quantidade * v.precoUnit })
-    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n]) => n)
-  }, [vendas])
-
-  const [selecionados, setSelecionados] = useState([])
-  const [initialized, setInitialized] = useState(false)
-  if (!initialized && top3.length > 0) { setSelecionados(top3); setInitialized(true) }
-
-  const semanas = useMemo(() => weekStarts(N_WEEKS), [])
-
-  const dadosPorProd = useMemo(() => {
-    const map = {}
-    selecionados.forEach(nome => {
-      map[nome] = semanas.map(({ inicio, fim }) => {
-        const vs = vendas.filter(v => v.produtoNome === nome && v.data >= inicio && v.data <= fim)
-        return {
-          receita: vs.reduce((s, v) => s + v.quantidade * v.precoUnit, 0),
-          unidades: vs.reduce((s, v) => s + v.quantidade, 0),
-        }
-      })
-    })
-    return map
-  }, [selecionados, vendas, semanas])
-
-  const toggle = (nome) => {
-    if (selecionados.includes(nome)) {
-      setSelecionados(s => s.filter(n => n !== nome))
-    } else if (selecionados.length < 3) {
-      setSelecionados(s => [...s, nome])
-    }
-  }
-
-  // SVG line chart
-  const W = 560, H = 160, PL = 40, PR = 12, PT = 12, PB = 28
-  const chartW = W - PL - PR, chartH = H - PT - PB
-
-  const allVals = selecionados.flatMap(nome =>
-    (dadosPorProd[nome] || []).map(d => d[metric])
-  )
-  const maxVal = Math.max(...allVals, 0.01)
-
-  const xPos = (i) => PL + (i / (N_WEEKS - 1)) * chartW
-  const yPos = (v) => PT + chartH - (v / maxVal) * chartH
-
-  const path = (nome) =>
-    (dadosPorProd[nome] || [])
-      .map((d, i) => `${i === 0 ? 'M' : 'L'} ${xPos(i).toFixed(1)} ${yPos(d[metric]).toFixed(1)}`)
-      .join(' ')
-
-  return (
-    <div>
-      {/* Metric toggle */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        {[['receita', 'Receita (R$)'], ['unidades', 'Unidades']].map(([val, label]) => (
-          <button key={val} onClick={() => setMetric(val)} style={{
-            fontSize: 12, padding: '4px 12px', borderRadius: 20, cursor: 'pointer',
-            border: '1px solid var(--border)',
-            background: metric === val ? 'var(--teal)' : 'transparent',
-            color: metric === val ? '#fff' : 'var(--text-secondary)',
-          }}>{label}</button>
-        ))}
-      </div>
-
-      {/* Product picker — chips + dropdown */}
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-          {selecionados.map((nome, idx) => (
-            <div key={nome} style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              background: CMP_COLORS[idx] + '22', border: `1.5px solid ${CMP_COLORS[idx]}`,
-              borderRadius: 20, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: CMP_COLORS[idx],
-            }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: CMP_COLORS[idx] }} />
-              {nome}
-              <button onClick={() => setSelecionados(s => s.filter(n => n !== nome))}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: CMP_COLORS[idx], fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 2 }}>×</button>
-            </div>
-          ))}
-          {selecionados.length < 5 && (
-            <select
-              value=""
-              onChange={e => { const n = e.target.value; if (n) setSelecionados(s => [...s, n]) }}
-              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 20, border: '1px dashed var(--border)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer' }}
-            >
-              <option value="">+ Adicionar produto</option>
-              {nomesProdutos.filter(n => !selecionados.includes(n)).map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          )}
-        </div>
-      </div>
-
-      {/* Line chart */}
-      {selecionados.length > 0 && (
-        <div className="card" style={{ padding: '12px 16px', marginBottom: 12, overflowX: 'auto' }}>
-          <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', display: 'block' }}>
-            {/* Grid lines */}
-            {[0.25, 0.5, 0.75, 1].map(pct => (
-              <line key={pct}
-                x1={PL} y1={PT + chartH * (1 - pct)}
-                x2={PL + chartW} y2={PT + chartH * (1 - pct)}
-                stroke="var(--border-color)" strokeWidth="0.5" strokeDasharray="3,3"
-              />
-            ))}
-            {/* Y axis labels */}
-            {[0, 0.5, 1].map(pct => {
-              const v = maxVal * pct
-              return (
-                <text key={pct} x={PL - 4} y={PT + chartH * (1 - pct) + 3}
-                  fontSize="8" fill="var(--text-tertiary)" textAnchor="end">
-                  {metric === 'receita' ? (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)) : v.toFixed(0)}
-                </text>
-              )
-            })}
-            {/* X axis labels — every week */}
-            {semanas.map((s, i) => (
-              <text key={i} x={xPos(i)} y={H - 4}
-                fontSize="7.5" fill={i === N_WEEKS - 1 ? 'var(--teal)' : 'var(--text-tertiary)'}
-                textAnchor={i === 0 ? 'start' : i === N_WEEKS - 1 ? 'end' : 'middle'}
-                fontWeight={i === N_WEEKS - 1 ? '700' : '400'}>
-                {s.label}
-              </text>
-            ))}
-            {/* Lines */}
-            {selecionados.map((nome, ci) => (
-              <g key={nome}>
-                <path d={path(nome)} fill="none" stroke={CMP_COLORS[ci]} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                {(dadosPorProd[nome] || []).map((d, i) => d[metric] > 0 && (
-                  <circle key={i} cx={xPos(i)} cy={yPos(d[metric])} r="3" fill={CMP_COLORS[ci]} />
-                ))}
-              </g>
-            ))}
-          </svg>
-          {/* Legend */}
-          <div style={{ display: 'flex', gap: 16, marginTop: 8, flexWrap: 'wrap' }}>
-            {selecionados.map((nome, ci) => (
-              <div key={nome} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
-                <span style={{ width: 16, height: 2, background: CMP_COLORS[ci], borderRadius: 1, display: 'inline-block' }} />
-                <span style={{ color: 'var(--text-secondary)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Tabela: produtos × semanas — sem scroll, responsiva */}
-          <div style={{ marginTop: 16 }} className="dt-wrap">
-            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 480 }}>
-              <colgroup>
-                <col style={{ width: '22%' }} />
-                {semanas.map((_, wi) => <col key={wi} style={{ width: `${78 / semanas.length}%` }} />)}
-              </colgroup>
-              <thead>
-                <tr>
-                  <th />
-                  {semanas.map((s, wi) => {
-                    const isLast = wi === semanas.length - 1
-                    return (
-                      <th key={wi} style={{
-                        padding: '4px 4px', textAlign: 'right', fontSize: 10, fontWeight: 700,
-                        color: isLast ? 'var(--teal)' : 'var(--text-tertiary)',
-                      }}>
-                        {isLast ? 'atual' : s.label}
-                      </th>
-                    )
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {selecionados.map((nome, ci) => (
-                  <tr key={nome} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={{ padding: '10px 4px 10px 0', verticalAlign: 'middle', overflow: 'hidden' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <div style={{ width: 7, height: 7, borderRadius: '50%', background: CMP_COLORS[ci], flexShrink: 0 }} />
-                        <span style={{ fontSize: 11, fontWeight: 600, color: CMP_COLORS[ci], overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome.split(' ')[0]}</span>
-                      </div>
-                    </td>
-                    {(dadosPorProd[nome] || []).map((d, wi) => {
-                      const isLast = wi === semanas.length - 1
-                      const prev = (dadosPorProd[nome] || [])[wi - 1]
-                      const val  = metric === 'receita' ? d.receita : d.unidades
-                      const pval = prev ? (metric === 'receita' ? prev.receita : prev.unidades) : 0
-                      const pct  = pval > 0 && val > 0 ? ((val - pval) / pval) * 100 : null
-                      const up   = pct !== null && pct >= 0
-                      const valStr = metric === 'receita'
-                        ? (val >= 1000 ? `R$${(Math.ceil(val)/1000).toFixed(1)}k` : `R$${Math.ceil(val)}`)
-                        : fmtN(val, 0)
-                      return (
-                        <td key={wi} style={{
-                          padding: '10px 4px', textAlign: 'right', verticalAlign: 'middle',
-                          background: isLast ? 'var(--teal-light)' : 'transparent',
-                        }}>
-                          {val > 0 ? (
-                            <>
-                              <div style={{ fontSize: 12, fontWeight: 700, color: isLast ? 'var(--teal)' : 'var(--text-primary)' }}>
-                                {valStr}
-                              </div>
-                              {pct !== null && (
-                                <div style={{ fontSize: 10, fontWeight: 700, color: up ? '#22c55e' : '#ef4444' }}>
-                                  {up ? '↑' : '↓'}{Math.abs(pct).toFixed(0)}%
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>—</div>
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {selecionados.length === 0 && (
-        <div className="empty"><span>Selecione produtos acima para comparar</span></div>
-      )}
-    </div>
-  )
-}
-
-// ── Main ─────────────────────────────────────────────────────
-function DreRow({ label, value, sub, bold, border, color, onToggle, open, hasDetail }) {
-  return (
-    <div>
-      <div
-        onClick={hasDetail ? onToggle : undefined}
-        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          fontSize: bold ? 14 : 13, fontWeight: bold ? 700 : 400,
-          borderTop: border ? '1px solid var(--border)' : undefined,
-          paddingTop: border ? 6 : 0, marginTop: border ? 2 : 0,
-          cursor: hasDetail ? 'pointer' : 'default', userSelect: 'none' }}
-      >
-        <span style={{ color: bold ? 'var(--text-primary)' : 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 5 }}>
-          {label}
-          {hasDetail && <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>{open ? '▲' : '▼'}</span>}
-        </span>
-        <span style={{ color: color || (bold ? undefined : undefined), fontWeight: bold ? 700 : 600 }}>{value}{sub && <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginLeft: 6 }}>{sub}</span>}</span>
-      </div>
-    </div>
-  )
-}
-
-function ResultadoCard({ periodo, totalRevBruto, totalTaxas, totalRevNet, totalRevNetAvulsa, totalRevNetPed,
-  totalCost, totalCustoSacolas, numPedidosPeriodo, custoSacola, totalComprasPeriodo,
-  lucroBruto, margemBruta, custoFixoPeriodo, cfg, lucroLiquido, margemLiquida }) {
-  const [openRec, setOpenRec] = useState(false)
-  const [openCmv, setOpenCmv] = useState(false)
-  const [openFix, setOpenFix] = useState(false)
-  const mesLabel = periodo === 'mes' ? new Date().toLocaleDateString('pt-BR', { month: 'long' }) : periodo === 'semana' ? 'esta semana' : 'período'
-  const hasRecDetail = totalTaxas > 0 || totalRevNetPed > 0
-  const hasCmvDetail = totalCustoSacolas > 0
-  const hasFixDetail = custoFixoPeriodo > 0
-
-  const totalSaida = totalCost + totalComprasPeriodo + custoFixoPeriodo
-  const pct   = totalSaida > 0 ? Math.min(100, (totalRevNet / totalSaida) * 100) : 0
-  const barColor = pct >= 100 ? 'var(--teal)' : pct >= 70 ? '#f59e0b' : 'var(--alert-text)'
-
-  return (
-    <div className="card" style={{ padding: '14px 14px', marginBottom: 12 }}>
-      {/* Header: título + saldo */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-          Resultado · {mesLabel}
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em', color: lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)' }}>
-            {lucroLiquido >= 0 ? '+' : ''}{fmtR(lucroLiquido)}
-          </span>
-          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 5 }}>{fmtN(margemLiquida)}%</span>
-        </div>
-      </div>
-
-      {/* Barra de cobertura */}
-      <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, marginBottom: 4, overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: barColor, borderRadius: 3, transition: 'width 0.5s ease' }} />
-      </div>
-      <div style={{ fontSize: 11, color: barColor, fontWeight: 600, marginBottom: 12 }}>
-        {fmtN(pct, 0)}% dos custos cobertos · {fmtR(totalRevNet)} receita / {fmtR(totalSaida)} custos
-      </div>
-
-      {/* Linhas DRE */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <DreRow label="Receita bruta" value={fmtR(totalRevBruto)}
-          hasDetail={hasRecDetail} open={openRec} onToggle={() => setOpenRec(o => !o)} />
-        {openRec && hasRecDetail && (
-          <div style={{ paddingLeft: 10, display: 'flex', flexDirection: 'column', gap: 3 }}>
-            {totalTaxas > 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}><span style={{ color: 'var(--text-tertiary)' }}>↳ Taxas plataforma</span><span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalTaxas)}</span></div>}
-            {totalRevNetPed > 0 && <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}><span style={{ color: 'var(--text-tertiary)' }}>↳ Venda direta</span><span style={{ color: 'var(--text-secondary)' }}>{fmtR(totalRevNetAvulsa)}</span></div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}><span style={{ color: 'var(--text-tertiary)' }}>↳ Pedidos / encomendas</span><span style={{ color: 'var(--text-secondary)' }}>{fmtR(totalRevNetPed)}</span></div>
-            </>}
-          </div>
-        )}
-
-        <DreRow label="= Receita líquida" value={fmtR(totalRevNet)} border />
-
-        <DreRow label="− CMV (custo receitas)" value={`−${fmtR(totalCost)}`} color="var(--alert-text)"
-          hasDetail={hasCmvDetail} open={openCmv} onToggle={() => setOpenCmv(o => !o)} />
-        {openCmv && hasCmvDetail && (
-          <div style={{ paddingLeft: 10 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-              <span style={{ color: 'var(--text-tertiary)' }}>↳ Sacolas ({numPedidosPeriodo} pedidos × R$ {fmtR(custoSacola)})</span>
-              <span style={{ color: 'var(--alert-text)' }}>−{fmtR(totalCustoSacolas)}</span>
-            </div>
-          </div>
-        )}
-
-        {totalComprasPeriodo > 0 && (
-          <DreRow label="− Compras (ingredientes)" value={`−${fmtR(totalComprasPeriodo)}`} color="var(--alert-text)" />
-        )}
-
-        <DreRow label="= Lucro bruto" value={fmtR(lucroBruto)} sub={`${fmtN(margemBruta)}%`}
-          bold color={lucroBruto >= 0 ? 'var(--teal)' : 'var(--alert-text)'} border />
-
-        {hasFixDetail
-          ? <DreRow label="− Custos fixos" value={`−${fmtR(custoFixoPeriodo)}`} color="var(--alert-text)"
-              hasDetail open={openFix} onToggle={() => setOpenFix(o => !o)} />
-          : <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>Configure custos fixos em Preços</div>
-        }
-        {openFix && hasFixDetail && (
-          <div style={{ paddingLeft: 10, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {(cfg.custoItens || []).filter(i => i.nome && parseFloat(i.valor) > 0).map((item, idx) => (
-              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-                <span style={{ color: 'var(--text-tertiary)' }}>↳ {item.nome}</span>
-                <span style={{ color: 'var(--text-tertiary)' }}>{fmtR(periodo === 'mes' ? parseFloat(item.valor) : parseFloat(item.valor) / 4.33)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <DreRow label="= Lucro líquido" value={fmtR(lucroLiquido)} sub={`${fmtN(margemLiquida)}%`}
-          bold color={lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)'} border />
-      </div>
-    </div>
-  )
+import { usePedidoMudou } from '../hooks/useRealtimePedidos'
+import {
+  getProdutos, getVendas, deleteVenda, getEncomendas, getEmbalagens,
+  getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
+} from '../services/db'
+import { criarTransacoes, resumoFinanceiro, ymd } from '../lib/financeiro'
+import {
+  janela, somar, variacao, porDia, porCanal, momentos, clientes as calcClientes, sumidos as calcSumidos,
+  produtosStats, matriz, previsao, csvHistorico, corCanal, CANAIS, DIAS_SEMANA, DIAS_CURTO, diaCurto,
+} from '../lib/vendas'
+import { NovoPedidoSheet } from './Pedidos'
+
+// ── Vendas ───────────────────────────────────────────────────────────────────
+// Resumo (período × anterior, por dia, canais, quando mais vende, avisos) ·
+// Produtos (o que cada doce faz pelo caixa + previsão de produção) · Clientes
+// (novos, sumidos, quem mais compra) · Histórico (busca, filtro, planilha).
+// Os números vêm de lib/financeiro: os mesmos de Configurações › Financeiro.
+
+const ABAS = [
+  { key: 'resumo', nome: 'Resumo' }, { key: 'produtos', nome: 'Produtos' },
+  { key: 'clientes', nome: 'Clientes' }, { key: 'historico', nome: 'Histórico' },
+]
+const fmtR = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const fmtR0 = (v) => `R$ ${Math.round(Number(v) || 0).toLocaleString('pt-BR')}`
+const pct = (x) => `${Math.round((x || 0) * 100)}%`
+const primeiroNome = (n) => String(n || '').trim().split(/\s+/)[0]
+const soDig = (s) => String(s || '').replace(/\D/g, '')
+const waLink = (tel, texto) => { const d = soDig(tel); return d.length >= 10 ? `https://wa.me/${d.startsWith('55') && d.length > 11 ? d : `55${d}`}?text=${encodeURIComponent(texto)}` : null }
+const mais = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return ymd(d) }
+
+function Delta({ v, nome }) {
+  if (v == null) return <span className="vd-delta igual">novo vs {nome}</span>
+  if (Math.abs(v) < 0.005) return <span className="vd-delta igual">= {nome}</span>
+  return <span className={`vd-delta ${v > 0 ? 'sobe' : 'desce'}`}>{v > 0 ? '▲' : '▼'} {Math.round(Math.abs(v) * 100)}% vs {nome}</span>
 }
 
 export default function Vendas() {
   const location = useLocation()
-  const [periodo, setPeriodo]           = useState('mes')
-  const [tab, setTab]                   = useState('inicio')
-  const [sheet, setSheet]               = useState(() => location.state?.openLancamento ? { type: 'rapido' } : null)
-  const [expandedDate, setExpandedDate] = useState(null)
-  const [filtroHistPeriodo, setFiltroHistPeriodo] = useState('all')
-  const [customInicio, setCustomInicio] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().split('T')[0] })
-  const [customFim, setCustomFim]       = useState(isoToday)
-  const { toast, show }       = useToast()
-  const { profile }           = useAuth()
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const [params, setParams] = useSearchParams()
+  const aba = ABAS.some(a => a.key === params.get('aba')) ? params.get('aba') : 'resumo'
+  const irPara = (key) => setParams(key === 'resumo' ? {} : { aba: key }, { replace: true })
+  const { toast, show } = useToast()
+  const [balcao, setBalcao] = useState(() => !!location.state?.openLancamento)
 
-  const { data: produtos,   loading: lProd }               = useData(getProdutos)
-  const { data: vendas,     loading: lVend, reload: rVend } = useData(getVendas)
-  const { data: encomendas, loading: lEnc }                 = useData(getEncomendas)
-  const { data: embalagens }                                = useData(getEmbalagens)
-  const { data: compras }                                   = useData(getCompras)
+  const { data: produtos } = useData(getProdutos)
+  const { data: vendas, reload: rVend } = useData(getVendas)
+  const { data: encomendas, reload: rEnc } = useData(getEncomendas)
+  const { data: embalagens } = useData(getEmbalagens)
+  const { data: contatos } = useData(getContatosAtendimento)
+  usePedidoMudou(() => rEnc())
+  useEffect(() => { if (location.state?.openLancamento) navigate(location.pathname + location.search, { replace: true, state: null }) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const cfg = getConfig()
   const custoSacola = getCustoSacolaDelivery(cfg, embalagens || [])
-
-  const inicio = useMemo(() => {
-    if (periodo === 'custom') return customInicio
-    if (periodo === 'semana') {
-      const d = new Date(); const day = d.getDay() || 7
-      d.setDate(d.getDate() - day + 1)
-      return d.toISOString().split('T')[0]
-    }
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
-  }, [periodo, customInicio])
-
-  const fim = useMemo(() => periodo === 'custom' ? (customFim || isoToday()) : isoToday(), [periodo, customFim])
-
-  const feeFor = (plat) => plat === '99Food' ? cfg.taxa99 / 100 : plat === 'iFood' ? cfg.taxaIfood / 100 : 0
-
-  const vendasPeriodo = useMemo(() => (vendas || []).filter(v => v.data >= inicio && v.data <= fim), [vendas, inicio, fim])
-
-  // Expand pedido items into flat events (period-filtered)
-  const pedidoEventos = useMemo(() => {
-    const prodMap = Object.fromEntries((produtos || []).map(p => [p.nome, p]))
-    return (encomendas || [])
-      .filter(e => {
-        if (e.status === 'Cancelado') return false
-        if (e.canal === 'FormExterno' && e.pgto !== 'Pago') return false
-        const d = e.dataEntrega || e.createdAt
-        return d && d >= inicio && d <= fim
-      })
-      .flatMap(e => e.itens.map(item => ({
-        id: `${e.id}-${item.id || item.produto}`,
-        pedidoId: e.id,
-        data: e.dataEntrega || e.createdAt,
-        produtoNome: item.produto,
-        quantidade: item.quantidade,
-        precoUnit: item.precoUnit,
-        plataforma: CANAL_TO_PLAT[e.canal] || 'Direta',
-        custoUnit: prodMap[item.produto]?.custoTotal || 0,
-        isPedido: true,
-        cliente: e.cliente,
-        canal: e.canal,
-      })))
-  }, [encomendas, inicio, produtos])
-
-  // All pedidos without period filter (for TendenciaSemanal)
-  const pedidoEventosTodos = useMemo(() => {
-    const prodMap = Object.fromEntries((produtos || []).map(p => [p.nome, p]))
-    return (encomendas || [])
-      .filter(e => {
-        if (e.status === 'Cancelado') return false
-        if (e.canal === 'FormExterno' && e.pgto !== 'Pago') return false
-        return true
-      })
-      .flatMap(e => e.itens.map(item => ({
-        id: `${e.id}-${item.id || item.produto}`,
-        data: e.dataEntrega || e.createdAt,
-        produtoNome: item.produto,
-        quantidade: item.quantidade,
-        precoUnit: item.precoUnit,
-        plataforma: CANAL_TO_PLAT[e.canal] || 'Direta',
-        custoUnit: prodMap[item.produto]?.custoTotal || 0,
-      })))
-  }, [encomendas, produtos])
-
-  const todasVendasPeriodo = useMemo(() => [...vendasPeriodo, ...pedidoEventos], [vendasPeriodo, pedidoEventos])
-  const todasVendasAll     = useMemo(() => [...(vendas || []), ...pedidoEventosTodos], [vendas, pedidoEventosTodos])
-
-  // Stats per product — combined vendas + pedidos
-  const statsPerProd = useMemo(() => {
-    const map = {}
-    todasVendasPeriodo.forEach(v => {
-      const k = v.produtoNome
-      if (!map[k]) map[k] = { units: 0, revenue: 0, revNet: 0, cost: 0 }
-      const fee = feeFor(v.plataforma)
-      map[k].units   += v.quantidade
-      map[k].revenue += v.quantidade * v.precoUnit
-      map[k].revNet  += v.quantidade * v.precoUnit * (1 - fee)
-      map[k].cost    += v.quantidade * (v.custoUnit || 0)
-    })
-    return map
-  }, [todasVendasPeriodo])
-
-  // Stats per product — vendas avulsas only (for product table)
-  const statsPerProdAvulsa = useMemo(() => {
-    const map = {}
-    vendasPeriodo.forEach(v => {
-      const k = v.produtoNome
-      if (!map[k]) map[k] = { units: 0, revenue: 0, revNet: 0, cost: 0 }
-      const fee = feeFor(v.plataforma)
-      map[k].units   += v.quantidade
-      map[k].revenue += v.quantidade * v.precoUnit
-      map[k].revNet  += v.quantidade * v.precoUnit * (1 - fee)
-      map[k].cost    += v.quantidade * (v.custoUnit || 0)
-    })
-    return map
-  }, [vendasPeriodo])
-
-  const statsPerPlat = useMemo(() => {
-    const map = {}
-    todasVendasPeriodo.forEach(v => {
-      if (!map[v.plataforma]) map[v.plataforma] = { revenue: 0, units: 0 }
-      map[v.plataforma].revenue += v.quantidade * v.precoUnit
-      map[v.plataforma].units   += v.quantidade
-    })
-    return map
-  }, [todasVendasPeriodo])
-
-  // Pedidos stats per canal
-  const statsPedidos = useMemo(() => {
-    const map = {}
-    pedidoEventos.forEach(v => {
-      const k = v.canal
-      if (!map[k]) map[k] = { revenue: 0, revNet: 0, units: 0, cost: 0 }
-      const fee = feeFor(v.plataforma)
-      map[k].revenue += v.quantidade * v.precoUnit
-      map[k].revNet  += v.quantidade * v.precoUnit * (1 - fee)
-      map[k].units   += v.quantidade
-      map[k].cost    += v.quantidade * (v.custoUnit || 0)
-    })
-    return map
-  }, [pedidoEventos])
-
-  const numPedidosPeriodo = useMemo(() =>
-    new Set((encomendas || []).filter(e => {
-      if (e.status === 'Cancelado') return false
-      if (e.canal === 'FormExterno' && e.pgto !== 'Pago') return false
-      const d = e.dataEntrega || e.createdAt
-      return d && d >= inicio && d <= fim
-    }).map(e => e.id)).size,
-    [encomendas, inicio]
-  )
-  const totalCustoSacolas = numPedidosPeriodo * custoSacola
-
-  const totalRevNet      = Object.values(statsPerProd).reduce((s, p) => s + p.revNet, 0)
-  const totalCost        = Object.values(statsPerProd).reduce((s, p) => s + p.cost, 0) + totalCustoSacolas
-  const totalProfit      = totalRevNet - totalCost
-  const totalMargin      = totalRevNet > 0 ? (totalProfit / totalRevNet) * 100 : 0
-  const totalUnits       = Object.values(statsPerProd).reduce((s, p) => s + p.units, 0)
-  const totalRevNetPed   = Object.values(statsPedidos).reduce((s, p) => s + p.revNet, 0)
-  const totalRevNetAvulsa = totalRevNet - totalRevNetPed
-
-  const totalRevBruto      = Object.values(statsPerProd).reduce((s, p) => s + p.revenue, 0)
-  const numTransacoes    = vendasPeriodo.length + numPedidosPeriodo
-  const ticketMedio      = numTransacoes > 0 ? totalRevBruto / numTransacoes : 0
-  const totalTaxas         = totalRevBruto - totalRevNet
-  const totalComprasPeriodo = useMemo(() =>
-    (compras || []).filter(c => c.data >= inicio && c.data <= fim).reduce((s, c) => s + (c.total || 0), 0),
-    [compras, inicio, fim]
-  )
-  const lucroBruto         = totalRevNet - totalCost - totalComprasPeriodo
-  const margemBruta        = totalRevNet > 0 ? (lucroBruto / totalRevNet) * 100 : 0
-  const custoFixoPeriodo   = periodo === 'mes' ? (cfg.custoFixoMensal || 0) : (cfg.custoFixoMensal || 0) / 4.33
-  const lucroLiquido       = lucroBruto - custoFixoPeriodo
-  const margemLiquida      = totalRevNet > 0 ? (lucroLiquido / totalRevNet) * 100 : 0
-
-  const handleSave   = async (v) => { await saveVenda(v); rVend(); show('Venda registrada!') }
-  const handleDelete = async (id) => { await deleteVenda(id); rVend(); show('Removido!') }
-
-  const historicoGrupos = useMemo(() => {
-    const map = {}
-    ;(vendas || []).forEach(v => {
-      if (!map[v.data]) map[v.data] = []
-      map[v.data].push({ ...v, _tipo: 'venda' })
-    })
-    ;(encomendas || []).filter(e => e.pgto === 'Pago' && e.dataPago).forEach(e => {
-      const d = e.dataPago
-      if (!map[d]) map[d] = []
-      map[d].push({ ...e, _tipo: 'pedido' })
-    })
-    return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]))
-  }, [vendas, encomendas])
-
-  const fmtDate = (iso) => {
-    if (iso === isoToday()) return 'Hoje'
-    return new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', weekday: 'short' })
-  }
-
-  const loading = lProd || lVend || lEnc
-
-  const barrasProduto = useMemo(() =>
-    Object.entries(statsPerProd)
-      .map(([nome, s], i) => ({ label: nome, valor: s.revNet, cor: PROD_COLORS[i % PROD_COLORS.length] }))
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 8),
-    [statsPerProd]
-  )
-
-  const barrasUnidades = useMemo(() =>
-    Object.entries(statsPerProd)
-      .map(([nome, s], i) => ({ label: nome, valor: s.units, cor: PROD_COLORS[i % PROD_COLORS.length] }))
-      .sort((a, b) => b.valor - a.valor)
-      .slice(0, 8),
-    [statsPerProd]
-  )
-
-  const barrasPlat = useMemo(() =>
-    Object.entries(statsPerPlat).map(([plat, s]) => ({ label: plat, valor: s.revenue, cor: PLAT_COLOR[plat] || 'var(--teal)' })),
-    [statsPerPlat]
-  )
-
-  // Canal breakdown for pedidos bar chart
-  const barrasCanalPed = useMemo(() =>
-    Object.entries(statsPedidos).map(([canal, s]) => ({ label: canal, valor: s.revNet, cor: PLAT_COLOR[CANAL_TO_PLAT[canal] || 'Direta'] || 'var(--teal)' })).sort((a, b) => b.valor - a.valor),
-    [statsPedidos]
-  )
+  const pronto = encomendas && vendas && produtos
+  const trans = useMemo(() => pronto ? criarTransacoes({ encomendas, vendas, produtos, cfg, custoSacola }) : [], [pronto, encomendas, vendas, produtos, custoSacola]) // eslint-disable-line react-hooks/exhaustive-deps
+  const fin = useMemo(() => pronto ? resumoFinanceiro({ cfg, transacoes: trans, metaLucro: cfg.metaLucro }) : null, [pronto, trans]) // eslint-disable-line react-hooks/exhaustive-deps
+  const listaClientes = useMemo(() => calcClientes(trans), [trans])
+  const sumidos = useMemo(() => calcSumidos(listaClientes), [listaClientes])
+  const linkCardapio = user?.id ? `${window.location.origin}/pedido/${user.id}` : ''
 
   return (
     <>
       <div className="topbar">
         <div className="topbar-inner">
           <div className="topbar-title">Vendas</div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button onClick={() => setSheet({ type: 'venda' })} style={{ fontSize: 13, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer' }}>+ Avulso</button>
-            <button onClick={() => setSheet({ type: 'rapido' })} style={{ fontSize: 13, padding: '6px 14px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#000', fontWeight: 700, cursor: 'pointer' }}>⚡ Lançar</button>
-          </div>
+          <button className="pd-btn verde" onClick={() => setBalcao(true)}>+ Venda de balcão</button>
         </div>
       </div>
 
-      <div className="page-inner" style={{ paddingTop: 16 }}>
-        <div className="tab-bar">
-          <button className={`tab-btn ${tab === 'inicio'   ? 'active' : ''}`} onClick={() => setTab('inicio')}>Início</button>
-          <button className={`tab-btn ${tab === 'analise'  ? 'active' : ''}`} onClick={() => setTab('analise')}>Análise</button>
-          <button className={`tab-btn ${tab === 'historico'? 'active' : ''}`} onClick={() => setTab('historico')}>Histórico</button>
-        </div>
+      <div className="page-inner vd" style={{ paddingTop: 14 }}>
+        <nav className="pd-seg cf-abas" aria-label="Seções">
+          {ABAS.map(a => <button key={a.key} className={aba === a.key ? 'on' : ''} aria-current={aba === a.key ? 'page' : undefined} onClick={() => irPara(a.key)}>{a.nome}</button>)}
+        </nav>
 
-        {/* ── INÍCIO ──────────────────────────────── */}
-        {tab === 'inicio' && (
+        {!pronto ? <div className="pd-vazio">Carregando…</div> : (
           <>
-            <div style={{ display: 'flex', gap: 8, marginBottom: periodo === 'custom' ? 8 : 12, flexWrap: 'wrap' }}>
-              {[['semana', 'Esta semana'], ['mes', 'Este mês']].map(([p, label]) => (
-                <button key={p} onClick={() => setPeriodo(p)} style={{
-                  fontSize: 13, padding: '5px 14px', borderRadius: 20,
-                  border: '1px solid var(--border)',
-                  background: periodo === p ? 'var(--teal)' : 'transparent',
-                  color: periodo === p ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
-                }}>{label}</button>
-              ))}
-              <button onClick={() => setPeriodo('custom')} style={{
-                fontSize: 13, padding: '5px 14px', borderRadius: 20,
-                border: `1px solid ${periodo === 'custom' ? 'var(--teal)' : 'var(--border)'}`,
-                background: periodo === 'custom' ? 'var(--teal)' : 'transparent',
-                color: periodo === 'custom' ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
-              }}>📅 Período</button>
-            </div>
-            {periodo === 'custom' && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-                <input type="date" value={customInicio} onChange={e => setCustomInicio(e.target.value)}
-                  style={{ flex: 1, padding: '7px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, colorScheme: 'dark' }} />
-                <span style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>→</span>
-                <input type="date" value={customFim} onChange={e => setCustomFim(e.target.value)}
-                  style={{ flex: 1, padding: '7px 10px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, colorScheme: 'dark' }} />
-              </div>
-            )}
-
-            <div className="metric-grid" style={{ marginBottom: 12 }}>
-              {[
-                { label: 'Faturamento líq.', value: fmtR(totalRevNet) },
-                { label: 'Lucro líquido',    value: fmtR(lucroLiquido), color: lucroLiquido >= 0 ? 'var(--teal)' : 'var(--alert-text)' },
-                { label: 'Margem líquida',   value: totalRevNet > 0 ? `${fmtN((lucroLiquido/totalRevNet)*100)}%` : '—',
-                  color: totalRevNet > 0 && (lucroLiquido/totalRevNet)*100 >= cfg.margem ? 'var(--teal)' : lucroLiquido > 0 ? '#f59e0b' : 'var(--alert-text)' },
-                { label: 'Ticket médio',     value: ticketMedio > 0 ? fmtR(ticketMedio) : '—',
-                  sub: `${totalUnits} un · ${numTransacoes} pedido${numTransacoes !== 1 ? 's' : ''}` },
-              ].map(m => (
-                <div key={m.label} className="card" style={{ marginBottom: 0 }}>
-                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700, marginBottom: 4 }}>{m.label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.02em', color: m.color || 'var(--text-primary)' }}>{loading ? '—' : m.value}</div>
-                  {m.sub && !loading && <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 3 }}>{m.sub}</div>}
-                </div>
-              ))}
-            </div>
-
-            {/* Resultado consolidado */}
-            {!loading && totalRevNet > 0 && (
-              <ResultadoCard
-                periodo={periodo}
-                totalRevBruto={totalRevBruto} totalTaxas={totalTaxas}
-                totalRevNet={totalRevNet} totalRevNetAvulsa={totalRevNetAvulsa} totalRevNetPed={totalRevNetPed}
-                totalCost={totalCost} totalCustoSacolas={totalCustoSacolas}
-                numPedidosPeriodo={numPedidosPeriodo} custoSacola={custoSacola}
-                totalComprasPeriodo={totalComprasPeriodo}
-                lucroBruto={lucroBruto} margemBruta={margemBruta}
-                custoFixoPeriodo={custoFixoPeriodo} cfg={cfg}
-                lucroLiquido={lucroLiquido} margemLiquida={margemLiquida}
-              />
-            )}
-
-            {/* Canal de venda */}
-            {!loading && Object.keys(statsPerPlat).some(k => statsPerPlat[k].revenue > 0) && (() => {
-              const totalCanal = Object.values(statsPerPlat).reduce((s, p) => s + p.revenue, 0)
-              const entries = [['Direta', statsPerPlat['Direta']?.revenue || 0, 'var(--teal)'],
-                               ['iFood',  statsPerPlat['iFood']?.revenue  || 0, '#ef4444']]
-                .filter(([, v]) => v > 0)
-              return (
-                <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Canal de venda</div>
-                  {entries.map(([plat, val, cor], i) => {
-                    const pct = totalCanal > 0 ? (val / totalCanal) * 100 : 0
-                    return (
-                      <div key={plat} style={{ marginBottom: i < entries.length - 1 ? 10 : 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: cor }}>{plat}</span>
-                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{fmtN(pct, 0)}% · {fmtR(val)}</span>
-                        </div>
-                        <div style={{ height: 4, background: '#252525', borderRadius: 2 }}>
-                          <div style={{ width: `${pct}%`, height: '100%', background: cor, borderRadius: 2 }} />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-
-            {/* Heatmap dia da semana */}
-            {!loading && todasVendasAll.length > 0 && (
-              <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Receita por dia da semana</div>
-                <HeatmapDOW vendas={todasVendasAll} />
-              </div>
-            )}
+            {aba === 'resumo' && <AbaResumo trans={trans} fin={fin} cfg={cfg} sumidos={sumidos} irPara={irPara} navigate={navigate} />}
+            {aba === 'produtos' && <AbaProdutos trans={trans} encomendas={encomendas} produtos={produtos} cfg={cfg} navigate={navigate} />}
+            {aba === 'clientes' && <AbaClientes lista={listaClientes} sumidos={sumidos} contatos={contatos || []} linkCardapio={linkCardapio} navigate={navigate} show={show} />}
+            {aba === 'historico' && <AbaHistorico trans={trans} navigate={navigate} show={show} aoApagar={rVend} />}
           </>
         )}
-
-        {/* ── ANÁLISE ──────────────────────────────── */}
-        {tab === 'analise' && (() => {
-          const canalData = [
-            { label: 'Direta', valor: statsPerPlat['Direta']?.revenue || 0, cor: 'var(--teal)' },
-            { label: 'iFood',  valor: statsPerPlat['iFood']?.revenue  || 0, cor: '#ef4444' },
-          ]
-          return (
-            <>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                {[['semana', 'Esta semana'], ['mes', 'Este mês']].map(([p, label]) => (
-                  <button key={p} onClick={() => setPeriodo(p)} style={{
-                    fontSize: 13, padding: '5px 14px', borderRadius: 20, border: '1px solid var(--border)',
-                    background: periodo === p ? 'var(--teal)' : 'transparent',
-                    color: periodo === p ? '#fff' : 'var(--text-secondary)', cursor: 'pointer',
-                  }}>{label}</button>
-                ))}
-              </div>
-
-              {!lVend && <GraficoDiario vendas={todasVendasPeriodo} periodo={periodo === 'custom' ? 'mes' : periodo} />}
-
-              {/* Tendência semanal */}
-              {!lVend && todasVendasAll.length > 0 && (
-                <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Tendência semanal</div>
-                  <TendenciaSemanal vendas={todasVendasAll} />
-                </div>
-              )}
-
-              {!lVend && canalData.some(c => c.valor > 0) && (() => {
-                const totalCanal = canalData.reduce((s, c) => s + c.valor, 0)
-                return (
-                  <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 10 }}>Canal de venda</div>
-                    {canalData.filter(c => c.valor > 0).map((c, i, arr) => {
-                      const pct = totalCanal > 0 ? (c.valor / totalCanal) * 100 : 0
-                      return (
-                        <div key={c.label} style={{ marginBottom: i < arr.length - 1 ? 10 : 0 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: c.cor }}>{c.label}</span>
-                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{fmtN(pct, 0)}% · {fmtR(c.valor)}</span>
-                          </div>
-                          <div style={{ height: 4, background: '#252525', borderRadius: 2, overflow: 'hidden' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', background: c.cor, borderRadius: 2 }} />
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })()}
-
-              {/* Lista produtos da semana */}
-              {!lVend && (() => {
-                const hoje = new Date()
-                const seg = new Date(hoje); seg.setDate(hoje.getDate() - ((hoje.getDay() || 7) - 1)); seg.setHours(0,0,0,0)
-                const iSeg = seg.toISOString().split('T')[0]
-                const iDom = new Date(seg); iDom.setDate(seg.getDate() + 6)
-                const iFim = iDom.toISOString().split('T')[0]
-                const byProd = {}
-                todasVendasAll.filter(v => v.data >= iSeg && v.data <= iFim).forEach(v => {
-                  if (!byProd[v.produtoNome]) byProd[v.produtoNome] = { receita: 0, un: 0 }
-                  byProd[v.produtoNome].receita += v.quantidade * v.precoUnit
-                  byProd[v.produtoNome].un += v.quantidade
-                })
-                const list = Object.entries(byProd).sort((a, b) => b[1].receita - a[1].receita)
-                if (list.length === 0) return null
-                return (
-                  <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>Esta semana · produtos</div>
-                    {list.map(([nome, d], i, arr) => (
-                      <div key={nome} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                        <span style={{ fontSize: 13, fontWeight: 500 }}>{nome}</span>
-                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{fmtN(d.un, 0)} un · <span style={{ color: 'var(--teal)', fontWeight: 600 }}>{fmtR(d.receita)}</span></span>
-                      </div>
-                    ))}
-                  </div>
-                )
-              })()}
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <div style={{ flex: 1, height: 1, background: '#252525' }} />
-                <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600 }}>Comparar produtos</div>
-                <div style={{ flex: 1, height: 1, background: '#252525' }} />
-              </div>
-
-              <ComparadorProdutos vendas={todasVendasAll} produtos={produtos} />
-            </>
-          )
-        })()}
-
-        {/* ── HISTÓRICO ────────────────────────────── */}
-        {tab === 'historico' && (() => {
-          const DOW = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-          const fmtShort = (iso) => { const [, m, d] = iso.split('-'); return `${d}/${m}` }
-          const cutoff7d = new Date(); cutoff7d.setDate(cutoff7d.getDate() - 7)
-          const cutoff7dIso = cutoff7d.toISOString().split('T')[0]
-          const grupos = filtroHistPeriodo === '7d'
-            ? historicoGrupos.filter(([data]) => data >= cutoff7dIso)
-            : historicoGrupos
-
-          return loading ? <div className="loading">Carregando...</div> : (
-            <>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-                {[['all', 'Todo período'], ['7d', 'Últimos 7 dias']].map(([val, label]) => {
-                  const a = filtroHistPeriodo === val
-                  return (
-                    <button key={val} onClick={() => setFiltroHistPeriodo(val)} style={{
-                      fontSize: 12, padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
-                      border: `1px solid ${a ? 'var(--teal)' : 'var(--border)'}`,
-                      background: a ? 'var(--teal)' : 'transparent',
-                      color: a ? '#000' : 'var(--text-secondary)', fontWeight: a ? 700 : 400,
-                    }}>{label}</button>
-                  )
-                })}
-              </div>
-
-              {grupos.length === 0
-                ? <div className="empty"><span>Nenhuma venda registrada</span></div>
-                : grupos.map(([data, items]) => {
-                  const totalDia = items.reduce((s, item) => {
-                    if (item._tipo === 'pedido') return s + (item.valor || (item.itens || []).reduce((ss, i) => ss + i.quantidade * (i.precoUnit || 0), 0))
-                    return s + item.quantidade * item.precoUnit
-                  }, 0)
-                  // Separate vendas avulsas and pedidos (keep pedidos grouped)
-                  const vendasAvulsas = items.filter(i => i._tipo === 'venda')
-                  const pedidosGrupo  = items.filter(i => i._tipo === 'pedido')
-                  const dow = DOW[new Date(data + 'T12:00:00').getDay()]
-                  const isOpen = expandedDate === data
-                  return (
-                    <div key={data} style={{ marginBottom: 8 }}>
-                      <button onClick={() => setExpandedDate(isOpen ? null : data)} style={{
-                        width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
-                        background: 'var(--bg-secondary)', border: 'none', cursor: 'pointer',
-                        borderRadius: isOpen ? '9px 9px 0 0' : 9,
-                        transition: 'border-radius 0.15s',
-                      }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', flexShrink: 0 }}>{fmtShort(data)}</span>
-                        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flex: 1, textAlign: 'left' }}>{dow} · {items.length} {items.length === 1 ? 'venda' : 'vendas'}</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal)' }}>{fmtR(totalDia)}</span>
-                        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', display: 'inline-block' }}>▾</span>
-                      </button>
-                      {isOpen && (
-                        <div style={{ background: 'var(--bg-tertiary)', border: '1px solid #2a2a2a', borderTop: 'none', borderRadius: '0 0 9px 9px', padding: '0 14px' }}>
-                          {/* Vendas avulsas */}
-                          {vendasAvulsas.map((v, li) => (
-                            <div key={v.id} style={{ display: 'flex', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #1e1e1e', gap: 8 }}>
-                              <div style={{ flex: 1 }}><span style={{ fontSize: 12, fontWeight: 600 }}>{v.produtoNome}</span></div>
-                              <span style={{ fontSize: 10, color: PLAT_COLOR[v.plataforma] || 'var(--teal)', flexShrink: 0 }}>{v.quantidade} un · {v.plataforma}</span>
-                              <span style={{ fontSize: 13, fontWeight: 700, flexShrink: 0 }}>{fmtR(v.quantidade * v.precoUnit)}</span>
-                              <button onClick={() => handleDelete(v.id)} style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', cursor: 'pointer', fontSize: 16, padding: '0 2px', flexShrink: 0 }}>×</button>
-                            </div>
-                          ))}
-                          {/* Pedidos agrupados por cliente */}
-                          {pedidosGrupo.map(pedido => {
-                            const pedTotal = pedido.valor || (pedido.itens || []).reduce((s, i) => s + i.quantidade * (i.precoUnit || 0), 0)
-                            const platColor = PLAT_COLOR[CANAL_TO_PLAT[pedido.canal] || 'Direta'] || 'var(--teal)'
-                            return (
-                              <div key={pedido.id} style={{ borderBottom: '1px solid #1e1e1e', paddingBottom: 6, marginBottom: 2 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', padding: '8px 0 4px', gap: 8 }}>
-                                  <div style={{ flex: 1 }}>
-                                    <span style={{ fontSize: 12, fontWeight: 700 }}>{pedido.cliente}</span>
-                                    <span style={{ fontSize: 10, color: 'var(--text-tertiary)', marginLeft: 6 }}>{pedido.id}</span>
-                                  </div>
-                                  <span style={{ fontSize: 10, color: platColor, flexShrink: 0 }}>{pedido.canal}</span>
-                                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal)', flexShrink: 0 }}>{fmtR(pedTotal)}</span>
-                                </div>
-                                {(pedido.itens || []).map(it => (
-                                  <div key={it.produto} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0 3px 12px' }}>
-                                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{it.produto}</span>
-                                    <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{it.quantidade} × {fmtR(it.precoUnit || 0)}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )
-                          })}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
-                            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Total do dia</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--teal)' }}>{fmtR(totalDia)}</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })
-              }
-            </>
-          )
-        })()}
       </div>
 
-      {sheet?.type === 'venda'  && <VendaForm    produtos={produtos} prefill={sheet.produto} onSave={handleSave} onClose={() => setSheet(null)} />}
-      {sheet?.type === 'rapido' && <LancamentoRapido produtos={produtos} onSave={handleSave} onClose={() => setSheet(null)} />}
-
+      {balcao && <NovoPedidoSheet modoInicial="feita" titulo="Venda de balcão" onClose={() => setBalcao(false)} onSaved={() => { rEnc(); show('Venda registrada') }} />}
       {toast && <div className="toast">{toast}</div>}
+    </>
+  )
+}
 
+// ── Resumo ───────────────────────────────────────────────────────────────────
+const PERIODOS = [{ key: 'hoje', nome: 'Hoje' }, { key: 'semana', nome: 'Semana' }, { key: 'mes', nome: 'Mês' }, { key: 'custom', nome: 'Período…' }]
+
+function AbaResumo({ trans, fin, cfg, sumidos, irPara, navigate }) {
+  const [periodo, setPeriodo] = useState(() => { try { return localStorage.getItem('vendas_periodo') || 'mes' } catch { return 'mes' } })
+  const hojeS = ymd(new Date())
+  const [custom, setCustom] = useState({ de: mais(hojeS, -29), ate: hojeS })
+  const [sel, setSel] = useState(null)       // dia tocado no gráfico
+  const [celSel, setCelSel] = useState(null) // célula tocada no mapa
+  useEffect(() => { try { localStorage.setItem('vendas_periodo', periodo) } catch { /* sem storage */ } }, [periodo])
+  useEffect(() => setSel(null), [periodo, custom.de, custom.ate])
+
+  const j = janela(periodo, new Date(), custom)
+  const tot = somar(trans, j.de, j.ate)
+  const ateHoje = somar(trans, j.de, j.ateComparar < j.ate ? j.ateComparar : j.ate)
+  const ant = somar(trans, j.ant.de, j.ant.ate)
+  const marcados = tot.receita - ateHoje.receita
+  const desloc = periodo === 'mes'
+    ? (d) => { const x = new Date(d + 'T12:00:00'); const m = x.getMonth(); x.setMonth(m - 1); if (x.getMonth() === m) x.setDate(0); return ymd(x) }
+    : periodo === 'custom' ? (d) => mais(d, -(Math.round((new Date(j.ate) - new Date(j.de)) / 864e5) + 1)) : (d) => mais(d, -7)
+  const dias = j.grafico ? porDia(trans, j.grafico, desloc) : null
+  const maxDia = dias ? Math.max(1, ...dias.map(d => Math.max(d.receita, d.data <= hojeS ? d.ref : 0))) : 1
+  const canais = porCanal(trans, j.de, j.ate)
+  const mom = momentos(trans, mais(hojeS, -89), hojeS)
+  const lucroMes = fin.mes.contribuicao - fin.fixos
+
+  // Avisos automáticos
+  const avisos = []
+  const vVar = variacao(ateHoje.receita, ant.receita)
+  if (vVar != null && ant.receita > 0 && Math.abs(vVar) >= 0.15) {
+    avisos.push(vVar < 0
+      ? { tipo: 'atencao', icone: '↓', texto: `As vendas estão ${Math.round(-vVar * 100)}% abaixo de ${j.nomeAnt}.`, acao: 'Ver clientes sumidos', fazer: () => irPara('clientes') }
+      : { tipo: 'bom', icone: '↑', texto: `As vendas estão ${Math.round(vVar * 100)}% acima de ${j.nomeAnt}.` })
+  }
+  if (sumidos.length) avisos.push({ tipo: 'atencao', icone: '!', texto: `${sumidos.length} ${sumidos.length === 1 ? 'cliente que pedia com frequência não pede' : 'clientes que pediam com frequência não pedem'} há mais de 30 dias.`, acao: 'Chamar', fazer: () => irPara('clientes') })
+  if (mom.melhor && mom.total > 0) {
+    const [k, v] = mom.melhor
+    const [per, wd] = k.split('|')
+    const share = v / mom.total
+    if (share >= 0.12) {
+      const quando = per === 'sem' ? DIAS_SEMANA[wd].toLowerCase() : `${DIAS_SEMANA[wd].toLowerCase()} de ${per === 'manha' ? 'manhã' : per}`
+      avisos.push({ tipo: 'info', icone: '★', texto: `O seu melhor momento é ${quando}: ${pct(share)} das vendas dos últimos 90 dias. Vale caprichar na produção da véspera.`, acao: 'Planejar', fazer: () => navigate('/mise-en-place') })
+    }
+  }
+  const prod30 = produtosStats(trans, mais(hojeS, -29), hojeS, null).filter(p => p.receita > 0).sort((a, b) => b.receita - a.receita)
+  const rec30 = prod30.reduce((s, p) => s + p.receita, 0)
+  if (prod30[0] && rec30 > 0 && prod30[0].receita / rec30 >= 0.2) {
+    const p = prod30[0]
+    avisos.push({ tipo: 'info', icone: '★', texto: `${p.nome} é ${pct(p.receita / rec30)} do que você vendeu nos últimos 30 dias${p.margem != null ? `, com ${pct(p.margem)} de margem` : ''}.`, acao: 'Ver produtos', fazer: () => irPara('produtos') })
+  }
+  const can90 = porCanal(trans, mais(hojeS, -89), hojeS)
+  const ifood = can90.find(c => c.canal === 'iFood'), card = can90.find(c => c.canal === 'Cardápio')
+  if (ifood?.pedidos >= 3 && card?.pedidos >= 3 && ifood.ticket < card.ticket * 0.9) {
+    avisos.push({ tipo: 'atencao', icone: '↓', texto: `O ticket do iFood (${fmtR0(ifood.ticket)}) é ${pct(1 - ifood.ticket / card.ticket)} menor que o do Cardápio (${fmtR0(card.ticket)}), e ainda paga ${cfg.taxaIfood || 0}% de taxa.` })
+  }
+  if (fin.semCusto.length) avisos.push({ tipo: 'atencao', icone: '!', texto: `${fin.semCusto.length === 1 ? '1 doce vendido está' : `${fin.semCusto.length} doces vendidos estão`} sem custo cadastrado: a margem aparece maior do que é.`, acao: 'Ver produtos', fazer: () => navigate('/produtos') })
+
+  const diaSel = dias && sel ? dias.find(d => d.data === sel) : null
+  const rotulosEixo = dias ? [dias[0].data, dias[Math.floor(dias.length / 2)].data, dias[dias.length - 1].data] : []
+
+  return (
+    <>
+      <div className="vd-chips" role="group" aria-label="Período">
+        {PERIODOS.map(p => <button key={p.key} className={`vd-chip${periodo === p.key ? ' on' : ''}`} aria-pressed={periodo === p.key} onClick={() => setPeriodo(p.key)}>{p.nome}</button>)}
+        <span className="vd-comp">comparando com <b>{j.nomeAnt}</b></span>
+      </div>
+      {periodo === 'custom' && (
+        <div className="vd-chips">
+          <input type="date" className="pd-input" style={{ width: 'auto', colorScheme: 'dark' }} value={custom.de} max={custom.ate} onChange={e => setCustom(c => ({ ...c, de: e.target.value }))} aria-label="De" />
+          <span className="cf-dim">até</span>
+          <input type="date" className="pd-input" style={{ width: 'auto', colorScheme: 'dark' }} value={custom.ate} min={custom.de} onChange={e => setCustom(c => ({ ...c, ate: e.target.value }))} aria-label="Até" />
+        </div>
+      )}
+
+      <section className="cf-kpis" aria-label="Números do período">
+        <div className="cf-kpi"><span>Vendido</span><b>{fmtR0(tot.receita)}</b><Delta v={variacao(ateHoje.receita, ant.receita)} nome={j.curto} />
+          {marcados > 0.5 && <small>inclui {fmtR0(marcados)} já marcados</small>}</div>
+        <div className="cf-kpi"><span>Pedidos</span><b>{tot.pedidos}</b><Delta v={variacao(ateHoje.pedidos, ant.pedidos)} nome={j.curto} /></div>
+        <div className="cf-kpi"><span>Ticket médio</span><b>{tot.ticket ? fmtR(tot.ticket) : '—'}</b>{ateHoje.ticket && ant.ticket ? <Delta v={variacao(ateHoje.ticket, ant.ticket)} nome={j.curto} /> : <small>por pedido</small>}</div>
+        {periodo === 'mes' ? (
+          <div className="cf-kpi"><span>Lucro do mês</span>
+            {fin.fixos > 0
+              ? <><b className={lucroMes >= 0 ? 'cf-pos' : ''}>{lucroMes >= 0 ? '' : '− '}{fmtR0(Math.abs(lucroMes))}</b>
+                  <small>{lucroMes >= 0 ? 'custos fixos cobertos ✓' : fin.falta != null ? `faltam ${fmtR0(fin.falta)} pra empatar` : 'abaixo dos custos fixos'}</small></>
+              : <><b>—</b><small>cadastre os custos fixos</small></>}
+          </div>
+        ) : (
+          <div className="cf-kpi"><span>Sobra das vendas</span><b>{fmtR0(tot.contribuicao)}</b><small>depois de ingredientes, embalagem e taxas</small></div>
+        )}
+      </section>
+
+      {dias ? (
+        <section className="cf-card" aria-label="Vendas por dia">
+          <div className="cf-topo" style={{ flexWrap: 'wrap' }}>
+            <h2>Vendas por dia</h2>
+            <span className="vd-legenda"><i className="vd-sw" style={{ background: '#3987e5' }} />{j.titulo.toLowerCase()}<i className="vd-tick" />{j.nomeAnt}</span>
+          </div>
+          <div className="vd-dica" aria-live="polite">
+            {diaSel
+              ? <><b>{diaCurto(diaSel.data)}</b> · {fmtR0(diaSel.receita)} · {diaSel.pedidos} {diaSel.pedidos === 1 ? 'pedido' : 'pedidos'}{diaSel.data > hojeS ? ' marcados' : ''} <span className="cf-dim">· antes: {fmtR0(diaSel.ref)}</span></>
+              : <span className="cf-dim">Toque numa barra pra ver o dia.{dias.some(d => d.data > hojeS && d.receita > 0) ? ' As claras são pedidos já marcados.' : ''}</span>}
+          </div>
+          <div className="vd-grafico" style={{ gridTemplateColumns: `repeat(${dias.length}, minmax(0, 1fr))` }}>
+            {dias.map(d => (
+              <button key={d.data} type="button" className={`vd-barra${d.data > hojeS ? ' futuro' : ''}${sel === d.data ? ' sel' : ''}${d.data === hojeS ? ' hoje' : ''}`}
+                aria-label={`${diaCurto(d.data)}: ${fmtR0(d.receita)}, ${d.pedidos} pedidos; antes ${fmtR0(d.ref)}`} aria-pressed={sel === d.data}
+                onClick={() => setSel(s => s === d.data ? null : d.data)}>
+                <i style={{ height: `${(d.receita / maxDia) * 100}%` }} />
+                {d.ref > 0 && d.data <= hojeS && <b style={{ bottom: `${(d.ref / maxDia) * 100}%` }} />}
+              </button>
+            ))}
+          </div>
+          <div className="vd-eixo">{rotulosEixo.map((d, i) => <span key={i}>{d === hojeS ? 'hoje' : diaCurto(d)}</span>)}</div>
+        </section>
+      ) : <div className="cf-card cf-hint">Período longo demais pro gráfico por dia: veja os números acima.</div>}
+
+      <div className="cf-grade duas">
+        <section className="cf-card" aria-label="De onde vêm as vendas">
+          <h2>De onde vêm as vendas</h2>
+          {canais.length ? (
+            <>
+              <div className="vd-seg" role="img" aria-label={canais.map(c => `${c.canal} ${pct(c.pct)}`).join(', ')}>
+                {canais.map(c => <i key={c.canal} style={{ flex: Math.max(0.001, c.pct), background: c.cor }} />)}
+              </div>
+              {canais.map(c => (
+                <div key={c.canal} className="vd-linha-canal">
+                  <i className="vd-sw" style={{ background: c.cor }} />
+                  <span style={{ flex: 1 }}>{c.canal}</span>
+                  <span className="cf-dim" style={{ width: 40, textAlign: 'right' }}>{pct(c.pct)}</span>
+                  <b style={{ width: 82, textAlign: 'right' }}>{fmtR0(c.receita)}</b>
+                </div>
+              ))}
+              <div className="cf-dim">Ticket médio: {canais.filter(c => c.pedidos).slice(0, 3).map(c => `${c.canal} ${fmtR0(c.ticket)}`).join(' · ')}</div>
+            </>
+          ) : <div className="cf-hint">Sem vendas no período.</div>}
+        </section>
+
+        <section className="cf-card" aria-label="Quando você mais vende">
+          <div className="cf-topo"><h2>Quando você mais vende</h2><span className="cf-dim">90 dias</span></div>
+          {mom.total > 0 ? (
+            <>
+              <div className="vd-mapa">
+                <span />
+                {mom.ordem.map(d => <span key={d}>{DIAS_CURTO[d]}</span>)}
+                {mom.linhas.map(l => [
+                  <span key={l.key} className="vd-mapa-nome">{l.nome}</span>,
+                  ...l.celulas.map(c => {
+                    const k = `${l.key}|${c.dia}`
+                    return <button key={k} type="button" className={`vd-cel vd-n${c.nivel}${celSel === k ? ' sel' : ''}`}
+                      aria-label={`${DIAS_SEMANA[c.dia]}, ${l.nome.toLowerCase()}: ${fmtR0(c.v)} (${pct(c.pct)})`} title={`${DIAS_SEMANA[c.dia]} · ${l.nome}: ${fmtR0(c.v)} (${pct(c.pct)})`}
+                      onClick={() => setCelSel(s => s === k ? null : k)} />
+                  }),
+                ])}
+              </div>
+              <div className="vd-dica">
+                {celSel ? (() => {
+                  const [lk, wd] = celSel.split('|'); const l = mom.linhas.find(x => x.key === lk); const c = l?.celulas.find(x => String(x.dia) === wd)
+                  return c ? <><b>{DIAS_SEMANA[c.dia]} · {l.nome.toLowerCase()}</b>: {fmtR0(c.v)} · {pct(c.pct)} das vendas</> : null
+                })() : (
+                  <span className="vd-legenda">menos <i className="vd-cel-mini vd-n1" /><i className="vd-cel-mini vd-n2" /><i className="vd-cel-mini vd-n3" /><i className="vd-cel-mini vd-n4" /> mais · pelo período de entrega</span>
+                )}
+              </div>
+            </>
+          ) : <div className="cf-hint">Sem vendas nos últimos 90 dias.</div>}
+        </section>
+      </div>
+
+      {avisos.length > 0 && (
+        <section className="cf-card" aria-label="Pra ficar de olho" style={{ gap: 0 }}>
+          <h2 style={{ marginBottom: 6 }}>Pra ficar de olho</h2>
+          {avisos.slice(0, 4).map((a, i) => (
+            <div key={i} className="vd-aviso">
+              <span className={`vd-ic ${a.tipo}`} aria-hidden="true">{a.icone}</span>
+              <span style={{ flex: 1 }}>{a.texto}</span>
+              {a.acao && <button className="pd-btn" onClick={a.fazer}>{a.acao}</button>}
+            </div>
+          ))}
+        </section>
+      )}
+      <div className="cf-dim">Vendido = valor dos doces, sem frete, sem cancelados e sem pedidos que ainda esperam o Pix. Mesma conta de Configurações › Financeiro.</div>
+    </>
+  )
+}
+
+// ── Produtos ─────────────────────────────────────────────────────────────────
+const JANELAS_PROD = [{ key: 7, nome: 'Semana' }, { key: 30, nome: '30 dias' }, { key: 90, nome: '90 dias' }]
+const ORDENS = [{ key: 'un', nome: 'Mais vendidos' }, { key: 'lucro', nome: 'Mais lucro' }, { key: 'delta', nome: 'Crescendo' }]
+const QUADS = [
+  { key: 'joias', titulo: 'Joias escondidas', sub: 'margem alta, vende pouco', acao: 'divulgar e pôr em destaque', classe: '' },
+  { key: 'estrelas', titulo: 'Estrelas', sub: 'vende muito e dá lucro', acao: 'nunca deixar faltar', classe: 'bom' },
+  { key: 'repensar', titulo: 'Repensar', sub: 'vende pouco, margem baixa', acao: 'mudar a receita ou tirar', classe: 'ruim' },
+  { key: 'populares', titulo: 'Populares, margem baixa', sub: 'vende muito, sobra pouco', acao: 'subir o preço ou baixar o custo', classe: 'atencao' },
+]
+
+function AbaProdutos({ trans, encomendas, produtos, cfg, navigate }) {
+  const [dias, setDias] = useState(30)
+  const [ordem, setOrdem] = useState('un')
+  const hojeS = ymd(new Date())
+  const de = mais(hojeS, -(dias - 1))
+  const stats = useMemo(() => produtosStats(trans, de, hojeS, { de: mais(de, -dias), ate: mais(de, -1) }), [trans, de, hojeS, dias])
+  const meta = (Number(cfg.margem) || 30) / 100
+  const quad = matriz(stats, meta)
+  const ativos = new Set((produtos || []).filter(p => p.ativo !== false && p.tipo !== 'combo').map(p => String(p.nome).trim().toLowerCase()))
+  const lista = [...stats].filter(p => p.un > 0).sort((a, b) =>
+    ordem === 'lucro' ? b.lucro - a.lucro : ordem === 'delta' ? ((b.delta ?? 9) - (a.delta ?? 9)) : b.un - a.un)
+  const prev = useMemo(() => previsao(trans, encomendas), [trans, encomendas])
+
+  // Atenção: parados, sem custo, preço abaixo da meta
+  const todos90 = useMemo(() => produtosStats(trans, mais(hojeS, -89), hojeS, null), [trans, hojeS])
+  const alertas = []
+  for (const p of todos90) {
+    if (!ativos.has(p.nome.trim().toLowerCase()) || !p.ultimaVenda) continue
+    const parado = Math.round((new Date(hojeS) - new Date(p.ultimaVenda)) / 864e5)
+    if (parado >= 21) alertas.push({ texto: `${p.nome} não vende há ${parado} dias. Ainda vale estar no cardápio?`, acao: 'Ver produtos', fazer: () => navigate('/produtos') })
+  }
+  for (const p of stats.filter(x => x.semCusto && x.un > 0).slice(0, 3)) alertas.push({ texto: `${p.nome} está sem custo cadastrado: a margem aparece maior do que é.`, acao: 'Cadastrar custo', fazer: () => navigate('/produtos') })
+  for (const p of (quad?.populares || []).slice(0, 2)) {
+    const precoMedio = p.receita / p.un, custoUn = p.custo / p.un
+    const precoMeta = custoUn / (1 - meta)
+    if (precoMeta > precoMedio + 0.25) alertas.push({ texto: `${p.nome}: subir ${fmtR(Math.ceil((precoMeta - precoMedio) * 2) / 2)} (pra ~${fmtR(Math.ceil(precoMeta * 2) / 2)}) leva a margem de ${pct(p.margem)} pra sua meta de ${pct(meta)}.`, acao: 'Ajustar preço', fazer: () => navigate('/produtos') })
+  }
+
+  const mandarPlanejamento = () => {
+    const adicionar = prev.linhas.filter(l => l.produtoId && l.sugestao > 0).map(l => ({ produtoId: Number(l.produtoId), n: l.sugestao }))
+    navigate('/mise-en-place', { state: { adicionar } })
+  }
+
+  return (
+    <>
+      <div className="vd-chips" role="group" aria-label="Período">
+        {JANELAS_PROD.map(p => <button key={p.key} className={`vd-chip${dias === p.key ? ' on' : ''}`} aria-pressed={dias === p.key} onClick={() => setDias(p.key)}>{p.nome}</button>)}
+      </div>
+
+      <section className="cf-card" aria-label="O que cada doce faz pelo caixa">
+        <h2>O que cada doce faz pelo seu caixa</h2>
+        {quad ? (
+          <>
+            <div className="vd-quads">
+              {QUADS.map(q => (
+                <div key={q.key} className={`vd-quad ${q.classe}`}>
+                  <b>{q.titulo}</b>
+                  <span className="cf-dim">{q.sub}</span>
+                  <div className="vd-tags">{quad[q.key].length ? quad[q.key].map(p => <span key={p.nome}>{p.nome}</span>) : <span className="vazio">nenhum</span>}</div>
+                  <small>→ {q.acao}</small>
+                </div>
+              ))}
+            </div>
+            <div className="cf-dim">Margem alta = acima da sua meta de {pct(meta)} (Configurações › Custos). Vende muito = pelo menos 70% da média de unidades. Doces sem custo cadastrado ficam de fora.</div>
+          </>
+        ) : <div className="cf-hint">Sem vendas com custo cadastrado no período.</div>}
+      </section>
+
+      <section className="cf-card" aria-label="Produtos">
+        <div className="cf-topo" style={{ flexWrap: 'wrap' }}>
+          <h2>Produtos</h2>
+          <div className="vd-chips">{ORDENS.map(o => <button key={o.key} className={`vd-chip peq${ordem === o.key ? ' on' : ''}`} aria-pressed={ordem === o.key} onClick={() => setOrdem(o.key)}>{o.nome}</button>)}</div>
+        </div>
+        <div className="vd-tab">
+          <div className="vd-tab-cab"><span>Produto</span><span>Un</span><span>Vendido</span><span>Margem</span><span>8 semanas</span><span>vs antes</span></div>
+          {lista.map(p => {
+            const corM = p.margem == null ? 'atencao' : p.margem < 0 ? 'ruim' : p.margem >= meta ? 'bom' : 'atencao'
+            const maxS = Math.max(1, ...p.semanas)
+            return (
+              <div key={p.nome} className="vd-tab-lin">
+                <span className="nome">{p.nome}</span>
+                <span>{Math.round(p.un * 10) / 10}</span>
+                <b>{fmtR0(p.receita)}</b>
+                <span className={`m ${corM}`}>{p.margem == null ? 'sem custo' : pct(p.margem)}</span>
+                <span className="vd-spark" role="img" aria-label={`${p.nome}, unidades por semana: ${p.semanas.join(', ')}`}>
+                  {p.semanas.map((s, i) => <i key={i} className={i === 7 ? 'ult' : ''} style={{ height: `${Math.max(8, (s / maxS) * 100)}%`, opacity: s ? 1 : 0.35 }} />)}
+                </span>
+                <span className={`d ${p.delta == null ? 'novo' : p.delta > 0.005 ? 'sobe' : p.delta < -0.005 ? 'desce' : ''}`}>{p.delta == null ? 'novo' : Math.abs(p.delta) < 0.005 ? '=' : `${p.delta > 0 ? '▲' : '▼'} ${Math.round(Math.abs(p.delta) * 100)}%`}</span>
+              </div>
+            )
+          })}
+          {!lista.length && <div className="cf-hint" style={{ padding: '10px 0' }}>Nenhuma venda no período.</div>}
+        </div>
+        <div className="cf-dim">Margem: verde na meta ({pct(meta)}) ou acima, âmbar abaixo. Doce de combo entra com a parte dele do valor do combo.</div>
+      </section>
+
+      <section className="cf-card" aria-label="Previsão dos próximos 7 dias">
+        <div className="cf-topo" style={{ flexWrap: 'wrap' }}>
+          <h2>Pra produzir · próximos 7 dias</h2>
+          {prev.linhas.some(l => l.produtoId) && <button className="pd-btn verde" onClick={mandarPlanejamento}>Mandar pro planejamento</button>}
+        </div>
+        {prev.linhas.length ? (
+          <>
+            <div className="vd-prev">
+              <div className="vd-prev-cab"><span>Doce</span><span>Encomendado</span><span>Costuma sair</span><span>Sugestão</span></div>
+              {prev.linhas.slice(0, 12).map(l => (
+                <div key={l.nome} className="vd-prev-lin">
+                  <span className="nome">{l.nome}</span>
+                  <span>{l.encomendado || '—'}</span>
+                  <span>{l.costuma ? `~${Math.round(l.costuma * 10) / 10}` : '—'}</span>
+                  <b>{l.sugestao}</b>
+                </div>
+              ))}
+            </div>
+            <div className="cf-dim">Costuma sair = média do mesmo dia da semana nas últimas 4 semanas. Sugestão = em cada dia, o maior entre o encomendado e o que costuma sair. Confira com o que já tem pronto na Prontidão.</div>
+          </>
+        ) : <div className="cf-hint">Sem histórico nem encomendas pros próximos 7 dias.</div>}
+      </section>
+
+      {alertas.length > 0 && (
+        <section className="cf-card cf-aviso" aria-label="Atenção" style={{ gap: 0 }}>
+          <h2 style={{ marginBottom: 6, color: '#f5b544' }}>Atenção</h2>
+          {alertas.slice(0, 6).map((a, i) => (
+            <div key={i} className="vd-aviso">
+              <span style={{ flex: 1 }}>{a.texto}</span>
+              <button className="pd-btn" onClick={a.fazer}>{a.acao}</button>
+            </div>
+          ))}
+        </section>
+      )}
+    </>
+  )
+}
+
+// ── Clientes ─────────────────────────────────────────────────────────────────
+const CHAVE_CHAMADOS = 'guaxi_sumidos_chamados'
+const lerChamados = () => { try { return JSON.parse(localStorage.getItem(CHAVE_CHAMADOS) || '{}') } catch { return {} } }
+
+function AbaClientes({ lista, sumidos, contatos, linkCardapio, navigate, show }) {
+  const [chamados, setChamados] = useState(lerChamados)
+  const [fila, setFila] = useState(null)       // chaves pra chamar uma a uma
+  const [ficha, setFicha] = useState(null)     // cliente aberto
+  const [enviando, setEnviando] = useState(null)
+  const hoje = new Date(), hojeS = ymd(hoje)
+  const iniMes = ymd(new Date(hoje.getFullYear(), hoje.getMonth(), 1))
+  const doMes = lista.filter(c => c.pedidos.some(p => p.data >= iniMes && p.data <= hojeS))
+  const novos = doMes.filter(c => c.primeiro >= iniMes)
+  const voltaram = doMes.length - novos.length
+  const recorrentes = lista.filter(c => c.intervalo != null && c.ultimo >= mais(hojeS, -180))
+  const intervalo = recorrentes.length ? recorrentes.reduce((s, c) => s + c.intervalo, 0) / recorrentes.length : null
+  const ini90 = mais(hojeS, -89)
+  const top = lista.map(c => ({ ...c, total90: c.pedidos.filter(p => p.data >= ini90).reduce((s, p) => s + p.receita, 0), n90: c.pedidos.filter(p => p.data >= ini90).length }))
+    .filter(c => c.n90 > 0).sort((a, b) => b.total90 - a.total90).slice(0, 10)
+  const ordenados = [...sumidos].sort((a, b) => (chamados[a.chave] ? 1 : 0) - (chamados[b.chave] ? 1 : 0))
+  const pendentes = ordenados.filter(c => !chamados[c.chave] && soDig(c.contato).length >= 10)
+
+  const texto = (c) => `Oi${primeiroNome(c.nome) ? `, ${primeiroNome(c.nome)}` : ''}! Saudade 💛 ${c.favorito ? `Tem ${c.favorito} fresquinho por aqui, ` : 'Tem fornada nova por aqui, '}quer que eu separe pra você?${linkCardapio ? ` Dá pra pedir por aqui: ${linkCardapio}` : ''}`
+  const marcar = (c) => { const n = { ...lerChamados(), [c.chave]: hojeS }; try { localStorage.setItem(CHAVE_CHAMADOS, JSON.stringify(n)) } catch { /* sem storage */ } setChamados(n) }
+  async function chamar(c) {
+    const contato = acharContato(contatos, c.contato)
+    const t = texto(c)
+    if (janelaAberta(contato)) {
+      setEnviando(c.chave)
+      try { await enviarWhatsApp(contato.telefone, t, { pausar: false }); marcar(c); show(`Mandado pelo WhatsApp da Guaxí pra ${primeiroNome(c.nome)}`) }
+      catch (e) { show('Não foi: ' + e.message) }
+      finally { setEnviando(null) }
+      return
+    }
+    const link = waLink(c.contato, t)
+    if (!link) { show('Esse cliente não tem telefone'); return }
+    window.open(link, '_blank')
+    marcar(c)
+  }
+  const proximoDaFila = () => {
+    const c = sumidos.find(x => x.chave === fila[0])
+    const resto = fila.slice(1)
+    setFila(resto.length ? resto : null)
+    if (c) chamar(c)
+    if (!resto.length) show('Todos chamados ✓')
+  }
+  const haQuanto = (iso) => { const d = Math.round((new Date(hojeS) - new Date(iso)) / 864e5); return d === 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${d} dias` }
+
+  return (
+    <>
+      <section className="cf-kpis" aria-label="Clientes no mês">
+        <div className="cf-kpi"><span>Clientes no mês</span><b>{doMes.length}</b><small>que compraram até hoje</small></div>
+        <div className="cf-kpi"><span>Primeira vez</span><b>{novos.length}</b><small>{doMes.length ? `${pct(novos.length / doMes.length)} dos clientes` : '—'}</small></div>
+        <div className="cf-kpi"><span>Voltaram</span><b>{voltaram}</b><small>{doMes.length ? `${pct(voltaram / doMes.length)} dos clientes` : '—'}</small></div>
+        <div className="cf-kpi"><span>A cada quanto</span><b>{intervalo ? `${Math.round(intervalo)} dias` : '—'}</b><small>entre um pedido e outro</small></div>
+      </section>
+
+      {doMes.length > 0 && (
+        <section className="cf-card" aria-label="Novos e de volta">
+          <h2>Novos e de volta · este mês</h2>
+          <div className="vd-seg alto" role="img" aria-label={`${voltaram} voltaram, ${novos.length} primeira vez`}>
+            {voltaram > 0 && <i style={{ flex: voltaram, background: '#3987e5' }}>{pct(voltaram / doMes.length)}</i>}
+            {novos.length > 0 && <i style={{ flex: novos.length, background: '#d95926' }}>{pct(novos.length / doMes.length)}</i>}
+          </div>
+          <div className="vd-legenda"><i className="vd-sw" style={{ background: '#3987e5' }} />voltaram (já tinham pedido antes) <i className="vd-sw" style={{ background: '#d95926', marginLeft: 12 }} />primeira vez</div>
+        </section>
+      )}
+
+      <section className={`cf-card${pendentes.length ? ' cf-aviso' : ''}`} aria-label="Sumidos" style={{ gap: 0 }}>
+        <div className="cf-topo" style={{ marginBottom: 6, flexWrap: 'wrap' }}>
+          <h2 style={{ color: pendentes.length ? '#f5b544' : undefined }}>Sumidos · pediam com frequência e pararam</h2>
+          {fila ? <button className="pd-btn verde" onClick={proximoDaFila}>Chamar {primeiroNome(sumidos.find(x => x.chave === fila[0])?.nome)} · {fila.length} {fila.length > 1 ? 'faltam' : 'falta'} ›</button>
+            : pendentes.length > 1 && <button className="pd-btn verde" onClick={() => setFila(pendentes.map(c => c.chave))}>Chamar todos ({pendentes.length})</button>}
+        </div>
+        {ordenados.length === 0 && <div className="cf-hint" style={{ paddingTop: 4 }}>Ninguém sumido por enquanto. Aparece aqui quem pedia todo mês (ou mais) e está há mais de 30 dias sem pedir.</div>}
+        {ordenados.map(c => (
+          <div key={c.chave} className="vd-cli" style={{ opacity: chamados[c.chave] ? 0.55 : 1 }}>
+            <span className="vd-av" aria-hidden="true">{(c.nome || '?').charAt(0).toUpperCase()}</span>
+            <button type="button" className="vd-cli-txt" onClick={() => setFicha(c)}>
+              <b>{c.nome}</b>
+              <span>último pedido {haQuanto(c.ultimo)} · costumava pedir a cada {Math.round(c.intervalo)} dias{c.favorito ? ` · gosta de ${c.favorito}` : ''}</span>
+              {chamados[c.chave] && <span className="cf-pos">chamado {haQuanto(chamados[c.chave])}</span>}
+            </button>
+            <button className="pd-btn verde" disabled={enviando === c.chave} onClick={() => chamar(c)}>{enviando === c.chave ? 'Enviando…' : 'Chamar'}</button>
+          </div>
+        ))}
+        {ordenados.length > 0 && <div className="cf-dim" style={{ paddingTop: 8 }}>Vai pelo WhatsApp da Guaxí se a conversa estiver aberta; senão abre o seu com a mensagem pronta, com o doce preferido do cliente.</div>}
+      </section>
+
+      <section className="cf-card" aria-label="Quem mais compra">
+        <h2>Quem mais compra · últimos 90 dias</h2>
+        {top.length ? (
+          <div className="vd-top">
+            <div className="vd-top-cab"><span>#</span><span>Cliente</span><span>Pedidos</span><span>Total</span><span>Preferido</span></div>
+            {top.map((c, i) => (
+              <button key={c.chave} type="button" className="vd-top-lin" onClick={() => setFicha(c)}>
+                <span className="cf-dim">{i + 1}</span><span className="nome">{c.nome}</span><span>{c.n90}</span><b>{fmtR0(c.total90)}</b><span className="fav">{c.favorito}</span>
+              </button>
+            ))}
+          </div>
+        ) : <div className="cf-hint">Sem pedidos com cliente nos últimos 90 dias.</div>}
+      </section>
+
+      {ficha && (
+        <>
+          <div className="sheet-overlay" onClick={() => setFicha(null)} />
+          <div className="sheet">
+            <div className="sheet-title"><span>{ficha.nome}</span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 24, cursor: 'pointer' }} onClick={() => setFicha(null)} aria-label="Fechar">×</button></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div className="cf-kv" style={{ borderTop: 'none', paddingTop: 0 }}><span>WhatsApp</span><b>{ficha.contato || '—'}</b></div>
+              <div className="cf-kv"><span>Cliente desde</span><b>{diaCurto(ficha.primeiro)}</b></div>
+              <div className="cf-kv"><span>Pedidos</span><b>{ficha.vezes}{ficha.intervalo ? ` · a cada ${Math.round(ficha.intervalo)} dias` : ''}</b></div>
+              <div className="cf-kv"><span>Total</span><b>{fmtR(ficha.total)}</b></div>
+              {ficha.favorito && <div className="cf-kv"><span>Preferido</span><b>{ficha.favorito}</b></div>}
+              <div className="cf-linhas" style={{ marginTop: 4 }}>
+                {[...ficha.pedidos].sort((a, b) => b.data.localeCompare(a.data)).slice(0, 12).map(p => (
+                  <button key={p.id} type="button" className="vd-venda" onClick={() => navigate('/pedidos', { state: { openPedidoId: p.id } })}>
+                    <i className="vd-sw" style={{ background: corCanal(p.canal) }} />
+                    <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}><b>{diaCurto(p.data)}</b> <span className="cf-dim">{p.id} · {p.itens.filter(x => !x.sub).map(x => `${x.qtd}× ${x.nome}`).join(', ')}</span></span>
+                    <b>{fmtR(p.valor)}</b>
+                  </button>
+                ))}
+              </div>
+              {soDig(ficha.contato).length >= 10 && <button className="pd-grande" onClick={() => chamar(ficha)}>Chamar no WhatsApp</button>}
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  )
+}
+
+// ── Histórico ────────────────────────────────────────────────────────────────
+function AbaHistorico({ trans, navigate, show, aoApagar }) {
+  const [busca, setBusca] = useState('')
+  const [canal, setCanal] = useState('Tudo')
+  const [ateDias, setAteDias] = useState(30)
+  const [apagar, setApagar] = useState(null)
+  const hojeS = ymd(new Date())
+  const ontem = mais(hojeS, -1)
+  const passadas = trans.filter(x => x.data <= hojeS)
+  const canaisPresentes = CANAIS.filter(c => passadas.some(x => x.canal === c.key)).map(c => c.key)
+  const q = busca.trim().toLowerCase()
+  const filtradas = passadas.filter(x => (canal === 'Tudo' || x.canal === canal) && (!q
+    || x.cliente.toLowerCase().includes(q) || String(x.id).toLowerCase().includes(q)
+    || x.itens.some(i => i.nome.toLowerCase().includes(q))
+    || (soDig(q).length >= 3 && soDig(x.contato).includes(soDig(q)))))
+  const limite = mais(hojeS, -(ateDias - 1))
+  const visiveis = filtradas.filter(x => q || x.data >= limite)
+  const grupos = []
+  for (const x of [...visiveis].sort((a, b) => b.data.localeCompare(a.data) || String(b.id).localeCompare(String(a.id)))) {
+    const g = grupos[grupos.length - 1]
+    if (g && g.data === x.data) g.itens.push(x); else grupos.push({ data: x.data, itens: [x] })
+  }
+  const exportar = () => {
+    const blob = new Blob([csvHistorico(filtradas)], { type: 'text/csv;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob); a.download = `vendas-guaxi-${hojeS}.csv`
+    document.body.appendChild(a); a.click(); a.remove()
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+    show(`Planilha com ${filtradas.length} vendas baixada`)
+  }
+  const tituloDia = (d) => d === hojeS ? `Hoje · ${diaCurto(d)}` : d === ontem ? `Ontem · ${diaCurto(d)}` : diaCurto(d)
+  const pagamento = (x) => x.pago ? (x.pixPago ? 'pago no Pix ✓' : 'pago') : 'a receber'
+
+  return (
+    <>
+      <div className="vd-busca">
+        <label className="pd-busca" style={{ flex: 1 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="#8a8a8a" strokeWidth="2" /><path d="M20 20l-3.5-3.5" stroke="#8a8a8a" strokeWidth="2" strokeLinecap="round" /></svg>
+          <input type="search" placeholder="Buscar cliente, pedido ou doce" value={busca} onChange={e => setBusca(e.target.value)} aria-label="Buscar vendas" />
+        </label>
+        <button className="pd-btn" style={{ height: 44 }} onClick={exportar} disabled={!filtradas.length}>Exportar planilha</button>
+      </div>
+      <div className="vd-chips" role="group" aria-label="Canal">
+        {['Tudo', ...canaisPresentes].map(c => (
+          <button key={c} className={`vd-chip peq${canal === c ? ' on' : ''}`} aria-pressed={canal === c} onClick={() => setCanal(c)}>
+            {c !== 'Tudo' && <i className="vd-sw" style={{ background: corCanal(c), marginRight: 6 }} />}{c === 'Presencial' ? 'Balcão / presencial' : c}
+          </button>
+        ))}
+      </div>
+
+      {grupos.length === 0 && <div className="pd-vazio">{q ? 'Nada encontrado.' : 'Nenhuma venda nesse período.'}</div>}
+      {grupos.map(g => (
+        <section key={g.data} className="pd-dia" aria-label={tituloDia(g.data)}>
+          <div className="pd-dia-topo">
+            <h2>{tituloDia(g.data)}</h2>
+            <span style={{ flex: 1 }}>{g.itens.length} {g.itens.length === 1 ? 'venda' : 'vendas'}</span>
+            <b style={{ fontSize: 14 }}>{fmtR0(g.itens.reduce((s, x) => s + x.valor, 0))}</b>
+          </div>
+          <div className="vd-lista">
+            {g.itens.map(x => (
+              <button key={x.id} type="button" className="vd-venda" onClick={() => x.tipo === 'pedido' ? navigate('/pedidos', { state: { openPedidoId: x.id } }) : setApagar(x)}>
+                <i className="vd-sw" style={{ background: corCanal(x.canal) }} aria-hidden="true" />
+                <span className="vd-venda-txt">
+                  <b>{x.cliente || 'Sem nome'} {x.tipo === 'pedido' && <span className="cf-dim">{x.id}</span>}</b>
+                  <span>{x.canal === 'Presencial' ? 'Balcão' : x.canal} · {x.itens.filter(i => !i.sub).map(i => `${Math.round(i.qtd * 10) / 10}× ${i.nome}`).join(', ')}</span>
+                </span>
+                <span className={`vd-pg ${x.pago ? 'ok' : 'falta'}`}>{pagamento(x)}</span>
+                <b className="vd-valor">{fmtR(x.valor)}</b>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+      {!q && filtradas.some(x => x.data < limite) && (
+        <button className="pd-btn vazado" style={{ alignSelf: 'center' }} onClick={() => setAteDias(d => d + 60)}>Ver vendas mais antigas</button>
+      )}
+
+      {apagar && (
+        <>
+          <div className="sheet-overlay" onClick={() => setApagar(null)} />
+          <div className="sheet">
+            <div className="sheet-title"><span>Venda de balcão</span>
+              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 24, cursor: 'pointer' }} onClick={() => setApagar(null)} aria-label="Fechar">×</button></div>
+            <div className="cf-hint" style={{ marginBottom: 12 }}>{diaCurto(apagar.data)} · {apagar.itens.map(i => `${i.qtd}× ${i.nome}`).join(', ')} · <b>{fmtR(apagar.valor)}</b></div>
+            <div className="cf-dim" style={{ marginBottom: 14 }}>Venda lançada no jeito antigo. As novas vendas de balcão viram pedido (botão "+ Venda de balcão") e baixam o estoque.</div>
+            <button className="pd-btn perigo-cheio" style={{ width: '100%', height: 48 }}
+              onClick={async () => { await deleteVenda(apagar.vendaId); setApagar(null); aoApagar(); show('Venda apagada') }}>Apagar venda</button>
+          </div>
+        </>
+      )}
     </>
   )
 }
