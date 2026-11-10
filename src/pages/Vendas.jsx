@@ -3,11 +3,12 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { useAuth } from '../contexts/AuthContext'
-import { getConfig, getCustoSacolaDelivery } from '../hooks/useConfig'
+import { getConfig, getCustoSacolaDelivery, salvarConfigParcial } from '../hooks/useConfig'
 import { usePedidoMudou } from '../hooks/useRealtimePedidos'
 import {
   getProdutos, getVendas, deleteVenda, getEncomendas, getEmbalagens,
   getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
+  getCupons, salvarCupom, atualizarCupom, getIndicacoes, cancelarIndicacao,
 } from '../services/db'
 import { criarTransacoes, resumoFinanceiro, ymd } from '../lib/financeiro'
 import {
@@ -24,7 +25,7 @@ import { NovoPedidoSheet } from './Pedidos'
 
 const ABAS = [
   { key: 'resumo', nome: 'Resumo' }, { key: 'produtos', nome: 'Produtos' },
-  { key: 'clientes', nome: 'Clientes' }, { key: 'historico', nome: 'Histórico' },
+  { key: 'clientes', nome: 'Clientes' }, { key: 'historico', nome: 'Histórico' }, { key: 'cupons', nome: 'Cupons' },
 ]
 const fmtR = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const fmtR0 = (v) => `R$ ${Math.round(Number(v) || 0).toLocaleString('pt-BR')}`
@@ -87,6 +88,7 @@ export default function Vendas() {
             {aba === 'produtos' && <AbaProdutos trans={trans} encomendas={encomendas} produtos={produtos} cfg={cfg} navigate={navigate} />}
             {aba === 'clientes' && <AbaClientes lista={listaClientes} sumidos={sumidos} contatos={contatos || []} linkCardapio={linkCardapio} navigate={navigate} show={show} />}
             {aba === 'historico' && <AbaHistorico trans={trans} navigate={navigate} show={show} aoApagar={rVend} />}
+            {aba === 'cupons' && <AbaCupons encomendas={encomendas} linkCardapio={linkCardapio} show={show} />}
           </>
         )}
       </div>
@@ -675,6 +677,174 @@ function AbaHistorico({ trans, navigate, show, aoApagar }) {
           </div>
         </>
       )}
+    </>
+  )
+}
+
+// ── Cupons e Indica e ganha ──────────────────────────────────────────────────
+const INDICA_PADRAO = { ativo: true, amigo_tipo: 'pct', amigo_valor: 10, premio: 10, validade_dias: 60, limite_mes: 5, uso_max: 15, uso_min: 50 }
+const STATUS_IND = {
+  pendente: { nome: 'espera a entrega', cor: '#f5b544' }, liberado: { nome: 'crédito liberado', cor: '#34d39a' },
+  limite: { nome: 'passou do limite do mês', cor: '#8c8c8c' }, cancelado: { nome: 'cancelada', cor: '#8c8c8c' },
+}
+const numBR = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0 }
+const regraTxt = (tipo, valor) => tipo === 'pct' ? `${String(valor).replace('.', ',')}%` : fmtR(valor)
+
+function Segmento({ valor, onChange, opcoes }) {
+  return (
+    <div className="pd-seg vd-toggle" role="group">
+      {opcoes.map(o => <button key={o.v} type="button" className={valor === o.v ? 'on' : ''} aria-pressed={valor === o.v} onClick={() => onChange(o.v)}>{o.l}</button>)}
+    </div>
+  )
+}
+function CampoNum({ prefixo, sufixo, valor, onChange, rotulo, largura = 64 }) {
+  return (
+    <span className="cf-campo-num"><i>{prefixo}</i>
+      <input inputMode="decimal" aria-label={rotulo} value={valor} onChange={e => onChange(e.target.value)} style={{ width: largura }} /><i>{sufixo}</i></span>
+  )
+}
+
+function AbaCupons({ encomendas, linkCardapio, show }) {
+  const { data: cupons, reload: rCup } = useData(getCupons)
+  const { data: ind, reload: rInd } = useData(getIndicacoes)
+  const cfgInicial = { ...INDICA_PADRAO, ...(getConfig().indica || {}) }
+  const [regras, setRegras] = useState(() => Object.fromEntries(Object.entries(cfgInicial).map(([k, v]) => [k, typeof v === 'number' ? String(v) : v])))
+  const [salvas, setSalvas] = useState(regras)
+  const [novo, setNovo] = useState({ codigo: '', tipo: 'pct', valor: '', minimo: '', validoAte: '', limiteUsos: '', umPorCliente: true })
+  const [criando, setCriando] = useState(false)
+  const setR = (k, v) => setRegras(r => ({ ...r, [k]: v }))
+  const setN = (k, v) => setNovo(n => ({ ...n, [k]: v }))
+  const regrasSujas = JSON.stringify(regras) !== JSON.stringify(salvas)
+
+  const hoje = new Date(), iniMes = ymd(new Date(hoje.getFullYear(), hoje.getMonth(), 1))
+  const comDesconto = (encomendas || []).filter(e => e.desconto > 0 && e.status !== 'Cancelado')
+  const doMes = comDesconto.filter(e => (e.dataEntrega || e.createdAt || '') >= iniMes)
+  const usoPor = {}
+  for (const e of comDesconto) {
+    if (!e.cupomCodigo || e.descontoTipo !== 'cupom') continue
+    const u = (usoPor[e.cupomCodigo.toUpperCase()] ||= { usos: 0, vendido: 0, desconto: 0 })
+    u.usos += 1; u.vendido += (e.valor || 0) - (e.frete || 0); u.desconto += e.desconto
+  }
+
+  async function salvarRegras() {
+    const indica = {
+      ativo: !!regras.ativo, amigo_tipo: regras.amigo_tipo, amigo_valor: numBR(regras.amigo_valor), premio: numBR(regras.premio),
+      validade_dias: Math.max(1, Math.round(numBR(regras.validade_dias))), limite_mes: Math.max(0, Math.round(numBR(regras.limite_mes))),
+      uso_max: numBR(regras.uso_max), uso_min: numBR(regras.uso_min),
+    }
+    await salvarConfigParcial({ indica })
+    const r = Object.fromEntries(Object.entries(indica).map(([k, v]) => [k, typeof v === 'number' ? String(v) : v]))
+    setRegras(r); setSalvas(r); show('Regras do Indica e ganha salvas')
+  }
+  async function criar() {
+    const codigo = novo.codigo.trim().toUpperCase().replace(/\s+/g, '')
+    if (!/^[A-Z0-9]{3,20}$/.test(codigo)) { show('Código: 3 a 20 letras ou números, sem espaço'); return }
+    if (!(numBR(novo.valor) > 0)) { show('Diga o valor do desconto'); return }
+    setCriando(true)
+    try {
+      await salvarCupom({ codigo, tipo: novo.tipo, valor: numBR(novo.valor), minimo: numBR(novo.minimo), validoAte: novo.validoAte || null,
+        limiteUsos: Math.round(numBR(novo.limiteUsos)) || null, umPorCliente: novo.umPorCliente })
+      setNovo({ codigo: '', tipo: 'pct', valor: '', minimo: '', validoAte: '', limiteUsos: '', umPorCliente: true })
+      await rCup(); show(`Cupom ${codigo} criado`)
+    } catch (e) { show(e.message) }
+    finally { setCriando(false) }
+  }
+  const copiarLink = (codigo) => {
+    const link = `${linkCardapio}?cupom=${encodeURIComponent(codigo)}`
+    navigator.clipboard?.writeText(link).then(() => show('Link copiado: ' + link), () => show(link))
+  }
+  const hojeS = ymd(hoje)
+  const vencido = (c) => c.validoAte && c.validoAte < hojeS
+
+  return (
+    <>
+      <section className="cf-kpis" aria-label="Este mês">
+        <div className="cf-kpi"><span>Vendido com desconto</span><b>{fmtR0(doMes.reduce((s, e) => s + (e.valor || 0) - (e.frete || 0), 0))}</b><small>{doMes.length} {doMes.length === 1 ? 'pedido' : 'pedidos'} este mês</small></div>
+        <div className="cf-kpi"><span>Desconto dado</span><b>{fmtR0(doMes.reduce((s, e) => s + e.desconto, 0))}</b><small>cupom, indicação e crédito</small></div>
+        <div className="cf-kpi"><span>Chegaram por indicação</span><b>{doMes.filter(e => e.descontoTipo === 'indicacao').length}</b><small>clientes novos este mês</small></div>
+        <div className="cf-kpi"><span>Créditos a usar</span><b>{ind ? fmtR0(ind.creditoAberto) : '—'}</b><small>{ind ? `${ind.clientesComCredito} ${ind.clientesComCredito === 1 ? 'cliente' : 'clientes'}` : ''}</small></div>
+      </section>
+
+      <section className={`cf-card${regras.ativo ? ' vd-indica-on' : ''}`} aria-label="Indica e ganha">
+        <div className="cf-topo">
+          <h2>Indica e ganha</h2>
+          <button type="button" role="switch" aria-checked={!!regras.ativo} aria-label="Indica e ganha ligado" className={`pd-switch${regras.ativo ? ' on' : ''}`} onClick={() => setR('ativo', !regras.ativo)}><span /></button>
+        </div>
+        <div className="cf-hint">Depois do primeiro pedido pago, o cliente ganha um código pra mandar pros amigos. Quem chega pelo código ganha desconto no primeiro pedido; quem indicou ganha crédito quando o pedido do amigo é <b>entregue</b>. Nunca desconta do frete, e cupom e crédito não se somam.</div>
+        <div className="cf-grade duas" style={{ gap: 12 }}>
+          <div className="vd-regra">
+            <b>Quem chega (amigo)</b>
+            <Segmento valor={regras.amigo_tipo} onChange={v => setR('amigo_tipo', v)} opcoes={[{ v: 'pct', l: '%' }, { v: 'valor', l: 'R$' }]} />
+            <label className="cf-num"><span>Desconto</span><CampoNum rotulo="Desconto do amigo" prefixo={regras.amigo_tipo === 'valor' ? 'R$' : ''} sufixo={regras.amigo_tipo === 'pct' ? '%' : ''} valor={regras.amigo_valor} onChange={v => setR('amigo_valor', v)} /></label>
+            <span className="cf-dim">só no primeiro pedido de um WhatsApp novo</span>
+          </div>
+          <div className="vd-regra">
+            <b>Quem indicou</b>
+            <label className="cf-num"><span>Ganha</span><CampoNum rotulo="Crédito por amigo" prefixo="R$" valor={regras.premio} onChange={v => setR('premio', v)} /><span>por amigo</span></label>
+            <label className="cf-num"><span>Vale</span><CampoNum rotulo="Validade do crédito" sufixo="dias" valor={regras.validade_dias} onChange={v => setR('validade_dias', v)} largura={44} /><span>até</span><CampoNum rotulo="Limite por mês" sufixo="por mês" valor={regras.limite_mes} onChange={v => setR('limite_mes', v)} largura={36} /></label>
+          </div>
+          <div className="vd-regra" style={{ gridColumn: '1 / -1' }}>
+            <b>Teto pra usar o crédito</b>
+            <label className="cf-num"><span>Até</span><CampoNum rotulo="Máximo por pedido" prefixo="R$" valor={regras.uso_max} onChange={v => setR('uso_max', v)} /><span>por pedido, em pedido a partir de</span><CampoNum rotulo="Pedido mínimo pra usar crédito" prefixo="R$" valor={regras.uso_min} onChange={v => setR('uso_min', v)} /></label>
+            <span className="cf-dim">Quem tem {fmtR(numBR(regras.premio) * 3)} de crédito usa no máximo {fmtR(numBR(regras.uso_max))} por pedido; o resto fica guardado até vencer.</span>
+          </div>
+        </div>
+        {regrasSujas && <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button className="pd-btn vazado" onClick={() => setRegras(salvas)}>Desfazer</button>
+          <button className="pd-btn verde" onClick={salvarRegras}>Salvar regras</button>
+        </div>}
+        <div className="cf-linhas">
+          <div className="cf-dim" style={{ paddingBottom: 6 }}>Últimas indicações</div>
+          {!ind ? <div className="cf-dim">Carregando…</div> : ind.lista.length === 0 ? <div className="cf-hint" style={{ padding: '8px 0' }}>Nenhuma indicação ainda.</div> : ind.lista.slice(0, 12).map(i => (
+            <div key={i.id} className="vd-ind">
+              <span style={{ flex: 1, minWidth: 0 }}><b>{primeiroNome(i.dono)}</b> <span className="cf-dim">indicou</span> <b>{i.amigo}</b> <span className="cf-dim">· {i.pedidoId} · {diaCurto(String(i.criadoEm).slice(0, 10))}</span></span>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: STATUS_IND[i.status]?.cor }}>{STATUS_IND[i.status]?.nome || i.status}</span>
+              {['pendente', 'liberado'].includes(i.status) && <button className="pd-btn perigo" onClick={async () => {
+                if (!window.confirm(`Cancelar a indicação de ${i.amigo}?${i.status === 'liberado' ? ' O crédito que ainda não foi usado sai da conta de ' + primeiroNome(i.dono) + '.' : ''}`)) return
+                await cancelarIndicacao(i.id, i.status === 'liberado'); await rInd(); show('Indicação cancelada')
+              }}>Cancelar</button>}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="cf-card" aria-label="Novo cupom">
+        <h2>Novo cupom</h2>
+        <div className="vd-cupom-form">
+          <label className="cf-campo"><span>Código</span><input className="pd-input" value={novo.codigo} onChange={e => setN('codigo', e.target.value.toUpperCase())} placeholder="NATAL10" style={{ fontWeight: 800, letterSpacing: '.04em' }} /></label>
+          <div className="cf-campo"><span>Tipo</span><Segmento valor={novo.tipo} onChange={v => setN('tipo', v)} opcoes={[{ v: 'pct', l: '% do pedido' }, { v: 'valor', l: 'R$ fixo' }]} /></div>
+          <label className="cf-campo"><span>Desconto</span><CampoNum rotulo="Valor do desconto" prefixo={novo.tipo === 'valor' ? 'R$' : ''} sufixo={novo.tipo === 'pct' ? '%' : ''} valor={novo.valor} onChange={v => setN('valor', v)} /></label>
+          <label className="cf-campo"><span>Pedido mínimo</span><CampoNum rotulo="Pedido mínimo" prefixo="R$" valor={novo.minimo} onChange={v => setN('minimo', v)} /></label>
+          <label className="cf-campo"><span>Vale até</span><input type="date" className="pd-input" value={novo.validoAte} onChange={e => setN('validoAte', e.target.value)} style={{ colorScheme: 'dark' }} /></label>
+          <label className="cf-campo"><span>Limite de usos</span><CampoNum rotulo="Limite de usos" sufixo="usos" valor={novo.limiteUsos} onChange={v => setN('limiteUsos', v)} largura={48} /></label>
+        </div>
+        <label className="cf-num" style={{ cursor: 'pointer' }}><input type="checkbox" checked={novo.umPorCliente} onChange={e => setN('umPorCliente', e.target.checked)} style={{ width: 20, height: 20, accentColor: '#22b886' }} /><span>Uma vez por cliente (pelo WhatsApp)</span></label>
+        <div className="cf-topo">
+          <span className="cf-dim">Vale só no cardápio, só nos doces (não no frete). Em branco = sem mínimo, sem validade, sem limite.</span>
+          <button className="pd-btn verde" disabled={criando} onClick={criar}>{criando ? 'Criando…' : 'Criar cupom'}</button>
+        </div>
+      </section>
+
+      <section className="cf-card" aria-label="Seus cupons" style={{ gap: 0 }}>
+        <h2 style={{ marginBottom: 6 }}>Seus cupons</h2>
+        {!cupons ? <div className="cf-dim">Carregando…</div> : cupons.length === 0 ? <div className="cf-hint" style={{ padding: '6px 0' }}>Nenhum cupom ainda.</div> : cupons.map(c => {
+          const u = usoPor[c.codigo.toUpperCase()] || { usos: 0, vendido: 0, desconto: 0 }
+          const esgotado = c.limiteUsos && u.usos >= c.limiteUsos
+          const valendo = c.ativo && !vencido(c) && !esgotado
+          return (
+            <div key={c.id} className="vd-cupom" style={{ opacity: valendo ? 1 : 0.6 }}>
+              <span className="vd-cod">{c.codigo}</span>
+              <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <b style={{ fontSize: 14 }}>{regraTxt(c.tipo, c.valor)}{c.minimo ? ` · a partir de ${fmtR0(c.minimo)}` : ' · sem mínimo'}{c.umPorCliente ? ' · 1 por cliente' : ''}</b>
+                <span className="cf-dim">{u.usos}{c.limiteUsos ? ` de ${c.limiteUsos}` : ''} {u.usos === 1 ? 'uso' : 'usos'} · {fmtR0(u.vendido)} vendidos · {fmtR0(u.desconto)} de desconto{c.validoAte ? ` · até ${diaCurto(c.validoAte)}` : ''}</span>
+              </span>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: valendo ? '#34d39a' : '#8c8c8c' }}>{!c.ativo ? 'pausado' : vencido(c) ? 'vencido' : esgotado ? 'esgotado' : 'ativo'}</span>
+              {valendo && <button className="pd-btn" onClick={() => copiarLink(c.codigo)}>Copiar link</button>}
+              <button className={`pd-btn ${c.ativo ? 'vazado' : ''}`} onClick={async () => { await atualizarCupom(c.id, { ativo: !c.ativo }); await rCup() }}>{c.ativo ? 'Pausar' : 'Reativar'}</button>
+            </div>
+          )
+        })}
+      </section>
     </>
   )
 }

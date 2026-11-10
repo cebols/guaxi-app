@@ -1341,3 +1341,14 @@ a { touch-action: manipulation; }
   .vd-top-cab > span:nth-child(5), .vd-top-lin > .fav { display: none; }
   .vd-pg { display: none; }
 }
+
+/* Vendas › Cupons */
+.vd-indica-on { border-color: rgba(34,184,134,.45); }
+.vd-regra { padding: 12px; border-radius: 12px; background: #232323; border: 1px solid #2f2f2f; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.vd-regra > b { font-size: 14px; }
+.vd-ind { display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 4px 0; font-size: 13.5px; flex-wrap: wrap; }
+.vd-cupom-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end; }
+.vd-cupom-form .cf-campo-num, .vd-cupom-form .pd-seg { align-self: flex-start; }
+.vd-cupom { display: flex; align-items: center; gap: 10px; min-height: 62px; padding: 6px 0; border-top: 1px solid var(--border-light-color); flex-wrap: wrap; }
+.vd-cod { padding: 5px 10px; border-radius: 8px; border: 1.5px dashed #4a4a4a; font-weight: 800; letter-spacing: .04em; font-size: 13.5px; }
+@container (max-width: 480px) { .vd-cupom-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

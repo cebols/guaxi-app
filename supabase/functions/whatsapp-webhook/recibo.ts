@@ -36,7 +36,7 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
   if (!m) return null
   const pedidoId = `PED-${m[1].padStart(3, '0')}`
   const { data: p } = await sb.from('encomendas')
-    .select('id, cliente, contato, data_entrega, periodo, tipo_entrega, endereco, valor, sinal, frete, pgto, status, encomenda_itens(produto, quantidade, preco_unit)')
+    .select('id, cliente, contato, data_entrega, periodo, tipo_entrega, endereco, valor, sinal, frete, pgto, status, desconto, desconto_tipo, cupom_codigo, encomenda_itens(produto, quantidade, preco_unit)')
     .eq('user_id', OWNER_USER_ID).eq('id', pedidoId).maybeSingle()
   if (!p) return null   // código que não existe: segue a conversa normal
 
@@ -65,6 +65,7 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
   }).join('\n')
   const entrega = p.tipo_entrega === 'Entrega'
   const frete = Number(p.frete) || 0
+  const desconto = Number(p.desconto) || 0
   const per = PERIODO[String(p.periodo || '')] ? ` · ${PERIODO[String(p.periodo)]}` : ''
   const quando = p.data_entrega
     ? (entrega ? `🛵 *Entrega ${dia(String(p.data_entrega))}${per}*${p.endereco ? `\n${p.endereco}` : ''}` : `🏠 *Retirada ${dia(String(p.data_entrega))}${per}*`)
@@ -85,6 +86,7 @@ export async function reciboDoPedido(sb: SupabaseClient, telefone: string, texto
     `Recebi seu pedido *${pedidoId}*, tá tudo anotadinho:`,
     '',
     linhas || '• (sem itens)',
+    desconto > 0 ? `• ${p.desconto_tipo === 'credito' ? 'Seu crédito' : `${p.desconto_tipo === 'indicacao' ? 'Indicação' : 'Cupom'} ${p.cupom_codigo || ''}`.trim()} — −${fmtR(desconto)}` : null,
     entrega && frete > 0 ? `• Frete — ${fmtR(frete)}` : null,
     `*Total: ${fmtR(Number(p.valor) || 0)}*`,
     '',

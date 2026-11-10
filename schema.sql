@@ -382,6 +382,61 @@ CREATE TABLE IF NOT EXISTS atendimentos (
 );
 
 
+-- ── Cupons e Indica e ganha ───────────────────────────────────────────────────
+-- Cupom criado pela dona (% ou R$, mínimo, validade, limite de usos)
+CREATE TABLE IF NOT EXISTS cupons (
+  id             bigserial primary key,
+  user_id        uuid default auth.uid() references auth.users(id) on delete cascade,
+  codigo         text not null,
+  tipo           text not null default 'pct',      -- pct | valor
+  valor          numeric not null default 0,
+  minimo         numeric not null default 0,
+  valido_ate     date,
+  limite_usos    int,
+  um_por_cliente boolean not null default true,
+  ativo          boolean not null default true,
+  created_at     timestamptz default now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS cupons_codigo ON cupons(user_id, upper(codigo));
+-- Código pessoal de cada cliente (pelo WhatsApp: 8 últimos dígitos)
+CREATE TABLE IF NOT EXISTS codigos_indicacao (
+  id         bigserial primary key,
+  user_id    uuid default auth.uid() references auth.users(id) on delete cascade,
+  tel8       text not null,
+  nome       text,
+  codigo     text not null,
+  created_at timestamptz default now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS codigos_indicacao_tel ON codigos_indicacao(user_id, tel8);
+CREATE UNIQUE INDEX IF NOT EXISTS codigos_indicacao_cod ON codigos_indicacao(user_id, codigo);
+-- Cada amigo que chegou por um código: pendente → liberado (na entrega) | limite | cancelado
+CREATE TABLE IF NOT EXISTS indicacoes (
+  id          bigserial primary key,
+  user_id     uuid default auth.uid() references auth.users(id) on delete cascade,
+  codigo      text not null,
+  dono_tel8   text not null,
+  amigo_tel8  text,
+  amigo_nome  text,
+  pedido_id   text,
+  status      text not null default 'pendente',
+  liberado_em timestamptz,
+  created_at  timestamptz default now()
+);
+-- Crédito do cliente (ganho por indicar, ou devolvido de pedido cancelado). Usa do que vence antes.
+CREATE TABLE IF NOT EXISTS creditos (
+  id           bigserial primary key,
+  user_id      uuid default auth.uid() references auth.users(id) on delete cascade,
+  tel8         text not null,
+  valor        numeric not null,
+  saldo        numeric not null,
+  motivo       text,
+  pedido_id    text,
+  indicacao_id bigint,
+  expira_em    date not null,
+  created_at   timestamptz default now()
+);
+CREATE INDEX IF NOT EXISTS creditos_tel ON creditos(user_id, tel8);
+
 -- =============================================================================
 -- 3. COLUNAS ADICIONADAS COM O TEMPO (bancos criados antes ficam atualizados)
 -- =============================================================================
@@ -491,6 +546,10 @@ ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_expira_em timestamptz;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pix_pago_em   timestamptz;
 -- Pedido do cardápio com Pix gerado: segura o estoque até aqui (2h); sem pagar, cancela sozinho
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS aguarda_pix_ate timestamptz;
+-- Desconto do cardápio (nunca no frete): cupom, indicação de amigo ou crédito
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS cupom_codigo  text;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS desconto      numeric NOT NULL DEFAULT 0;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS desconto_tipo text;   -- cupom | indicacao | credito
 
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS produto_id bigint references produtos(id) on delete set null;
@@ -534,6 +593,10 @@ ALTER TABLE produto_receitas       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE produto_embalagens     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE prontidao_lotes        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE interesses             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cupons                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE codigos_indicacao      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE indicacoes             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE creditos               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE encomendas             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE encomenda_itens        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE envios                 ENABLE ROW LEVEL SECURITY;
@@ -590,6 +653,14 @@ DROP POLICY IF EXISTS "own_data" ON embalagem_fornecedores;
 CREATE POLICY "own_data" ON embalagem_fornecedores FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 DROP POLICY IF EXISTS "own_data" ON prontidao_lotes;
 CREATE POLICY "own_data" ON prontidao_lotes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON cupons;
+CREATE POLICY "own_data" ON cupons FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON codigos_indicacao;
+CREATE POLICY "own_data" ON codigos_indicacao FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON indicacoes;
+CREATE POLICY "own_data" ON indicacoes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON creditos;
+CREATE POLICY "own_data" ON creditos FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 DROP POLICY IF EXISTS "own_data" ON interesses;
 CREATE POLICY "own_data" ON interesses FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 DROP POLICY IF EXISTS "own_data" ON envios;
@@ -661,6 +732,131 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   ORDER BY p.nome
 $$;
 
+-- ── Cupons e Indica e ganha ──
+-- 8 últimos dígitos do WhatsApp: é por eles que o cliente é reconhecido
+CREATE OR REPLACE FUNCTION public.tel8(t text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  SELECT right(regexp_replace(coalesce(t, ''), '\D', '', 'g'), 8)
+$$;
+-- Regras do Indica e ganha (Vendas › Cupons), com os padrões combinados
+CREATE OR REPLACE FUNCTION public.indica_cfg(p_user_id uuid) RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT jsonb_build_object('ativo', true, 'amigo_tipo', 'pct', 'amigo_valor', 10, 'premio', 10,
+                            'validade_dias', 60, 'limite_mes', 5, 'uso_max', 15, 'uso_min', 50)
+         || coalesce((SELECT config->'indica' FROM user_config WHERE user_id = p_user_id), '{}'::jsonb)
+$$;
+CREATE OR REPLACE FUNCTION public.saldo_credito(p_user_id uuid, p_tel8 text) RETURNS numeric
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT coalesce(sum(saldo), 0) FROM creditos
+   WHERE user_id = p_user_id AND tel8 = p_tel8 AND saldo > 0
+     AND expira_em >= (now() AT TIME ZONE 'America/Sao_Paulo')::date
+$$;
+CREATE OR REPLACE FUNCTION public.fmt_reais(v numeric) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+  SELECT 'R$ ' || replace(to_char(round(coalesce(v, 0), 2), 'FM999990.00'), '.', ',')
+$$;
+
+-- Confere um código (cupom da dona OU código de um cliente) pro pedido de quem
+-- tem esse WhatsApp e esse subtotal (só doces). Usada pelo cardápio e pelo pedido.
+CREATE OR REPLACE FUNCTION public.conferir_cupom(p_user_id uuid, p_codigo text, p_telefone text, p_subtotal numeric)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  c record; ind record; usos int; d numeric; nome text;
+  cfg jsonb := indica_cfg(p_user_id);
+  cod text := upper(btrim(coalesce(p_codigo, '')));
+  t8 text := tel8(p_telefone);
+  hoje date := (now() AT TIME ZONE 'America/Sao_Paulo')::date;
+BEGIN
+  IF cod = '' THEN RETURN jsonb_build_object('ok', false, 'motivo', 'Digite o código'); END IF;
+  SELECT * INTO c FROM cupons WHERE user_id = p_user_id AND upper(codigo) = cod;
+  IF FOUND THEN
+    IF NOT c.ativo THEN RETURN jsonb_build_object('ok', false, 'motivo', 'Esse cupom não está mais valendo'); END IF;
+    IF c.valido_ate IS NOT NULL AND c.valido_ate < hoje THEN RETURN jsonb_build_object('ok', false, 'motivo', 'Esse cupom venceu'); END IF;
+    IF c.limite_usos IS NOT NULL THEN
+      SELECT count(*) INTO usos FROM encomendas WHERE user_id = p_user_id AND upper(cupom_codigo) = cod AND status <> 'Cancelado';
+      IF usos >= c.limite_usos THEN RETURN jsonb_build_object('ok', false, 'motivo', 'Esse cupom já esgotou'); END IF;
+    END IF;
+    IF c.um_por_cliente AND length(t8) = 8 AND EXISTS (SELECT 1 FROM encomendas WHERE user_id = p_user_id
+         AND upper(cupom_codigo) = cod AND status <> 'Cancelado' AND tel8(contato) = t8) THEN
+      RETURN jsonb_build_object('ok', false, 'motivo', 'Você já usou esse cupom');
+    END IF;
+    IF p_subtotal IS NOT NULL AND p_subtotal < c.minimo THEN
+      RETURN jsonb_build_object('ok', false, 'motivo', 'Vale pra pedidos a partir de ' || fmt_reais(c.minimo), 'minimo', c.minimo);
+    END IF;
+    d := CASE WHEN c.tipo = 'pct' THEN round(coalesce(p_subtotal, 0) * c.valor / 100, 2) ELSE least(c.valor, coalesce(p_subtotal, c.valor)) END;
+    RETURN jsonb_build_object('ok', true, 'tipo', 'cupom', 'codigo', c.codigo, 'desconto', d, 'regra_tipo', c.tipo, 'regra_valor', c.valor,
+      'texto', CASE WHEN c.tipo = 'pct' THEN trim(to_char(c.valor, 'FM990.##'), '.') || '% de desconto' ELSE fmt_reais(c.valor) || ' de desconto' END);
+  END IF;
+
+  SELECT * INTO ind FROM codigos_indicacao WHERE user_id = p_user_id AND codigo = cod;
+  IF FOUND AND coalesce((cfg->>'ativo')::boolean, false) THEN
+    IF length(t8) = 8 AND ind.tel8 = t8 THEN RETURN jsonb_build_object('ok', false, 'motivo', 'Esse é o seu código: é pra mandar pros amigos 💛'); END IF;
+    IF length(t8) = 8 AND EXISTS (SELECT 1 FROM encomendas WHERE user_id = p_user_id AND tel8(contato) = t8 AND status <> 'Cancelado') THEN
+      RETURN jsonb_build_object('ok', false, 'motivo', 'O desconto de indicação é só pro primeiro pedido na Guaxí');
+    END IF;
+    nome := split_part(btrim(coalesce(ind.nome, '')), ' ', 1);
+    d := CASE WHEN cfg->>'amigo_tipo' = 'pct' THEN round(coalesce(p_subtotal, 0) * (cfg->>'amigo_valor')::numeric / 100, 2)
+              ELSE least((cfg->>'amigo_valor')::numeric, coalesce(p_subtotal, (cfg->>'amigo_valor')::numeric)) END;
+    RETURN jsonb_build_object('ok', true, 'tipo', 'indicacao', 'codigo', ind.codigo, 'desconto', d, 'dono', nome,
+      'regra_tipo', cfg->>'amigo_tipo', 'regra_valor', (cfg->>'amigo_valor')::numeric,
+      'texto', CASE WHEN cfg->>'amigo_tipo' = 'pct' THEN trim(to_char((cfg->>'amigo_valor')::numeric, 'FM990.##'), '.') || '% no primeiro pedido'
+                    ELSE fmt_reais((cfg->>'amigo_valor')::numeric) || ' no primeiro pedido' END);
+  END IF;
+  RETURN jsonb_build_object('ok', false, 'motivo', 'Não achei esse cupom');
+END $$;
+
+-- Usa o crédito do cliente: do que vence antes pro que vence depois
+CREATE OR REPLACE FUNCTION public.consumir_credito(p_user_id uuid, p_tel8 text, p_valor numeric) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE r record; resto numeric := p_valor; tira numeric;
+BEGIN
+  FOR r IN SELECT id, saldo FROM creditos WHERE user_id = p_user_id AND tel8 = p_tel8 AND saldo > 0
+             AND expira_em >= (now() AT TIME ZONE 'America/Sao_Paulo')::date ORDER BY expira_em, id FOR UPDATE LOOP
+    EXIT WHEN resto <= 0;
+    tira := least(r.saldo, resto);
+    UPDATE creditos SET saldo = saldo - tira WHERE id = r.id;
+    resto := resto - tira;
+  END LOOP;
+END $$;
+
+-- Código pessoal + crédito do cliente (cardápio, sem login): pelos segredos dos
+-- pedidos guardados no aparelho. Código só depois do primeiro pedido pago.
+CREATE OR REPLACE FUNCTION public.indicacao_do_cliente(p_user_id uuid, p_chaves text[]) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  e record; t8 text; cod text; base text; nome text; cfg jsonb := indica_cfg(p_user_id);
+  hoje date := (now() AT TIME ZONE 'America/Sao_Paulo')::date;
+BEGIN
+  SELECT cliente, contato INTO e FROM encomendas
+   WHERE user_id = p_user_id AND chave_cliente = ANY (p_chaves[1:10]) AND length(chave_cliente) >= 20
+   ORDER BY created_at DESC LIMIT 1;
+  IF NOT FOUND THEN RETURN jsonb_build_object('ativo', cfg->'ativo'); END IF;
+  t8 := tel8(e.contato);
+  IF length(t8) < 8 THEN RETURN jsonb_build_object('ativo', cfg->'ativo'); END IF;
+  IF coalesce((cfg->>'ativo')::boolean, false) AND EXISTS (SELECT 1 FROM encomendas WHERE user_id = p_user_id AND tel8(contato) = t8 AND pgto = 'Pago' AND status <> 'Cancelado') THEN
+    SELECT codigo INTO cod FROM codigos_indicacao WHERE user_id = p_user_id AND tel8 = t8;
+    IF cod IS NULL THEN
+      nome := split_part(btrim(coalesce(e.cliente, '')), ' ', 1);
+      base := upper(left(regexp_replace(translate(lower(nome), 'áàâãäéèêëíìîïóòôõöúùûüç', 'aaaaaeeeeiiiiooooouuuuc'), '[^a-z]', '', 'g'), 5));
+      IF length(base) < 2 THEN base := 'GUAXI'; END IF;
+      LOOP
+        cod := base || upper(substr(translate(md5(random()::text), '01', ''), 1, 2));
+        EXIT WHEN NOT EXISTS (SELECT 1 FROM codigos_indicacao WHERE user_id = p_user_id AND codigo = cod)
+              AND NOT EXISTS (SELECT 1 FROM cupons WHERE user_id = p_user_id AND upper(codigo) = cod);
+      END LOOP;
+      INSERT INTO codigos_indicacao (user_id, tel8, nome, codigo) VALUES (p_user_id, t8, left(e.cliente, 100), cod)
+      ON CONFLICT (user_id, tel8) DO NOTHING;
+      SELECT codigo INTO cod FROM codigos_indicacao WHERE user_id = p_user_id AND tel8 = t8;
+    END IF;
+  END IF;
+  RETURN jsonb_build_object(
+    'ativo', cfg->'ativo', 'codigo', cod,
+    'indicados', (SELECT count(*) FROM indicacoes WHERE user_id = p_user_id AND dono_tel8 = t8 AND status = 'liberado'),
+    'pendentes', (SELECT count(*) FROM indicacoes WHERE user_id = p_user_id AND dono_tel8 = t8 AND status = 'pendente'),
+    'credito', saldo_credito(p_user_id, t8),
+    'expira', (SELECT min(expira_em) FROM creditos WHERE user_id = p_user_id AND tel8 = t8 AND saldo > 0 AND expira_em >= hoje),
+    'uso_max', (cfg->>'uso_max')::numeric, 'uso_min', (cfg->>'uso_min')::numeric,
+    'amigo_tipo', cfg->>'amigo_tipo', 'amigo_valor', (cfg->>'amigo_valor')::numeric, 'premio', (cfg->>'premio')::numeric);
+END $$;
+
 -- Cliente (sem login) manda o pedido. Preço e nome de cada item vêm do cadastro
 -- (o cliente não consegue mudar preço). O frete só vale se veio assinado pelo
 -- cálculo do servidor (/api/frete-dias); senão o pedido entra com aviso pra conferir.
@@ -671,6 +867,7 @@ DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, tex
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text);
+DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text, text);
 CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_user_id          uuid,
   p_cliente          text,
@@ -687,7 +884,9 @@ CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_frete_assinatura text default null,
   p_canal            text default 'FormExterno',  -- 'FormExterno' (cardápio online) | 'WhatsApp' (agente)
   p_periodo          text default null,           -- manha | tarde | noite (null = a combinar)
-  p_chave            text default null            -- segredo gerado no aparelho do cliente: deixa ele ver o pedido no cardápio
+  p_chave            text default null,           -- segredo gerado no aparelho do cliente: deixa ele ver o pedido no cardápio
+  p_cupom            text default null,           -- cupom da dona ou código de um amigo (só cardápio)
+  p_credito_chaves   text[] default null          -- usar o crédito: segredos de pedidos anteriores desse WhatsApp (prova que é a pessoa)
 ) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
 DECLARE
@@ -707,6 +906,12 @@ DECLARE
   v_gratis   numeric;
   v_obs      text := left(coalesce(p_obs, ''), 1000);
   v_periodo  text := CASE WHEN p_periodo IN ('manha', 'tarde', 'noite') THEN p_periodo END;
+  v_desc     numeric := 0;
+  v_desc_tipo text;
+  v_cupom    text;
+  v_info     jsonb;
+  v_cfg      jsonb;
+  v_t8       text := tel8(p_contato);
 BEGIN
   IF coalesce(trim(p_cliente), '') = '' OR coalesce(trim(p_contato), '') = '' THEN
     RAISE EXCEPTION 'Informe nome e WhatsApp';
@@ -729,6 +934,24 @@ BEGIN
     v_total := v_total + v_prod.preco_direta * v_qtd;
   END LOOP;
   IF jsonb_array_length(v_itens) = 0 THEN RAISE EXCEPTION 'Pedido vazio'; END IF;
+
+  -- Desconto (só no cardápio, nunca no frete): cupom/código de amigo OU crédito, um de cada vez
+  IF coalesce(p_canal, 'FormExterno') = 'FormExterno' THEN
+    IF coalesce(btrim(p_cupom), '') <> '' THEN
+      v_info := conferir_cupom(p_user_id, p_cupom, p_contato, v_total);
+      IF NOT coalesce((v_info->>'ok')::boolean, false) THEN RAISE EXCEPTION 'Cupom: %', v_info->>'motivo'; END IF;
+      v_desc := least(v_total, (v_info->>'desconto')::numeric);
+      v_desc_tipo := v_info->>'tipo';
+      v_cupom := v_info->>'codigo';
+    ELSIF p_credito_chaves IS NOT NULL AND length(v_t8) = 8 AND EXISTS (SELECT 1 FROM encomendas WHERE user_id = p_user_id
+            AND tel8(contato) = v_t8 AND chave_cliente = ANY (p_credito_chaves[1:10]) AND length(chave_cliente) >= 20) THEN
+      v_cfg := indica_cfg(p_user_id);
+      IF v_total >= (v_cfg->>'uso_min')::numeric THEN
+        v_desc := least((v_cfg->>'uso_max')::numeric, saldo_credito(p_user_id, v_t8), v_total);
+        IF v_desc > 0 THEN v_desc_tipo := 'credito'; ELSE v_desc := 0; END IF;
+      END IF;
+    END IF;
+  END IF;
 
   -- Frete: só confia no valor assinado pelo servidor
   IF v_entrega THEN
@@ -754,22 +977,28 @@ BEGIN
     END IF;
   END IF;
 
-  SELECT id INTO v_last_id FROM encomendas WHERE user_id = p_user_id ORDER BY created_at DESC LIMIT 1;
-  IF v_last_id IS NOT NULL THEN
-    v_next_num := COALESCE((regexp_match(v_last_id, 'PED-(\d+)'))[1]::int, 0) + 1;
-  END IF;
+  -- próximo número: o maior PED-nnn + 1 (pela hora de criação repetia número quando dois pedidos chegavam juntos)
+  SELECT coalesce(max((regexp_match(id, '^PED-(\d+)$'))[1]::int), 0) + 1 INTO v_next_num FROM encomendas WHERE user_id = p_user_id;
   v_id := 'PED-' || lpad(v_next_num::text, 3, '0');
 
   INSERT INTO encomendas
     (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto,
-     data_entrega, entrega_lat, entrega_lng, entrega_frag, periodo, chave_cliente)
+     data_entrega, entrega_lat, entrega_lng, entrega_frag, periodo, chave_cliente, cupom_codigo, desconto, desconto_tipo)
   VALUES
     (v_id, p_user_id, left(trim(p_cliente), 100), left(trim(p_contato), 40),
      CASE WHEN p_canal = 'WhatsApp' THEN 'WhatsApp' ELSE 'FormExterno' END,
      CASE WHEN v_entrega THEN 'Entrega' ELSE 'Retirada' END, left(coalesce(p_endereco, ''), 300), v_obs,
-     v_total + v_frete, v_frete, 'Pendente', 'Aguardando',
+     v_total - v_desc + v_frete, v_frete, 'Pendente', 'Aguardando',
      p_data_entrega, p_lat, p_lng, v_frag, v_periodo,
-     CASE WHEN length(p_chave) BETWEEN 20 AND 64 THEN p_chave END);
+     CASE WHEN length(p_chave) BETWEEN 20 AND 64 THEN p_chave END, v_cupom, v_desc, v_desc_tipo);
+
+  IF v_desc_tipo = 'indicacao' THEN
+    INSERT INTO indicacoes (user_id, codigo, dono_tel8, amigo_tel8, amigo_nome, pedido_id, status)
+    SELECT p_user_id, ci.codigo, ci.tel8, v_t8, left(trim(p_cliente), 100), v_id, 'pendente'
+      FROM codigos_indicacao ci WHERE ci.user_id = p_user_id AND ci.codigo = v_cupom;
+  ELSIF v_desc_tipo = 'credito' THEN
+    PERFORM consumir_credito(p_user_id, v_t8, v_desc);
+  END IF;
 
   INSERT INTO encomenda_itens (encomenda_id, produto, quantidade, preco_unit, user_id, produto_id)
   SELECT v_id, elem->>'produto_nome', (elem->>'quantidade')::numeric, (elem->>'preco_unit')::numeric,
@@ -790,7 +1019,7 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
       'data', e.data_entrega, 'periodo', e.periodo, 'tipo', e.tipo_entrega, 'criado', e.created_at,
       'itens', (SELECT coalesce(jsonb_agg(jsonb_build_object('produto', i.produto, 'qtd', i.quantidade) ORDER BY i.id), '[]'::jsonb)
                   FROM encomenda_itens i WHERE i.encomenda_id = e.id AND i.produto NOT LIKE '↳%'),
-      'envio', v.status, 'pague_ate', e.aguarda_pix_ate,
+      'envio', v.status, 'pague_ate', e.aguarda_pix_ate, 'desconto', e.desconto, 'desconto_tipo', e.desconto_tipo, 'cupom', e.cupom_codigo,
       'rastreio', CASE WHEN v.status IN ('ON_GOING', 'PICKED_UP') THEN v.share_link END
     ) AS x
     FROM encomendas e LEFT JOIN envios v ON v.id = e.envio_id
@@ -813,7 +1042,8 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
       'lojaEndereco', NULLIF(btrim(config->'delivery'->>'lojaEndereco', E' \t\r\n'), ''),  -- mostrado no topo do cardápio (retirada)
       'pix',          NULLIF(btrim(config->'delivery'->>'pix'), '')                       -- gera o Pix copia e cola do pedido
     )),
-    'secoesOrdem', COALESCE(config->'secoesOrdem', '[]'::jsonb)
+    'secoesOrdem', COALESCE(config->'secoesOrdem', '[]'::jsonb),
+    'indica', indica_cfg(p_user_id) - 'validade_dias' - 'limite_mes'
   )
   FROM user_config WHERE user_id = p_user_id
 $$;
@@ -900,7 +1130,9 @@ GRANT EXECUTE ON FUNCTION public.cardapio_publico(uuid)        TO anon, authenti
 GRANT EXECUTE ON FUNCTION public.get_delivery_config(uuid)     TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.produtos_disponiveis(uuid)    TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.registrar_interesse(uuid, bigint, text, text) TO anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text, text) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text, text, text, text[]) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.conferir_cupom(uuid, text, text, numeric) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.indicacao_do_cliente(uuid, text[]) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.pedidos_do_cliente(text[])   TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.delete_pedido(text, uuid)     TO authenticated, service_role;
 
@@ -1040,6 +1272,47 @@ BEGIN
   );
 END $$;
 REVOKE ALL ON FUNCTION cancelar_pix_vencidos() FROM public, anon, authenticated;
+
+-- Indica e ganha: amigo recebeu o pedido → crédito pra quem indicou (até o limite do
+-- mês). Pedido cancelado → indicação cancelada e crédito usado volta pro cliente.
+CREATE OR REPLACE FUNCTION indica_status_pedido() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE ind record; cfg jsonb; n int;
+BEGIN
+  IF NEW.status IS NOT DISTINCT FROM OLD.status THEN RETURN NEW; END IF;
+  cfg := indica_cfg(NEW.user_id);
+  IF NEW.status = 'Entregue' THEN
+    SELECT * INTO ind FROM indicacoes WHERE user_id = NEW.user_id AND pedido_id = NEW.id AND status = 'pendente' LIMIT 1;
+    IF FOUND THEN
+      SELECT count(*) INTO n FROM indicacoes WHERE user_id = NEW.user_id AND dono_tel8 = ind.dono_tel8
+         AND status = 'liberado' AND liberado_em >= date_trunc('month', now() AT TIME ZONE 'America/Sao_Paulo');
+      IF n >= (cfg->>'limite_mes')::int THEN
+        UPDATE indicacoes SET status = 'limite' WHERE id = ind.id;
+      ELSE
+        INSERT INTO creditos (user_id, tel8, valor, saldo, motivo, pedido_id, indicacao_id, expira_em)
+        VALUES (NEW.user_id, ind.dono_tel8, (cfg->>'premio')::numeric, (cfg->>'premio')::numeric,
+                'indicou ' || coalesce(ind.amigo_nome, 'um amigo'), NEW.id, ind.id,
+                (now() AT TIME ZONE 'America/Sao_Paulo')::date + (cfg->>'validade_dias')::int);
+        UPDATE indicacoes SET status = 'liberado', liberado_em = now() WHERE id = ind.id;
+      END IF;
+    END IF;
+  ELSIF NEW.status = 'Cancelado' THEN
+    UPDATE indicacoes SET status = 'cancelado' WHERE user_id = NEW.user_id AND pedido_id = NEW.id AND status = 'pendente';
+    IF NEW.desconto_tipo = 'credito' AND coalesce(NEW.desconto, 0) > 0
+       AND NOT EXISTS (SELECT 1 FROM creditos WHERE user_id = NEW.user_id AND pedido_id = NEW.id AND motivo = 'devolvido') THEN
+      INSERT INTO creditos (user_id, tel8, valor, saldo, motivo, pedido_id, expira_em)
+      VALUES (NEW.user_id, tel8(NEW.contato), NEW.desconto, NEW.desconto, 'devolvido', NEW.id,
+              (now() AT TIME ZONE 'America/Sao_Paulo')::date + (cfg->>'validade_dias')::int);
+    END IF;
+  END IF;
+  RETURN NEW;
+EXCEPTION WHEN others THEN
+  RAISE WARNING 'indica e ganha: %', SQLERRM;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION indica_status_pedido() FROM public, anon, authenticated;
+CREATE OR REPLACE TRIGGER encomenda_indica AFTER UPDATE OF status ON encomendas
+  FOR EACH ROW EXECUTE FUNCTION indica_status_pedido();
 
 -- Agenda (rodar de novo só atualiza o mesmo agendamento)
 SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar_lembretes_push()');

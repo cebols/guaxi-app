@@ -257,7 +257,10 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
   useEffect(() => { setTexto(modelos.find(m => m.key === modelo)?.texto || modelos[0]?.texto || '') }, [modelo, p.id, pix, pixMP, p.periodo, p.dataEntrega, p.tipoEntrega, p.pgto]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { rolador().scrollTo(0, 0) }, [p.id])
 
-  const itensTotal = (p.itens || []).reduce((s, it) => s + (Number(it.precoUnit) || 0) * (Number(it.quantidade) || 0), 0)
+  // doces menos o desconto (cupom/crédito do cardápio: fixo em R$, nunca sobre o frete)
+  const desc = Number(p.desconto || 0)
+  const comDesc = (doces) => Math.max(0, doces - Math.min(desc, doces))
+  const itensTotal = comDesc((p.itens || []).reduce((s, it) => s + (Number(it.precoUnit) || 0) * (Number(it.quantidade) || 0), 0))
   const contato = acharContato(contatos, p.contato)
   const janela = janelaAberta(contato)
   const ate = contato?.ultimaMsgClienteEm ? new Date(new Date(contato.ultimaMsgClienteEm).getTime() + 24 * 3600e3) : null
@@ -286,7 +289,7 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
   const salvarItens = () => salvar(async () => {
     const lista = itensEd.map(it => ({ ...it, quantidade: num(it.quantidade), precoUnit: num(it.precoUnit) }))
     await updateEncomendaItens(p.id, lista)
-    const novo = lista.reduce((s, it) => s + it.precoUnit * it.quantidade, 0) + (entrega ? Number(p.frete || 0) : 0)
+    const novo = comDesc(lista.reduce((s, it) => s + it.precoUnit * it.quantidade, 0)) + (entrega ? Number(p.frete || 0) : 0)
     await atualizarPedido(p.id, { valor: novo })
     setEditItens(false)
   }, 'Itens salvos')
@@ -384,6 +387,7 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
                     </div>
                   ))}
                   <div style={{ height: 1, background: 'var(--border-light-color)' }} />
+                  {desc > 0 && <div className="pd-kv" style={{ fontSize: 13, color: '#34d39a' }}><span>{p.descontoTipo === 'credito' ? 'Crédito do cliente' : `${p.descontoTipo === 'indicacao' ? 'Indicação' : 'Cupom'} ${p.cupomCodigo || ''}`}</span><span>− {fmtR(desc)}</span></div>}
                   {entrega && <div className="pd-kv" style={{ fontSize: 13 }}><span>Frete</span><span>{fmtR(p.frete)}</span></div>}
                   <div className="pd-kv" style={{ fontSize: 16, fontWeight: 800 }}><span style={{ color: 'var(--text-primary)' }}>Total</span><span>{fmtR(p.valor)}</span></div>
                 </>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig, registrarInteresse, getPedidosDoCliente, pixDoPedido, conferirPix } from '../services/db'
+import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig, registrarInteresse, getPedidosDoCliente, pixDoPedido, conferirPix, conferirCupom, indicacaoDoCliente } from '../services/db'
 import { pixCopiaECola } from '../lib/pix'
 
 const fmtR = (v) =>
@@ -105,18 +105,108 @@ const novaChave = () => {
   const b = new Uint8Array(16); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
 }
 
+// Cupom que veio pelo link (?cupom=) fica guardado até usar (30 dias)
+const CHAVE_CUPOM = 'guaxi_cupom'
+const lerCupomGuardado = () => {
+  try { const x = JSON.parse(localStorage.getItem(CHAVE_CUPOM) || 'null'); return x?.codigo && Date.now() - (x.em || 0) < 30 * 864e5 ? x.codigo : '' } catch { return '' }
+}
+const guardarCupom = (codigo) => { try { codigo ? localStorage.setItem(CHAVE_CUPOM, JSON.stringify({ codigo, em: Date.now() })) : localStorage.removeItem(CHAVE_CUPOM) } catch {} }
+// Desconto do cupom sobre os doces (nunca sobre o frete) — mesma conta do servidor
+const descontoDe = (info, subtotal) => !info?.ok ? 0
+  : info.regra_tipo === 'pct' ? Math.round(subtotal * Number(info.regra_valor || 0)) / 100
+  : Math.min(Number(info.regra_valor || 0), subtotal)
+const regraTxt = (tipo, valor) => tipo === 'pct' ? `${Number(valor || 0).toLocaleString('pt-BR')}%` : fmtR(valor)
+const diaMes = (d) => d ? new Date(d + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''
+
+async function copiarTexto(txt) {
+  try { await navigator.clipboard.writeText(txt) } catch {
+    const t = document.createElement('textarea')
+    t.value = txt; t.setAttribute('readonly', ''); t.style.cssText = 'position:fixed;opacity:0'
+    document.body.appendChild(t); t.select()
+    try { document.execCommand('copy') } catch { /* sem como copiar */ }
+    t.remove()
+  }
+}
+
+// Chegou pelo link de um amigo (ou de um cupom): avisa que o desconto já tá aplicado
+function ConviteBanner({ info }) {
+  if (!info?.ok) return null
+  const amigo = info.tipo === 'indicacao'
+  return (
+    <section aria-label={amigo ? 'Presente de um amigo' : 'Cupom aplicado'} style={{
+      margin: '14px 12px 0', padding: 14, borderRadius: 16, background: '#FFFFFF', border: `1.5px solid ${C.azul}`,
+      boxShadow: '0 8px 20px rgba(14,60,104,.10)', display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 536, marginInline: 'auto',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span aria-hidden="true" style={{ width: 42, height: 42, flexShrink: 0, borderRadius: 21, background: C.azulClaro, color: C.azul, display: 'grid', placeItems: 'center' }}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="8" width="18" height="13" rx="2" /><path d="M12 8v13M3 12h18M12 8c-2-4-6-4-6-1.5S9 8 12 8zm0 0c2-4 6-4 6-1.5S15 8 12 8z" /></svg>
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 16.5, color: C.azulEsc, lineHeight: 1.25 }}>
+            {amigo ? `${info.dono ? `A ${info.dono}` : 'Um amigo'} te deu ${regraTxt(info.regra_tipo, info.regra_valor)} de desconto` : `Cupom ${info.codigo}: ${info.texto}`}
+          </div>
+          <div style={{ fontSize: 13.5, color: C.tinta2 }}>{amigo ? 'no seu primeiro pedido na Guaxí' : 'nos doces do seu pedido'}</div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 10, background: C.azulClaro, fontSize: 13, color: C.azulEsc }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7" /></svg>
+        <span>Código <b style={{ letterSpacing: '.04em' }}>{info.codigo}</b> já aplicado, é só escolher os doces</span>
+      </div>
+    </section>
+  )
+}
+
+// Código pessoal do Indica e ganha (depois do primeiro pedido pago)
+function IndiqueGanhe({ info, userId, style }) {
+  const [ok, setOk] = useState(false)
+  if (!info?.codigo || info.ativo === false) return null
+  const regraAmigo = info.amigo_tipo === 'pct' ? `${Number(info.amigo_valor).toLocaleString('pt-BR')}%` : fmtR(info.amigo_valor)
+  const link = `${window.location.origin}/pedido/${userId}?cupom=${info.codigo}`
+  const msg = `Oi! Conhece a Guaxí Pâtisserie? Usa meu código ${info.codigo} e ganha ${regraAmigo} de desconto no primeiro pedido 🧁\n${link}`
+  const credito = Number(info.credito || 0)
+  const indicados = Number(info.indicados || 0)
+  const resumo = [
+    indicados ? `${indicados} ${indicados === 1 ? 'amigo indicado' : 'amigos indicados'}` : null,
+    Number(info.pendentes || 0) ? `${info.pendentes} a caminho` : null,
+    credito > 0 ? `${fmtR(credito)} pra usar` : null,
+  ].filter(Boolean).join(' · ')
+  return (
+    <section aria-label="Indique e ganhe" style={{
+      background: '#FFFFFF', borderRadius: 18, border: `1.5px solid ${C.azul}`, padding: '16px 16px', display: 'flex', flexDirection: 'column', gap: 10, ...style,
+    }}>
+      <div style={{ fontWeight: 800, fontSize: 17, color: C.azulEsc }}>Indique a Guaxí e ganhe {fmtR(info.premio)}</div>
+      <div style={{ fontSize: 13.5, color: C.tinta2, lineHeight: 1.5 }}>
+        Quem usar o seu código ganha {regraAmigo} no primeiro pedido. Quando o pedido chegar, você ganha {fmtR(info.premio)} de crédito pro próximo.
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ flex: 1, height: 50, display: 'grid', placeItems: 'center', borderRadius: 12, border: `2px dashed ${C.azul}`, color: C.azul, fontSize: 22, fontWeight: 800, letterSpacing: '.12em' }}>{info.codigo}</span>
+        <button type="button" aria-label="Copiar código" title="Copiar código" onClick={async () => { await copiarTexto(info.codigo); setOk(true); setTimeout(() => setOk(false), 2500) }} style={{
+          width: 50, height: 50, borderRadius: 12, border: `1.5px solid ${ok ? '#1F9D6B' : C.linha}`, background: ok ? '#E7F7EF' : '#FFFFFF', color: ok ? '#136B48' : C.azul, display: 'grid', placeItems: 'center', cursor: 'pointer',
+        }}>
+          {ok
+            ? <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7" /></svg>
+            : <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 012-2h10" /></svg>}
+        </button>
+      </div>
+      <a href={`https://wa.me/?text=${encodeURIComponent(msg)}`} target="_blank" rel="noreferrer" style={{
+        minHeight: 50, borderRadius: 14, background: '#25D366', color: '#073B1E', fontWeight: 800, fontSize: 15.5, textDecoration: 'none',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONTE,
+      }}>Mandar pros amigos no WhatsApp</a>
+      <div style={{ fontSize: 12.5, color: C.tinta2, lineHeight: 1.45 }}>
+        Vai com o link do cardápio e o código já dentro.
+        {resumo ? <> <b style={{ color: C.tinta }}>{resumo}</b>.</> : null}
+        {credito > 0 ? <> Usa até {fmtR(info.uso_max)} por pedido a partir de {fmtR(info.uso_min)}{info.expira ? `, até ${diaMes(info.expira)}` : ''}.</> : null}
+      </div>
+    </section>
+  )
+}
+
 // Botão "Copiar Pix copia e cola" (o valor já vai dentro do código)
 function PixCopiar({ codigo, valor }) {
   const [ok, setOk] = useState(false)
   if (!codigo) return null
   async function copiar() {
-    try { await navigator.clipboard.writeText(codigo) } catch {
-      const t = document.createElement('textarea')
-      t.value = codigo; t.setAttribute('readonly', ''); t.style.cssText = 'position:fixed;opacity:0'
-      document.body.appendChild(t); t.select()
-      try { document.execCommand('copy') } catch { /* sem como copiar */ }
-      t.remove()
-    }
+    await copiarTexto(codigo)
     setOk(true); setTimeout(() => setOk(false), 3000)
   }
   return (
@@ -676,6 +766,17 @@ export default function PedidoExterno() {
   const [meusPedidos, setMeusPedidos] = useState([])   // pedidos feitos neste aparelho
   const [chaveAtual, setChaveAtual]   = useState(null) // segredo do pedido que acabou de ser feito
   const [pixMeus, setPixMeus]         = useState({})   // { PED-031: { estado, codigo, ... } }
+  // Cupom: código em uso (do link ?cupom= ou digitado) + resposta do servidor
+  const [cupomCod, setCupomCod] = useState(() => {
+    const doLink = (new URLSearchParams(window.location.search).get('cupom') || '').trim().toUpperCase().slice(0, 30)
+    if (doLink) guardarCupom(doLink)
+    return doLink || lerCupomGuardado()
+  })
+  const [cupomRes, setCupomRes]       = useState(null) // { ok, tipo, codigo, texto, ... } | { ok:false, motivo }
+  const [cupomTxt, setCupomTxt]       = useState('')
+  const [indica, setIndica]           = useState(null) // código pessoal + crédito
+  const [usarCredito, setUsarCredito] = useState(true)
+  const [descFeito, setDescFeito]     = useState(null) // { valor, rotulo } do pedido que acabou de ir
   useFontesMarca()
   useRolarAoDigitar()
   // Endereço da última compra: ao ir pro checkout com Entrega, já preenche o CEP e calcula o frete
@@ -694,11 +795,18 @@ export default function PedidoExterno() {
   const carregarMeus = () => {
     const salvos = lerPedidosSalvos()
     if (salvos.length) getPedidosDoCliente(salvos.map(x => x.chave)).then(setMeusPedidos).catch(() => {})
+    carregarIndica()
+  }
+  const carregarIndica = () => {
+    const chaves = lerPedidosSalvos().map(x => x.chave)
+    if (chaves.length && userId) indicacaoDoCliente(userId, chaves).then(d => d && setIndica(d)).catch(() => {})
   }
   useEffect(() => { if (step === 'catalog') carregarMeus() }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pix automático do recibo (pedido recém-feito)
   const pixRecibo = usePixAutomatico(pedidoId, chaveAtual, step === 'confirm')
+  // Pagou o primeiro pedido → já ganha o código pra indicar (aparece no recibo)
+  useEffect(() => { if (step === 'confirm' && pixRecibo.estado === 'pago') carregarIndica() }, [step, pixRecibo.estado]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pix automático dos pedidos em aberto no topo do cardápio (e confere se caiu de tempos em tempos)
   const devendo = meusPedidos.filter(p => !['Entregue', 'Cancelado'].includes(p.status) && p.pgto !== 'Pago' && Number(p.valor) - Number(p.sinal || 0) > 0).map(p => p.id).join(',')
@@ -759,6 +867,28 @@ export default function PedidoExterno() {
     () => carrinhoItens.reduce((s, it) => s + (it.produto.precoDireta || 0) * it.qtd, 0),
     [carrinhoItens]
   )
+
+  // Confere o cupom no servidor (de novo quando muda o carrinho ou o WhatsApp)
+  const tel8Form = form.telefone.replace(/\D/g, '').slice(-8)
+  const subtotalCupom = step === 'checkout' ? total : null
+  useEffect(() => {
+    if (!cupomCod || !userId || step === 'confirm') { if (!cupomCod) setCupomRes(null); return }
+    let vivo = true
+    const t = setTimeout(() => {
+      conferirCupom(userId, cupomCod, tel8Form.length === 8 ? form.telefone : '', subtotalCupom)
+        .then(r => { if (vivo) setCupomRes(r) })
+    }, cupomRes ? 450 : 0)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [cupomCod, tel8Form, subtotalCupom, userId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Desconto: cupom OU crédito (nunca os dois, nunca sobre o frete)
+  const cupomOk = !!cupomCod && cupomRes?.ok === true
+  const credito = Number(indica?.credito || 0)
+  const creditoMin = Number(indica?.uso_min || 0)
+  const creditoAtivo = !cupomCod && usarCredito && credito > 0 && total >= creditoMin
+  const desconto = cupomOk ? descontoDe(cupomRes, total)
+    : creditoAtivo ? Math.min(Number(indica?.uso_max || 0), credito, total) : 0
+  const rotuloDesconto = cupomOk ? (cupomRes.tipo === 'indicacao' ? `Indicação ${cupomRes.codigo}` : `Cupom ${cupomRes.codigo}`) : 'Crédito'
 
   // Fragilidade do carrinho: se qualquer item é frágil, a viagem toda é frágil (carro)
   const fragCarrinho = useMemo(
@@ -1025,11 +1155,16 @@ export default function PedidoExterno() {
     const entrega = form.tipoEntrega === 'Entrega'
       ? { dataEntrega: diaSel, periodo: perSel || null, lat: coordCliente?.lat, lng: coordCliente?.lng, frag: fragCarrinho, freteAssinatura: frete?.viaDias ? frete.assinatura : null, chave }
       : { chave }
+    // cupom ainda sendo conferido vai junto (o servidor confere de novo); cupom recusado não vai
+    if (cupomCod && cupomRes?.ok !== false) entrega.cupom = cupomCod
+    else if (creditoAtivo) entrega.creditoChaves = lerPedidosSalvos().map(x => x.chave)
 
     setSubmitting(true)
     try {
       const id = await submitPedidoExterno(userId, { ...form, endereco }, carrinhoItens, freteValor, entrega)
       salvarCliente({ nome: form.nome, telefone: form.telefone, tipoEntrega: form.tipoEntrega, cep: form.cep, numero: form.numero, complemento: form.complemento })
+      setDescFeito(desconto > 0 && (entrega.cupom || entrega.creditoChaves) ? { valor: desconto, rotulo: rotuloDesconto } : null)
+      if (entrega.cupom) { setCupomCod(''); guardarCupom('') }
       if (id) guardarPedido(id, chave)
       setChaveAtual(chave)
       setPedidoId(id)
@@ -1077,7 +1212,9 @@ export default function PedidoExterno() {
     const linkWa = `https://wa.me/${WHATS_GUAXI}?text=${encodeURIComponent(msgWa)}`
     const CONFETES = ['#185D9C', '#F4A3B5', '#F6C453', '#7FB8E8', '#FFFFFF', '#0E3C68', '#F4A3B5', '#F6C453', '#7FB8E8', '#185D9C', '#FFFFFF', '#F4A3B5']
     const linha = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, fontSize: 14, padding: '7px 0' }
-    const codigoPix = deliveryCfg?.pix ? pixCopiaECola({ chave: deliveryCfg.pix, valor: total + freteValor, txid: pedidoId }) : ''
+    const descR = descFeito?.valor || 0
+    const totalR = total - descR + freteValor
+    const codigoPix = deliveryCfg?.pix ? pixCopiaECola({ chave: deliveryCfg.pix, valor: totalR, txid: pedidoId }) : ''
     return (
       <div style={{ ...shell, background: C.creme }}>
         <style>{RECIBO_CSS + ANIM_CSS}</style>
@@ -1119,13 +1256,18 @@ export default function PedidoExterno() {
                   <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fmtR((it.produto.precoDireta || 0) * it.qtd)}</span>
                 </div>
               ))}
+              {descR > 0 && (
+                <div style={{ ...linha, color: '#136B48', fontSize: 13 }}>
+                  <span>{descFeito.rotulo}</span><span>− {fmtR(descR)}</span>
+                </div>
+              )}
               {freteValor > 0 && (
                 <div style={{ ...linha, color: C.tinta2, fontSize: 13 }}>
                   <span>Frete</span><span>{fmtR(freteValor)}</span>
                 </div>
               )}
               <div style={{ ...linha, fontSize: 18, fontWeight: 800, paddingTop: 10 }}>
-                <span>Total</span><span style={{ color: C.azul }}>{fmtR(total + freteValor)}</span>
+                <span>Total</span><span style={{ color: C.azul }}>{fmtR(totalR)}</span>
               </div>
             </div>
             <Picote />
@@ -1143,11 +1285,13 @@ export default function PedidoExterno() {
                 <span style={{ fontSize: 18 }}>💸</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <b>Pagamento por Pix</b>
-                  <PagamentoPix pix={pixRecibo} estatico={codigoPix} valor={total + freteValor} />
+                  <PagamentoPix pix={pixRecibo} estatico={codigoPix} valor={totalR} />
                 </div>
               </div>
             </div>
           </div>
+
+          <IndiqueGanhe info={indica} userId={userId} style={{ maxWidth: 440, margin: '14px auto 0', boxSizing: 'border-box' }} />
 
           {/* WhatsApp da Guaxí */}
           <div style={{ maxWidth: 440, margin: '18px auto 0', textAlign: 'center' }}>
@@ -1222,7 +1366,7 @@ export default function PedidoExterno() {
               })}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 4px', fontWeight: 700, fontSize: 16 }}>
-              <span>Total</span>
+              <span>Doces</span>
               <span style={{ color: '#185D9C' }}>{fmtR(total)}</span>
             </div>
           </div>
@@ -1427,6 +1571,79 @@ export default function PedidoExterno() {
               }}
             />
           </Field>
+
+          {/* Cupom */}
+          <div style={{ marginTop: 6 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#5B6878', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Cupom</div>
+            {cupomCod ? (
+              <div role="status" style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 8px 10px 14px', borderRadius: 12,
+                background: cupomOk ? '#E7F7EF' : cupomRes ? '#FDF3E3' : '#FFFFFF',
+                border: `1px solid ${cupomOk ? '#B9E8D1' : cupomRes ? '#F1D3A2' : C.linha}`,
+              }}>
+                {cupomOk && <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#136B48" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7" /></svg>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, letterSpacing: '.03em', color: cupomOk ? '#136B48' : C.tinta }}>{cupomCod}</div>
+                  <div style={{ fontSize: 13, color: cupomOk ? '#136B48' : cupomRes ? '#8A5A12' : C.tinta2 }}>
+                    {cupomOk ? `${cupomRes.texto}${desconto > 0 ? ` · − ${fmtR(desconto)}` : ''}` : cupomRes ? cupomRes.motivo : 'Conferindo...'}
+                  </div>
+                </div>
+                <button type="button" onClick={() => { setCupomCod(''); setCupomRes(null); guardarCupom('') }} style={{
+                  minHeight: 40, padding: '0 12px', borderRadius: 10, border: 'none', background: 'transparent', color: cupomOk ? '#136B48' : C.tinta2,
+                  fontWeight: 700, fontSize: 13.5, textDecoration: 'underline', cursor: 'pointer', fontFamily: FONTE,
+                }}>Tirar</button>
+              </div>
+            ) : (
+              <form onSubmit={e => { e.preventDefault(); const c = cupomTxt.trim().toUpperCase(); if (c) { setCupomRes(null); setCupomCod(c); setCupomTxt('') } }}
+                style={{ display: 'flex', gap: 8 }}>
+                <Input placeholder="Tem cupom?" value={cupomTxt} aria-label="Código do cupom" autoCapitalize="characters" autoComplete="off"
+                  onChange={e => setCupomTxt(e.target.value.toUpperCase().slice(0, 30))} style={{ flex: 1, minWidth: 0 }} />
+                <button type="submit" disabled={!cupomTxt.trim()} style={{
+                  padding: '0 18px', borderRadius: 10, border: `1.5px solid ${C.azul}`, background: '#FFFFFF', color: C.azul,
+                  fontWeight: 800, fontSize: 14, cursor: 'pointer', fontFamily: FONTE, opacity: cupomTxt.trim() ? 1 : 0.5,
+                }}>Aplicar</button>
+              </form>
+            )}
+          </div>
+
+          {/* Crédito do Indica e ganha (não junta com cupom) */}
+          {credito > 0 && (
+            <button type="button" role="switch" aria-checked={creditoAtivo} disabled={total < creditoMin}
+              onClick={() => { if (creditoAtivo) setUsarCredito(false); else { setUsarCredito(true); setCupomCod(''); setCupomRes(null); guardarCupom('') } }}
+              style={{
+                marginTop: 12, width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: 14, borderRadius: 14, textAlign: 'left',
+                background: '#FFFFFF', border: `1.5px solid ${creditoAtivo ? C.azul : C.linha}`, cursor: total < creditoMin ? 'default' : 'pointer', fontFamily: FONTE, color: C.tinta,
+              }}>
+              <span aria-hidden="true" style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 20, background: C.azulClaro, color: C.azul, display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 14 }}>R$</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontWeight: 800, color: C.azulEsc }}>Você tem {fmtR(credito)} de crédito</span>
+                <span style={{ display: 'block', fontSize: 13, color: C.tinta2, marginTop: 1 }}>
+                  {total < creditoMin ? `Vale em pedidos a partir de ${fmtR(creditoMin)} em doces`
+                    : cupomCod ? 'Não junta com cupom: toca pra usar o crédito no lugar'
+                    : `Usa até ${fmtR(indica.uso_max)} por pedido${indica.expira ? ` · vale até ${diaMes(indica.expira)}` : ''}`}
+                </span>
+              </span>
+              <span aria-hidden="true" style={{ width: 46, height: 28, flexShrink: 0, borderRadius: 99, background: creditoAtivo ? C.azul : '#D9DEE4', position: 'relative', opacity: total < creditoMin ? 0.5 : 1, transition: 'background .2s' }}>
+                <i style={{ position: 'absolute', top: 3, left: creditoAtivo ? 21 : 3, width: 22, height: 22, borderRadius: '50%', background: '#FFFFFF', transition: 'left .2s' }} />
+              </span>
+            </button>
+          )}
+
+          {/* Total */}
+          <div style={{ marginTop: 16, background: '#FFFFFF', borderRadius: 12, padding: '4px 14px' }}>
+            {(() => {
+              const fr = form.tipoEntrega === 'Entrega' && frete ? frete.valor : null
+              const l = { display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: 14, color: C.tinta2 }
+              return (<>
+                <div style={l}><span>Doces</span><span>{fmtR(total)}</span></div>
+                {desconto > 0 && <div style={{ ...l, color: '#136B48' }}><span>{rotuloDesconto}</span><span>− {fmtR(desconto)}</span></div>}
+                {form.tipoEntrega === 'Entrega' && <div style={l}><span>Frete</span><span>{fr == null ? 'falta o CEP' : fr === 0 ? 'Grátis' : fmtR(fr)}</span></div>}
+                <div style={{ ...l, padding: '12px 0 10px', borderTop: `1px solid ${C.linha}`, fontSize: 18, fontWeight: 800, color: C.tinta }}>
+                  <span>Total</span><span style={{ color: C.azul }}>{fmtR(total - desconto + (fr || 0))}</span>
+                </div>
+              </>)
+            })()}
+          </div>
         </div>
 
         {/* Sticky submit */}
@@ -1441,7 +1658,7 @@ export default function PedidoExterno() {
               opacity: (!form.nome || !form.telefone || submitting) ? 0.5 : 1,
             }}
           >
-            {submitting ? 'Enviando...' : `Enviar pedido · ${fmtR(total + (form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0))}`}
+            {submitting ? 'Enviando...' : `Enviar pedido · ${fmtR(total - desconto + (form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0))}`}
           </button>
         </div>
       </div>
@@ -1478,12 +1695,20 @@ export default function PedidoExterno() {
         <InfoLoja endereco={enderecoLoja} cep={deliveryCfg?.lojaCEP} />
       </div>
 
+      {cupomOk && <ConviteBanner info={cupomRes} />}
+
       <SeusPedidos pedidos={meusPedidos} pix={deliveryCfg?.pix} pixPor={pixMeus} produtos={produtos}
         onPedirDeNovo={(p) => {
           const novo = {}
           for (const i of p.itens || []) { const x = produtos.find(y => y.nome === i.produto && !y.esgotado); if (x) novo[x.id] = Math.min((novo[x.id] || 0) + Number(i.qtd || 1), x.estoqueAtual > 0 ? x.estoqueAtual : 99) }
           setCarrinho(novo)
         }} />
+
+      {indica?.codigo && (
+        <div style={{ padding: '10px 12px 0', maxWidth: 560, margin: '0 auto' }}>
+          <IndiqueGanhe info={indica} userId={userId} style={{ boxShadow: '0 6px 16px rgba(14,60,104,.07)' }} />
+        </div>
+      )}
 
       {/* Seções */}
       {secoes.length > 1 && (

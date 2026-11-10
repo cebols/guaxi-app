@@ -959,6 +959,7 @@ export async function getEncomendas() {
     rastreioEnviadoEm: r.rastreio_enviado_em || null,
     aguardaPixAte: r.aguarda_pix_ate || null,   // pedido do cardápio esperando o Pix (cancela sozinho depois)
     pixPagoEm: r.pix_pago_em || null,
+    desconto: Number(r.desconto) || 0, descontoTipo: r.desconto_tipo || null, cupomCodigo: r.cupom_codigo || null,
     envio: r.envios ? { id: r.envios.id, status: r.envios.status, shareLink: r.envios.share_link || null, periodo: r.envios.periodo || null } : null,
     createdAtTs: r.created_at || null,
     itens: (r.encomenda_itens || []).map(i => ({
@@ -2496,7 +2497,13 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
   const assinado = { ...comEntrega, p_frete_assinatura: entrega.freteAssinatura || null }
   const comPeriodo = entrega.periodo ? { ...assinado, p_periodo: entrega.periodo } : assinado
   // p_chave: segredo do aparelho do cliente (deixa ele acompanhar o pedido no cardápio)
-  let { data, error } = await supabase.rpc('submit_pedido_externo', entrega.chave ? { ...comPeriodo, p_chave: entrega.chave } : comPeriodo)
+  const comChave = entrega.chave ? { ...comPeriodo, p_chave: entrega.chave } : comPeriodo
+  // desconto: cupom/código de amigo OU crédito (o banco confere e calcula)
+  const comDesconto = entrega.cupom ? { ...comChave, p_cupom: entrega.cupom }
+    : entrega.creditoChaves?.length ? { ...comChave, p_credito_chaves: entrega.creditoChaves } : comChave
+  let { data, error } = await supabase.rpc('submit_pedido_externo', comDesconto)
+  if (error && !naoAchou(error)) throw error
+  if (naoAchou(error) && comDesconto !== comChave) ({ data, error } = await supabase.rpc('submit_pedido_externo', comChave))
   // Fallbacks p/ bancos que ainda não rodaram o SQL novo
   if (naoAchou(error) && entrega.chave) ({ data, error } = await supabase.rpc('submit_pedido_externo', comPeriodo))
   if (naoAchou(error) && entrega.periodo) ({ data, error } = await supabase.rpc('submit_pedido_externo', assinado))
@@ -2523,6 +2530,52 @@ async function chamarPix(acao, pedido, chave) {
 }
 export const pixDoPedido = (pedido, chave) => chamarPix('criar', pedido, chave)
 export const conferirPix = (pedido, chave) => chamarPix('conferir', pedido, chave)
+
+// ── Cupons e Indica e ganha ──
+export async function conferirCupom(userId, codigo, telefone, subtotal) {
+  const { data, error } = await supabase.rpc('conferir_cupom', { p_user_id: userId, p_codigo: codigo, p_telefone: telefone || '', p_subtotal: subtotal })
+  if (error) return { ok: false, motivo: 'Não deu pra conferir agora. Tenta de novo?' }
+  return data || { ok: false }
+}
+export async function indicacaoDoCliente(userId, chaves) {
+  if (!chaves?.length) return null
+  const { data, error } = await supabase.rpc('indicacao_do_cliente', { p_user_id: userId, p_chaves: chaves.slice(0, 10) })
+  return error ? null : data
+}
+export async function getCupons() {
+  const { data, error } = await supabase.from('cupons').select('*').order('created_at', { ascending: false })
+  if (error) return []
+  return data.map(c => ({ id: c.id, codigo: c.codigo, tipo: c.tipo, valor: Number(c.valor), minimo: Number(c.minimo) || 0, validoAte: c.valido_ate, limiteUsos: c.limite_usos, umPorCliente: c.um_por_cliente, ativo: c.ativo, createdAt: c.created_at }))
+}
+export async function salvarCupom(c) {
+  const { error } = await supabase.from('cupons').insert({ codigo: c.codigo.trim().toUpperCase(), tipo: c.tipo, valor: c.valor, minimo: c.minimo || 0,
+    valido_ate: c.validoAte || null, limite_usos: c.limiteUsos || null, um_por_cliente: c.umPorCliente !== false })
+  if (error) throw new Error(/duplicate|unique/i.test(error.message) ? 'Já existe um cupom com esse código' : error.message)
+}
+export async function atualizarCupom(id, campos) {
+  const { error } = await supabase.from('cupons').update(campos).eq('id', id)
+  if (error) throw error
+}
+export async function getIndicacoes() {
+  const [{ data: inds }, { data: cods }, { data: creds }] = await Promise.all([
+    supabase.from('indicacoes').select('*').order('created_at', { ascending: false }).limit(60),
+    supabase.from('codigos_indicacao').select('codigo, nome, tel8'),
+    supabase.from('creditos').select('tel8, saldo, expira_em').gt('saldo', 0),
+  ])
+  const nomePor = Object.fromEntries((cods || []).map(c => [c.codigo, c.nome]))
+  const hoje = new Date().toLocaleDateString('en-CA')
+  const validos = (creds || []).filter(c => c.expira_em >= hoje)
+  return {
+    lista: (inds || []).map(i => ({ id: i.id, codigo: i.codigo, dono: nomePor[i.codigo] || i.codigo, amigo: i.amigo_nome || 'Amigo', pedidoId: i.pedido_id, status: i.status, criadoEm: i.created_at, liberadoEm: i.liberado_em })),
+    creditoAberto: validos.reduce((s, c) => s + Number(c.saldo), 0),
+    clientesComCredito: new Set(validos.map(c => c.tel8)).size,
+  }
+}
+export async function cancelarIndicacao(id, liberado) {
+  const { error } = await supabase.from('indicacoes').update({ status: 'cancelado' }).eq('id', id)
+  if (error) throw error
+  if (liberado) await supabase.from('creditos').update({ saldo: 0 }).eq('indicacao_id', id)   // tira o crédito que ainda não foi usado
+}
 
 // Pedidos feitos neste aparelho (cardápio, sem login): pelo segredo guardado em cada pedido
 export async function getPedidosDoCliente(chaves) {
