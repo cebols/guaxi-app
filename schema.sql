@@ -857,6 +857,21 @@ BEGIN
     'amigo_tipo', cfg->>'amigo_tipo', 'amigo_valor', (cfg->>'amigo_valor')::numeric, 'premio', (cfg->>'premio')::numeric);
 END $$;
 
+-- Distância em linha reta (km) e raio de entrega da loja (Configurações › Entrega;
+-- padrão 20 km, 0 = sem limite). Usado no pedido do cardápio e do WhatsApp.
+CREATE OR REPLACE FUNCTION public.dist_km(lat1 numeric, lng1 numeric, lat2 numeric, lng2 numeric) RETURNS numeric
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT (6371 * 2 * asin(sqrt(
+    power(sin(radians(lat2 - lat1) / 2), 2) +
+    cos(radians(lat1)) * cos(radians(lat2)) * power(sin(radians(lng2 - lng1) / 2), 2))))::numeric
+$$;
+CREATE OR REPLACE FUNCTION public.raio_entrega_km(p_user_id uuid) RETURNS numeric
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT coalesce((SELECT CASE WHEN jsonb_typeof(config->'delivery'->'raioKm') = 'number'
+                               THEN (config->'delivery'->>'raioKm')::numeric END
+                     FROM user_config WHERE user_id = p_user_id), 20)
+$$;
+
 -- Cliente (sem login) manda o pedido. Preço e nome de cada item vêm do cadastro
 -- (o cliente não consegue mudar preço). O frete só vale se veio assinado pelo
 -- cálculo do servidor (/api/frete-dias); senão o pedido entra com aviso pra conferir.
@@ -912,9 +927,25 @@ DECLARE
   v_info     jsonb;
   v_cfg      jsonb;
   v_t8       text := tel8(p_contato);
+  v_raio     numeric;
+  v_loja     jsonb;
 BEGIN
   IF coalesce(trim(p_cliente), '') = '' OR coalesce(trim(p_contato), '') = '' THEN
     RAISE EXCEPTION 'Informe nome e WhatsApp';
+  END IF;
+
+  -- Raio de entrega: endereço longe (ou que não achou no mapa) não vira pedido de entrega
+  IF v_entrega THEN
+    v_raio := raio_entrega_km(p_user_id);
+    SELECT config->'delivery' INTO v_loja FROM user_config WHERE user_id = p_user_id;
+    IF v_raio > 0 AND jsonb_typeof(v_loja->'lojaLat') = 'number' AND jsonb_typeof(v_loja->'lojaLng') = 'number' THEN
+      IF p_lat IS NULL OR p_lng IS NULL THEN
+        RAISE EXCEPTION 'Não achei seu endereço no mapa. Confere o CEP ou chama a gente no WhatsApp';
+      END IF;
+      IF dist_km((v_loja->>'lojaLat')::numeric, (v_loja->>'lojaLng')::numeric, p_lat, p_lng) > v_raio THEN
+        RAISE EXCEPTION 'Esse endereço fica fora da nossa área de entrega (até % km da Guaxí). Dá pra escolher Retirada', trim(to_char(v_raio, 'FM9990.#'), '.');
+      END IF;
+    END IF;
   END IF;
 
   -- Itens: confere cada produto e usa o preço do cadastro
@@ -1040,7 +1071,8 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
       'freteTiers',  config->'delivery'->'freteTiers',
       'lojaCEP',     config->'delivery'->'lojaCEP',
       'lojaEndereco', NULLIF(btrim(config->'delivery'->>'lojaEndereco', E' \t\r\n'), ''),  -- mostrado no topo do cardápio (retirada)
-      'pix',          NULLIF(btrim(config->'delivery'->>'pix'), '')                       -- gera o Pix copia e cola do pedido
+      'pix',          NULLIF(btrim(config->'delivery'->>'pix'), ''),                      -- gera o Pix copia e cola do pedido
+      'raioKm',       raio_entrega_km(p_user_id)                                          -- entrega só até X km (linha reta); 0 = sem limite
     )),
     'secoesOrdem', COALESCE(config->'secoesOrdem', '[]'::jsonb),
     'indica', indica_cfg(p_user_id) - 'validade_dias' - 'limite_mes'

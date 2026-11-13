@@ -759,6 +759,8 @@ export default function PedidoExterno() {
   const [perSel, setPerSel]         = useState(null)   // manha | tarde | noite
   const [precoSolo, setPrecoSolo]   = useState(null)   // frete de uma entrega sozinha (pra mostrar a economia)
   const [coordCliente, setCoordCliente] = useState(null)
+  const [fora, setFora]               = useState(null) // { distKm, raioKm }: CEP fora da área de entrega
+  const [lugarLoja, setLugarLoja]     = useState('')   // "Copacabana, Rio de Janeiro - RJ" (pra quem escolhe retirada)
   const [deliveryCfg, setDeliveryCfg] = useState(null)
   const [secoesOrdem, setSecoesOrdem] = useState([])
   const [secaoAtiva, setSecaoAtiva]   = useState(null)
@@ -790,6 +792,15 @@ export default function PedidoExterno() {
   const deliveryCfgRef = useRef(null)
 
   const setF = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // Bairro e cidade da Guaxí (pra quem escolhe retirada saber onde é)
+  useEffect(() => {
+    const cep = String(deliveryCfg?.lojaCEP || '').replace(/\D/g, '')
+    if (step !== 'checkout' || lugarLoja || cep.length !== 8) return
+    fetch(`https://brasilapi.com.br/api/cep/v2/${cep}`).then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setLugarLoja([d.neighborhood, [d.city, d.state].filter(Boolean).join(' - ')].filter(Boolean).join(', ')) })
+      .catch(() => {})
+  }, [step, deliveryCfg?.lojaCEP]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pedidos deste aparelho (volta pro cardápio → atualiza o andamento)
   const carregarMeus = () => {
@@ -1022,7 +1033,7 @@ export default function PedidoExterno() {
   async function calcularFreteDias(cepCliente) {
     const clean = cepCliente.replace(/\D/g, '')
     if (clean.length !== 8 || carrinhoItens.length === 0) return false
-    setCalcFrete(true); setFrete(null); setFreteError(''); setFreteDias(null); setDiaSel(null); setPerSel(null)
+    setCalcFrete(true); setFrete(null); setFreteError(''); setFreteDias(null); setDiaSel(null); setPerSel(null); setFora(null)
     try {
       const c = await geocodeCep(clean)
       // 5 casas (~1 m): o mesmo valor vai pro cálculo do frete e pro pedido (assinatura)
@@ -1036,6 +1047,7 @@ export default function PedidoExterno() {
       })
       const j = await r.json().catch(() => ({}))
       if (!r.ok) { setFreteError(j.error || 'Não foi possível calcular o frete por dia'); return false }
+      if (j.fora) { setFora({ distKm: Number(j.distKm), raioKm: Number(j.raioKm) }); return true }
       if (!Array.isArray(j.dias) || j.dias.length === 0) {
         // Sem dias de entrega configurados → silencioso, usa o cálculo por faixa
         return false
@@ -1120,11 +1132,16 @@ export default function PedidoExterno() {
     setCalcFrete(true)
     setFrete(null)
     setFreteError('')
+    setFora(null)
     try {
       const [origem, destino] = await Promise.all([
         geocodeCep(cfg.lojaCEP),
         geocodeCep(clean),
       ])
+      setCoordCliente({ lat: Math.round(destino.lat * 1e5) / 1e5, lng: Math.round(destino.lon * 1e5) / 1e5 })
+      const reta = haversineKm(origem, destino)
+      const raio = typeof cfg.raioKm === 'number' ? cfg.raioKm : 20
+      if (raio > 0 && reta > raio) { setFora({ distKm: Math.round(reta * 10) / 10, raioKm: raio }); return }
       // Distância em linha reta × fator de rota 1.35
       const distKm = haversineKm(origem, destino) * 1.35
       const valor = applyFreteTiers(distKm, cfg.freteTiers)
@@ -1141,6 +1158,7 @@ export default function PedidoExterno() {
     if (!form.nome.trim()) { alert('Informe seu nome'); return }
     if (!form.telefone.trim()) { alert('Informe seu WhatsApp'); return }
     if (form.tipoEntrega === 'Entrega' && !form.cep.replace(/\D/g, '')) { alert('Informe o CEP'); return }
+    if (form.tipoEntrega === 'Entrega' && fora) { alert(`Ainda não entregamos nesse endereço (a Guaxí entrega até ${fora.raioKm} km). Dá pra escolher Retirada.`); return }
     if (carrinhoItens.length === 0) return
 
     const endereco = form.tipoEntrega === 'Entrega'
@@ -1410,6 +1428,12 @@ export default function PedidoExterno() {
             </div>
           </Field>
 
+          {form.tipoEntrega === 'Retirada' && deliveryCfg?.lojaEndereco && (
+            <div style={{ marginTop: -6, marginBottom: 16, padding: '10px 12px', borderRadius: 12, background: C.azulClaro, color: C.azulEsc, fontSize: 13.5, lineHeight: 1.45 }}>
+              Você busca aqui: <b>{deliveryCfg.lojaEndereco}</b>{lugarLoja ? ` · ${lugarLoja}` : ''}
+            </div>
+          )}
+
           {form.tipoEntrega === 'Entrega' && (
             <>
               <Field label="CEP">
@@ -1437,6 +1461,29 @@ export default function PedidoExterno() {
                   <Input value={form.ruaBairro} readOnly style={{ color: '#5B6878', background: '#F7EEF0' }} />
                   {form.cidade && <div style={{ fontSize: 12, color: '#5B6878', marginTop: 4 }}>{form.cidade}</div>}
                 </Field>
+              )}
+
+              {/* Fora da área de entrega */}
+              {fora && !calculandoFrete && !loadingCep && (
+                <section role="alert" aria-label="Fora da área de entrega" style={{
+                  marginBottom: 16, padding: 14, borderRadius: 14, background: '#FFFFFF', border: '1.5px solid #F1D3A2',
+                  display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <span aria-hidden="true" style={{ fontSize: 22, lineHeight: 1 }}>📍</span>
+                    <div>
+                      <div style={{ fontWeight: 800, color: C.azulEsc, fontSize: 15.5 }}>Ainda não entregamos aí</div>
+                      <div style={{ fontSize: 13.5, color: C.tinta2, marginTop: 3, lineHeight: 1.45 }}>
+                        Esse CEP fica a uns {fora.distKm.toLocaleString('pt-BR')} km da Guaxí, e a gente entrega até {fora.raioKm.toLocaleString('pt-BR')} km.
+                        Se der pra buscar aqui{lugarLoja ? ` em ${lugarLoja.split(' - ')[0]}` : ''}, é só escolher retirada.
+                      </div>
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setF('tipoEntrega', 'Retirada')} style={{
+                    minHeight: 44, borderRadius: 12, border: `1.5px solid ${C.azul}`, background: '#FFFFFF', color: C.azul,
+                    fontWeight: 800, fontSize: 14.5, cursor: 'pointer', fontFamily: FONTE,
+                  }}>Vou retirar na Guaxí</button>
+                </section>
               )}
 
               {/* Frete */}
@@ -1637,7 +1684,7 @@ export default function PedidoExterno() {
               return (<>
                 <div style={l}><span>Doces</span><span>{fmtR(total)}</span></div>
                 {desconto > 0 && <div style={{ ...l, color: '#136B48' }}><span>{rotuloDesconto}</span><span>− {fmtR(desconto)}</span></div>}
-                {form.tipoEntrega === 'Entrega' && <div style={l}><span>Frete</span><span>{fr == null ? 'falta o CEP' : fr === 0 ? 'Grátis' : fmtR(fr)}</span></div>}
+                {form.tipoEntrega === 'Entrega' && <div style={l}><span>Frete</span><span>{fora ? 'fora da área' : fr == null ? 'falta o CEP' : fr === 0 ? 'Grátis' : fmtR(fr)}</span></div>}
                 <div style={{ ...l, padding: '12px 0 10px', borderTop: `1px solid ${C.linha}`, fontSize: 18, fontWeight: 800, color: C.tinta }}>
                   <span>Total</span><span style={{ color: C.azul }}>{fmtR(total - desconto + (fr || 0))}</span>
                 </div>
@@ -1650,15 +1697,15 @@ export default function PedidoExterno() {
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, maxWidth: 640, margin: '0 auto', padding: '16px 20px', background: '#FFFFFF', borderTop: '1px solid #EBCDD5' }}>
           <button
             onClick={handleSubmit}
-            disabled={submitting || !form.nome || !form.telefone}
+            disabled={submitting || !form.nome || !form.telefone || (form.tipoEntrega === 'Entrega' && !!fora)}
             style={{
               width: '100%', padding: 14, borderRadius: 12,
               background: '#185D9C', color: '#fff', border: 'none',
               fontWeight: 700, fontSize: 16, cursor: 'pointer',
-              opacity: (!form.nome || !form.telefone || submitting) ? 0.5 : 1,
+              opacity: (!form.nome || !form.telefone || submitting || (form.tipoEntrega === 'Entrega' && fora)) ? 0.5 : 1,
             }}
           >
-            {submitting ? 'Enviando...' : `Enviar pedido · ${fmtR(total - desconto + (form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0))}`}
+            {submitting ? 'Enviando...' : form.tipoEntrega === 'Entrega' && fora ? 'Fora da área de entrega' : `Enviar pedido · ${fmtR(total - desconto + (form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0))}`}
           </button>
         </div>
       </div>

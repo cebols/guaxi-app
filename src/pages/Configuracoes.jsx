@@ -409,7 +409,7 @@ function formDeEntrega(d = {}) {
   return {
     lojaCEP: d.lojaCEP || '', lojaEndereco: String(d.lojaEndereco || '').trim(), lojaPhone: d.lojaPhone || '',
     lalamoveProducao: d.lalamoveProducao === true, pix: d.pix || '',
-    freteGratis: String(d.freteGratis ?? 0), freteMargemPct: String(d.freteMargemPct ?? 10), freteMargemMin: String(d.freteMargemMin ?? 1),
+    raioKm: String(typeof d.raioKm === 'number' ? d.raioKm : 20), freteGratis: String(d.freteGratis ?? 0), freteMargemPct: String(d.freteMargemPct ?? 10), freteMargemMin: String(d.freteMargemMin ?? 1),
     diasEntrega: d.diasEntrega || [], freteTiers: (d.freteTiers || []).map(t => ({ ate: String(t.ate), valor: String(t.valor) })),
   }
 }
@@ -455,7 +455,7 @@ function AbaEntrega({ show }) {
         ...atual,
         lojaCEP: f.lojaCEP.trim(), lojaEndereco: f.lojaEndereco.trim(), lojaPhone: f.lojaPhone.trim(),
         lalamoveProducao: f.lalamoveProducao, pix: f.pix.trim(),
-        freteGratis: num(f.freteGratis), freteMargemPct: f.freteMargemPct === '' ? 10 : num(f.freteMargemPct), freteMargemMin: f.freteMargemMin === '' ? 1 : num(f.freteMargemMin),
+        raioKm: f.raioKm === '' ? 20 : Math.max(0, num(f.raioKm)), freteGratis: num(f.freteGratis), freteMargemPct: f.freteMargemPct === '' ? 10 : num(f.freteMargemPct), freteMargemMin: f.freteMargemMin === '' ? 1 : num(f.freteMargemMin),
         diasEntrega: [...f.diasEntrega].sort(),
         freteTiers: f.freteTiers.filter(t => t.ate !== '' && t.valor !== '').map(t => ({ ate: num(t.ate), valor: num(t.valor) })).sort((a, b) => a.ate - b.ate),
         lojaLat: coords?.lat ?? atual.lojaLat ?? null, lojaLng: coords?.lng ?? atual.lojaLng ?? null,
@@ -506,6 +506,8 @@ function AbaEntrega({ show }) {
 
         <section className="cf-card" aria-label="Frete">
           <h2>Frete</h2>
+          <label className="cf-num"><span>Entrega só até</span><span className="cf-campo-num"><input inputMode="decimal" value={f.raioKm} onChange={e => set('raioKm', e.target.value)} /><i>km</i></span><span>da loja</span></label>
+          <div className="cf-dim" style={{ marginTop: -6 }}>Em linha reta. Mais longe que isso o cardápio e a GuaxiMina não aceitam entrega (só retirada). 0 = sem limite.</div>
           <label className="cf-num"><span>Frete grátis acima de</span><span className="cf-campo-num"><i>R$</i><input inputMode="decimal" value={f.freteGratis} onChange={e => set('freteGratis', e.target.value)} /></span></label>
           <div className="cf-dim" style={{ marginTop: -6 }}>0 = nunca grátis</div>
           <label className="cf-num"><span>Margem sobre o Lalamove</span>

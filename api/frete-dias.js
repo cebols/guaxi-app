@@ -32,6 +32,13 @@ function assinar(userId, date, preco, lat, lng, frag, periodo = null) {
 }
 const PERIODOS = ['manha', 'tarde', 'noite']
 
+// Mesma conta do banco (dist_km): distância em linha reta, em km
+function distLinhaReta(lat1, lng1, lat2, lng2) {
+  const r = (x) => x * Math.PI / 180
+  const a = Math.sin(r(lat2 - lat1) / 2) ** 2 + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(r(lng2 - lng1) / 2) ** 2
+  return 6371 * 2 * Math.asin(Math.sqrt(a))
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return }
   if (!lalamoveConfigured())          { res.status(500).json({ error: 'Lalamove não configurado' }); return }
@@ -58,6 +65,10 @@ export default async function handler(req, res) {
     const lojaLat = delivery.lojaLat, lojaLng = delivery.lojaLng
 
     if (!lojaLat || !lojaLng)      { res.status(400).json({ error: 'Loja sem coordenadas (salve o CEP da loja em Configurações)' }); return }
+    // Raio de entrega (linha reta; padrão 20 km, 0 = sem limite): longe nem cota no Lalamove
+    const raioKm = typeof delivery.raioKm === 'number' ? delivery.raioKm : 20
+    const distKm = Math.round(distLinhaReta(lojaLat, lojaLng, lat, lng) * 10) / 10
+    if (raioKm > 0 && distKm > raioKm) { res.status(200).json({ fora: true, distKm, raioKm }); return }
     if (diasSemana.length === 0)   { res.status(200).json({ dias: [] }); return }
 
     // Só agendamento: a partir de amanhã, os próximos dias de entrega em ordem de data.

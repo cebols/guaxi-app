@@ -43,13 +43,17 @@ function diaLabelBR(s: string): string {
 interface DiaFrete { date: string; preco: number; pedidos: number; assinatura?: string | null }
 
 // Mesmo cálculo de frete do cardápio online (o valor vem assinado pelo servidor)
-async function freteDias(lat: number, lng: number, frag: string, total: number): Promise<DiaFrete[] | null> {
+// Fora do raio de entrega → { fora } (e não cota)
+interface Fora { fora: true; distKm: number; raioKm: number }
+const foraTxt = (f: Fora) => `Esse CEP fica a uns ${String(f.distKm).replace('.', ',')} km da Guaxí, fora da área de entrega (até ${f.raioKm} km). NÃO crie pedido de entrega: diga com carinho que ainda não entregamos lá e ofereça retirada (só se a pessoa puder buscar no endereço da Guaxí).`
+async function freteDias(lat: number, lng: number, frag: string, total: number): Promise<DiaFrete[] | Fora | null> {
   try {
     const r = await fetch(`${APP_BASE}/api/frete-dias`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: OWNER_USER_ID, lat, lng, frag, total }),
     })
     const j = await r.json()
+    if (r.ok && j.fora) return { fora: true, distKm: Number(j.distKm), raioKm: Number(j.raioKm) }
     return r.ok && Array.isArray(j.dias) ? j.dias as DiaFrete[] : null
   } catch {
     return null
@@ -138,6 +142,7 @@ async function consultarEntrega(input: Record<string, unknown>): Promise<string>
   if (!geo) return 'Não consegui localizar esse CEP. Peça pro cliente conferir os números.'
   const dias = await freteDias(r5(geo.lat), r5(geo.lng), 'robusto', 0)
   if (!dias) return 'Não consegui calcular o frete agora. Diga que já já confirma, ou chame escalar_humano.'
+  if (!Array.isArray(dias)) return foraTxt(dias)
   if (!dias.length) return 'Não há dias de entrega configurados nas próximas semanas. Ofereça retirada ou chame escalar_humano.'
   const linhas = dias.map(d =>
     `• ${diaLabelBR(d.date)} (${d.date}): ${fmtR(d.preco)}${d.pedidos > 0 ? ' — já tem entrega nesse dia, sai mais em conta' : ''}`)
@@ -179,6 +184,7 @@ async function criarPedido(input: Record<string, unknown>, ctx: Ctx): Promise<st
     lat = r5(geo.lat); lng = r5(geo.lng)
     const dias = await freteDias(lat, lng, frag, subtotal)
     if (!dias) return 'Não consegui calcular o frete agora. Chame escalar_humano.'
+    if (!Array.isArray(dias)) return foraTxt(dias)
     const dia = dias.find(d => d.date === data)
     if (!dia) return `Não tem entrega em ${diaLabelBR(data)}. Dias possíveis: ${dias.map(d => `${diaLabelBR(d.date)} (${d.date})`).join(', ') || 'nenhum'}.`
     frete = Number(dia.preco) || 0
