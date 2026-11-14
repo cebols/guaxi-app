@@ -1,3 +1,4 @@
+import ContarEtapas from '../components/ContarEtapas'
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
@@ -60,6 +61,7 @@ export default function Prontidao() {
   const [mover, setMover]           = useState(null) // { prod, de, para, n }
   const [etapaAberta, setEtapaAberta] = useState(null) // { prod, etapaKey }
   const [config, setConfig]         = useState(null) // prod
+  const [contar, setContar]         = useState(null) // prod: corrigir quantidades por etapa
   const [aviso, setAviso]           = useState(null) // { msg, undo? }
   const [aplicando, setAplicando]   = useState(false)
   const [verLembrete, setVerLembrete] = useState(false)
@@ -242,6 +244,7 @@ export default function Prontidao() {
                 onMover={(de, para, n) => setMover({ prod, de, para, n })}
                 onEtapa={(etapaKey) => setEtapaAberta({ prod, etapaKey })}
                 onConfig={() => setConfig(prod)}
+                onContar={() => setContar(prod)}
                 onTarefa={abrirTarefa} />
             ))}
             {verCards && analises.length > 0 && visiveis.length === 0 && (
@@ -308,6 +311,12 @@ export default function Prontidao() {
       {etapaAberta && (
         <EtapaSheet {...etapaAberta} lotes={lotes || []} agora={agora} onClose={() => setEtapaAberta(null)}
           onDone={async (msg) => { setEtapaAberta(null); await recarregar(); setAviso({ msg }) }} />
+      )}
+      {contar && (
+        <Sheet title={`Contar · ${contar.nome}`} onClose={() => setContar(null)}>
+          <ContarEtapas prod={contar} lotes={lotes || []}
+            onSalvo={async (msg) => { setContar(null); await recarregar(); setAviso({ msg }) }} />
+        </Sheet>
       )}
       {config && (
         <ConfigSheet prod={config} onClose={() => setConfig(null)}
@@ -473,7 +482,7 @@ function LinhaAcao({ t, cor, primeira, a, agora, onExecutar }) {
 }
 
 // ── Cartão de um produto ──────────────────────────────────────────────────────
-function CardProduto({ prod, a, interessados = 0, onInteressados, onMover, onEtapa, onConfig, onTarefa }) {
+function CardProduto({ prod, a, interessados = 0, onInteressados, onMover, onEtapa, onConfig, onContar, onTarefa }) {
   const st = STATUS[a.status]
   return (
     <div className="card" style={{ padding: '12px 14px', marginBottom: 10, borderLeft: `3px solid ${st.cor}` }}>
@@ -485,6 +494,7 @@ function CardProduto({ prod, a, interessados = 0, onInteressados, onMover, onEta
         {interessados > 0 && <button onClick={onInteressados} style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', background: 'rgba(96,165,250,.12)', border: 'none', borderRadius: 20, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>🔔 {interessados} querem</button>}
         {a.reservado > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: '#60a5fa', whiteSpace: 'nowrap' }}>{fmtN(a.reservado)} reservado(s)</span>}
         <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: st.bg, color: st.cor, whiteSpace: 'nowrap' }}>{a.rotulo}</span>
+        <button onClick={onContar} title="Contar / corrigir quantidades" style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: '1px solid #444', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', whiteSpace: 'nowrap' }}>Contar</button>
         <button onClick={onConfig} title="Configurar fluxo" style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 17, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>⚙</button>
       </div>
 

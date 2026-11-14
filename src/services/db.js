@@ -2082,7 +2082,10 @@ export async function deleteProducaoItem(itemId) {
 // etapa: em que etapa do Prontidão o produto montado entra (padrão: a primeira)
 // separados: { receitaId: qtd } — preparo que não foi pro produto (ex: recheio do
 // choux, que é feito na hora) e volta pro estoque de preparos.
-export async function marcarMontado(itemId, qtd, etapa = null, separados = {}) {
+export function marcarMontado(itemId, qtd, etapa = null, separados = {}) {
+  return naFilaProducao(() => aplicarMontado(itemId, qtd, etapa, separados))
+}
+async function aplicarMontado(itemId, qtd, etapa, separados) {
   const { data: item, error } = await supabase.from('producao_itens').select('id, snapshot, produto_id, producoes(checks)').eq('id', itemId).single()
   if (error) throw error
   let snap = item.snapshot || {}
@@ -2117,7 +2120,10 @@ export async function marcarMontado(itemId, qtd, etapa = null, separados = {}) {
   if (e2) throw e2
 }
 
-export async function desmarcarMontado(itemId) {
+export function desmarcarMontado(itemId) {
+  return naFilaProducao(() => aplicarDesmontado(itemId))
+}
+async function aplicarDesmontado(itemId) {
   const { data: item, error } = await supabase.from('producao_itens').select('id, snapshot, produto_id').eq('id', itemId).single()
   if (error) throw error
   const snap = item.snapshot || {}
@@ -2215,7 +2221,20 @@ export async function getProducao(id) {
   }
 }
 
-export async function updateProducaoChecks(id, newChecks) {
+// Fila da produção: marcar receitas/montado um depois do outro. Sem isso, vários
+// toques seguidos liam o mesmo estado antigo e o mesmo produto entrava várias vezes
+// no estoque (e os insumos saíam várias vezes).
+let filaProducao = Promise.resolve()
+function naFilaProducao(fn) {
+  const vez = filaProducao.then(fn)
+  filaProducao = vez.catch(() => {})
+  return vez
+}
+
+export function updateProducaoChecks(id, newChecks) {
+  return naFilaProducao(() => aplicarChecksProducao(id, newChecks))
+}
+async function aplicarChecksProducao(id, newChecks) {
   // Busca estado atual
   const { data: prod, error } = await supabase
     .from('producoes')

@@ -4,6 +4,8 @@ import { useData } from '../hooks/useData'
 import { useToast } from '../hooks/useToast'
 import { getInsumos, getEmbalagens, getProdutos, getReceitas, updateEstoqueInsumos, updateEstoqueEmbalagens, updateEstoqueProdutos, updateEstoqueReceitas, updateEstoqueMinProdutos, updateEstoqueMinInsumos, updateEstoqueMinEmbalagens, updateEstoqueMinReceitas, registrarCompras, getCompras, deleteCompra, getInsumoFornecedores, getProducoes, computeAjustesPendentes, saveContagemSnapshot, getContagemSnapshots, restoreContagemSnapshot, insumosDoCardapio } from '../services/db'
 import { fluxoAtivo } from '../lib/prontidao'
+import ContarEtapas from '../components/ContarEtapas'
+import { getProntidaoLotes } from '../services/db'
 
 function selUnit(sel) {
   if (!sel) return 0
@@ -1038,6 +1040,7 @@ export default function Contagem() {
   const { data: produtos,   loading: loadProd, reload: reloadProd } = useData(getProdutos)
   const { data: receitas,   loading: loadRec,  reload: reloadRec  } = useData(getReceitas)
   const { data: producoes } = useData(getProducoes)
+  const { data: lotesProntidao, reload: reloadLotes } = useData(getProntidaoLotes)
   const ajustes = useMemo(() => computeAjustesPendentes(producoes || []), [producoes])
   const { toast, show } = useToast()
   const navigate = useNavigate()
@@ -1152,6 +1155,7 @@ export default function Contagem() {
     if (!q) return list
     return list.filter(i => norm(i.nome).includes(q) || norm(i.categoria).includes(q))
   }
+  const produtosNoBoardFiltrados = useMemo(() => filtraBusca(produtosNoBoard), [produtosNoBoard, busca]) // eslint-disable-line react-hooks/exhaustive-deps
   const produtosFiltrados = useMemo(() => filtraBusca(isRec ? preparosAtivos : produtosParaContagem), [isRec, preparosAtivos, produtosParaContagem, busca])
   const preparosForaFiltrados = useMemo(() => filtraBusca(preparosFora), [preparosFora, busca])
 
@@ -1521,10 +1525,21 @@ export default function Contagem() {
                     ? 'Receitas prontas guardadas (pastas, pralinês, massas...). Só as que algum produto do cardápio usa.'
                     : 'Só produtos que estão no cardápio.'}
                 </div>
-                {!isRec && produtosNoBoard.length > 0 && (
-                  <button onClick={() => navigate('/prontidao')} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', marginBottom: 10, borderRadius: 8, border: '1px solid var(--teal)', background: 'transparent', color: 'var(--teal)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                    {produtosNoBoard.length} produto(s) são contados por etapa em Prontidão →
-                  </button>
+                {!isRec && produtosNoBoardFiltrados.length > 0 && (
+                  <div className="card" style={{ padding: '12px 14px', marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                      <div style={{ flex: 1, fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--text-secondary)' }}>Produzidos · por etapa</div>
+                      <button onClick={() => navigate('/prontidao')} style={{ background: 'none', border: 'none', color: 'var(--teal)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>Prontidão →</button>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '4px 0 2px' }}>
+                      Digite quantas unidades tem de verdade em cada etapa. Em branco = não mexe. Salva na hora, produto por produto.
+                    </div>
+                    {lotesProntidao ? produtosNoBoardFiltrados.map(p => (
+                      <ContarEtapas key={`${p.id}-${(lotesProntidao || []).filter(l => l.produto_id === p.id).map(l => l.id + ':' + l.qtd).join(',')}`}
+                        prod={p} lotes={lotesProntidao} compacto
+                        onSalvo={(msg) => { show(msg); reloadLotes(); reloadProd() }} />
+                    )) : <div style={{ fontSize: 13, color: 'var(--text-tertiary)', padding: '8px 0' }}>Carregando…</div>}
+                  </div>
                 )}
                 {produtosFiltrados.length > 0
                   ? <StockTab itens={produtosFiltrados} contagem={prodContagem} onChange={prodSetter} minValues={prodMin} labelPedir="produzir" />
