@@ -437,6 +437,25 @@ CREATE TABLE IF NOT EXISTS creditos (
 );
 CREATE INDEX IF NOT EXISTS creditos_tel ON creditos(user_id, tel8);
 
+-- Perdas: o que foi pro lixo (ou comido) — na produção (desmoldar, quebrou) ou
+-- depois de pronto (caiu, venceu). custo_unit = custo do produto na hora da perda
+-- (sem a embalagem quando ainda não estava embalado).
+CREATE TABLE IF NOT EXISTS perdas (
+  id               bigserial primary key,
+  user_id          uuid default auth.uid() references auth.users(id) on delete cascade,
+  produto_id       bigint references produtos(id) on delete set null,
+  produto_nome     text not null,
+  qtd              numeric not null check (qtd > 0),
+  custo_unit       numeric not null default 0,
+  motivo           text not null default 'outro',   -- desmoldar | quebrou | caiu | vencido | consumo | outro
+  momento          text not null default 'depois',  -- producao | depois
+  etapa            text,
+  producao_item_id bigint,
+  obs              text,
+  created_at       timestamptz default now()
+);
+CREATE INDEX IF NOT EXISTS perdas_data ON perdas(user_id, created_at);
+
 -- =============================================================================
 -- 3. COLUNAS ADICIONADAS COM O TEMPO (bancos criados antes ficam atualizados)
 -- =============================================================================
@@ -597,6 +616,7 @@ ALTER TABLE cupons                 ENABLE ROW LEVEL SECURITY;
 ALTER TABLE codigos_indicacao      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE indicacoes             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE creditos               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE perdas                 ENABLE ROW LEVEL SECURITY;
 ALTER TABLE encomendas             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE encomenda_itens        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE envios                 ENABLE ROW LEVEL SECURITY;
@@ -661,6 +681,8 @@ DROP POLICY IF EXISTS "own_data" ON indicacoes;
 CREATE POLICY "own_data" ON indicacoes FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 DROP POLICY IF EXISTS "own_data" ON creditos;
 CREATE POLICY "own_data" ON creditos FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON perdas;
+CREATE POLICY "own_data" ON perdas FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 DROP POLICY IF EXISTS "own_data" ON interesses;
 CREATE POLICY "own_data" ON interesses FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 DROP POLICY IF EXISTS "own_data" ON envios;

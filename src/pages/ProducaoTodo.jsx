@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
+import { MOTIVOS_PERDA, custoUnitPerda, salvarPerdaProducao, getPerdaProducao } from '../services/db'
 import {
   getProducao, getReceitas, getInsumos, getProdutos,
   updateProducaoChecks, deleteProducao, deleteProducaoItem,
@@ -11,6 +12,8 @@ import {
 import { montarLinhaDoTempo } from '../lib/linhaTempo'
 import { etapasDoProduto, LOCAL } from '../lib/prontidao'
 import { rendimentoDe } from '../lib/receitas'
+
+const fmtR = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
 function norm(s) {
   return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -629,7 +632,7 @@ export default function ProducaoTodo() {
       {aviso && (
         <div style={{ position: 'fixed', left: 12, right: 12, bottom: 'calc(76px + env(safe-area-inset-bottom))', maxWidth: 520, margin: '0 auto', zIndex: 60,
           display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 12, background: '#123d30', border: '1px solid var(--teal)', boxShadow: '0 10px 24px rgba(0,0,0,.4)' }}>
-          <span style={{ flex: 1, fontSize: 14 }}>✓ {fmtQtd(aviso.qtd)} {aviso.nome} {aviso.fluxo ? <>→ Prontidão{aviso.etapa ? <b> · {aviso.etapa}</b> : null}</> : '→ estoque'}</span>
+          <span style={{ flex: 1, fontSize: 14 }}>✓ {fmtQtd(aviso.qtd)} {aviso.nome} {aviso.fluxo ? <>→ Prontidão{aviso.etapa ? <b> · {aviso.etapa}</b> : null}</> : '→ estoque'}{aviso.perda > 0 ? <span style={{ color: '#f87171' }}> · {fmtQtd(aviso.perda)} de perda ({fmtR(aviso.perdaR)})</span> : null}</span>
           {aviso.fluxo && <button onClick={() => navigate('/prontidao')} style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: 'var(--teal)', color: '#fff', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>Ver</button>}
         </div>
       )}
@@ -698,8 +701,16 @@ function MontarSheet({ alvo, onClose, onDone }) {
     return etapas.some(e => e.key === salva) ? salva : (etapas[0]?.key || null)
   })
   const [salvando, setSalvando] = useState(false)
+  // Perda na produção (desmoldar, quebrou...): os insumos já foram, o produto não vai pra venda
+  const [perda, setPerda] = useState('0')
+  const [motivo, setMotivo] = useState('desmoldar')
+  useEffect(() => { getPerdaProducao(item.id).then(x => { if (x) { setPerda(String(x.qtd)); setMotivo(x.motivo || 'desmoldar') } }).catch(() => {}) }, [item.id])
   const faltam = comps.filter(c => !c.pronta)
   const n = parseFloat(qtd) || 0
+  const nPerda = Math.max(0, parseFloat(perda) || 0)
+  const planejado = Number(item.quantidade) || 0
+  const faltou = Math.max(0, planejado - n)
+  const perdaR = nPerda * custoUnitPerda(p, true)
   const choux = p.prontidao?.fluxo === 'choux'
   // Preparo guardado à parte (recheio feito na hora): volta pro estoque de preparos
   const separaveis = comps.filter(c => c.unidadeEstoque && c.unidade === c.unidadeEstoque && c.total > 0)
@@ -734,7 +745,37 @@ function MontarSheet({ alvo, onClose, onDone }) {
         <button style={btn} onClick={() => setQtd(v => String((parseFloat(v) || 0) + 1))}>+</button>
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', marginBottom: 14 }}>
-        planejado: {item.quantidade}
+        planejado: {item.quantidade} · conta só os que ficaram bons pra vender
+      </div>
+
+      <div style={{ border: `1px solid ${nPerda > 0 ? '#7f1d1d' : '#333'}`, borderRadius: 12, padding: '10px 12px', marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>Perdeu alguma na produção?</span>
+          <button aria-label="Menos uma perda" onClick={() => setPerda(v => String(Math.max(0, (parseFloat(v) || 0) - 1)))} style={{ ...btn, width: 40, height: 40, fontSize: 20 }}>−</button>
+          <input type="text" inputMode="numeric" aria-label="Perdas na produção" value={perda} onChange={e => setPerda(e.target.value.replace(/[^\d.]/g, ''))} onFocus={e => e.target.select()}
+            style={{ width: 52, textAlign: 'center', fontSize: 22, fontWeight: 800, background: 'transparent', border: 'none', color: nPerda > 0 ? '#f87171' : 'var(--text-primary)', outline: 'none' }} />
+          <button aria-label="Mais uma perda" onClick={() => setPerda(v => String((parseFloat(v) || 0) + 1))} style={{ ...btn, width: 40, height: 40, fontSize: 20 }}>+</button>
+        </div>
+        {faltou > 0 && nPerda !== faltou && (
+          <button onClick={() => setPerda(String(faltou))} style={{ marginTop: 8, padding: '6px 10px', borderRadius: 8, border: '1px dashed #555', background: 'transparent', color: 'var(--text-secondary)', fontSize: 12.5, cursor: 'pointer' }}>
+            Os {fmtQtd(faltou)} que faltaram do planejado foram perda
+          </button>
+        )}
+        {nPerda > 0 && (
+          <>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+              {['desmoldar', 'quebrou', 'queimou', 'outro'].map(k => (
+                <button key={k} onClick={() => setMotivo(k)} style={{
+                  padding: '6px 11px', borderRadius: 20, fontSize: 12.5, cursor: 'pointer', fontWeight: motivo === k ? 700 : 500,
+                  border: `1px solid ${motivo === k ? '#f87171' : '#333'}`, background: motivo === k ? 'rgba(248,113,113,.12)' : 'transparent', color: motivo === k ? '#f87171' : 'var(--text-secondary)',
+                }}>{MOTIVOS_PERDA[k].nome}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginTop: 8 }}>
+              Pra venda: <b style={{ color: 'var(--text-primary)' }}>{fmtQtd(n)}</b> · perda <b style={{ color: '#f87171' }}>{fmtQtd(nPerda)}</b> ≈ {fmtR(perdaR)} em custo
+            </div>
+          </>
+        )}
       </div>
       {etapas.length > 1 && (
         <>
@@ -774,11 +815,11 @@ function MontarSheet({ alvo, onClose, onDone }) {
           </div>
         </>
       )}
-      <button className="btn-primary" disabled={salvando || !(n > 0)} onClick={() => rodar(() => { try { if (etapa) localStorage.setItem(chaveMem, etapa); localStorage.setItem(chaveSep, JSON.stringify([...sep])) } catch {} return marcarMontado(item.id, n, etapas.length ? etapa : null, separados) }, { nome: p.nome, qtd: n, etapa: etapas.length ? nomeEtapa(p, etapa) : null, fluxo: etapas.length > 0 })}>
+      <button className="btn-primary" disabled={salvando || !(n > 0)} onClick={() => rodar(() => { try { if (etapa) localStorage.setItem(chaveMem, etapa); localStorage.setItem(chaveSep, JSON.stringify([...sep])) } catch {} return marcarMontado(item.id, n, etapas.length ? etapa : null, separados).then(() => salvarPerdaProducao(p, item.id, nPerda, motivo)) }, { nome: p.nome, qtd: n, etapa: etapas.length ? nomeEtapa(p, etapa) : null, fluxo: etapas.length > 0, perda: nPerda, perdaR })}>
         {salvando ? 'Salvando...' : montado ? `Corrigir para ${n}` : `${choux ? 'Prontas' : 'Montado'} · ${n}`}
       </button>
       {montado && (
-        <button disabled={salvando} onClick={() => rodar(() => desmarcarMontado(item.id))} style={{ width: '100%', marginTop: 8, padding: 11, borderRadius: 10, border: '1px solid #7f1d1d', background: 'transparent', color: '#f87171', fontWeight: 600, cursor: 'pointer' }}>
+        <button disabled={salvando} onClick={() => rodar(() => desmarcarMontado(item.id).then(() => salvarPerdaProducao(p, item.id, 0)))} style={{ width: '100%', marginTop: 8, padding: 11, borderRadius: 10, border: '1px solid #7f1d1d', background: 'transparent', color: '#f87171', fontWeight: 600, cursor: 'pointer' }}>
           Desfazer montagem (tira {fmtQtd(montado.qtd)} do estoque)
         </button>
       )}

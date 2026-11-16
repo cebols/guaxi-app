@@ -9,6 +9,7 @@ import {
   getProdutos, getVendas, deleteVenda, getEncomendas, getEmbalagens,
   getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
   getCupons, salvarCupom, atualizarCupom, getIndicacoes, cancelarIndicacao,
+  getPerdas, apagarPerda, MOTIVOS_PERDA,
 } from '../services/db'
 import { criarTransacoes, resumoFinanceiro, ymd } from '../lib/financeiro'
 import {
@@ -439,6 +440,8 @@ function AbaProdutos({ trans, encomendas, produtos, cfg, navigate }) {
         ) : <div className="cf-hint">Sem histórico nem encomendas pros próximos 7 dias.</div>}
       </section>
 
+      <CardPerdas de={de} dias={dias} custoVendido={stats.reduce((s, p) => s + (p.custo || 0), 0)} desperdicio={Number(cfg.fatorDesperdicio) || 0} navigate={navigate} />
+
       {alertas.length > 0 && (
         <section className="cf-card cf-aviso" aria-label="Atenção" style={{ gap: 0 }}>
           <h2 style={{ marginBottom: 6, color: '#f5b544' }}>Atenção</h2>
@@ -451,6 +454,75 @@ function AbaProdutos({ trans, encomendas, produtos, cfg, navigate }) {
         </section>
       )}
     </>
+  )
+}
+
+// ── Perdas: o que foi pro lixo (Prontidão e montagem da produção) ─────────────
+function CardPerdas({ de, dias, custoVendido, desperdicio, navigate }) {
+  const [lista, setLista] = useState(null)
+  const [verTodas, setVerTodas] = useState(false)
+  const carregar = () => getPerdas(new Date(de + 'T00:00:00').toISOString()).then(setLista).catch(() => setLista([]))
+  useEffect(() => { carregar() }, [de]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (lista && window.location.hash === '#perdas') document.getElementById('perdas')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [lista])
+  if (!lista) return null
+  const val = (x) => x.qtd * x.custo_unit
+  const total = lista.reduce((s, x) => s + val(x), 0)
+  const un = lista.reduce((s, x) => s + x.qtd, 0)
+  const naProd = lista.filter(x => x.momento === 'producao').reduce((s, x) => s + val(x), 0)
+  const porProd = {}, porMotivo = {}
+  for (const x of lista) {
+    const p = (porProd[x.produto_nome] ||= { un: 0, r: 0 }); p.un += x.qtd; p.r += val(x)
+    const m = (porMotivo[x.motivo] ||= { un: 0, r: 0 }); m.un += x.qtd; m.r += val(x)
+  }
+  const prods = Object.entries(porProd).sort((a, b) => b[1].r - a[1].r)
+  const maxR = Math.max(1, ...prods.map(([, v]) => v.r))
+  const pctCusto = custoVendido > 0 ? total / custoVendido : null
+  const dataCurta = (iso) => new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+  const n1 = (x) => Math.round(x * 10) / 10
+  return (
+    <section className="cf-card" aria-label="Perdas" id="perdas">
+      <div className="cf-topo"><h2>Perdas · últimos {dias} dias</h2><button className="pd-btn" onClick={() => navigate('/prontidao')}>Registrar</button></div>
+      {!lista.length ? (
+        <div className="cf-hint">Nenhuma perda anotada. Anote no Prontidão (botão Perda no cartão do doce) ou na montagem da produção.</div>
+      ) : (
+        <>
+          <div className="cf-kpis">
+            <div className="cf-kpi"><span>Custo perdido</span><b style={{ color: '#f87171' }}>{fmtR(total)}</b><small>{n1(un)} unidades</small></div>
+            <div className="cf-kpi"><span>Na produção</span><b>{fmtR(naProd)}</b><small>desmoldar, quebrou, queimou</small></div>
+            <div className="cf-kpi"><span>Depois de pronto</span><b>{fmtR(total - naProd)}</b><small>caiu, venceu, comi</small></div>
+            {pctCusto != null && <div className="cf-kpi"><span>Sobre o custo vendido</span><b>{pct(pctCusto)}</b><small>{desperdicio ? `seu custo prevê ${desperdicio}%` : 'do custo do que vendeu'}</small></div>}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {prods.map(([nome, v]) => (
+              <div key={nome} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(60px, 110px) auto', gap: 10, alignItems: 'center', fontSize: 13.5 }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nome} <span className="cf-dim">· {n1(v.un)} un</span></span>
+                <span style={{ height: 8, borderRadius: 4, background: '#2a2a2a', overflow: 'hidden' }}><i style={{ display: 'block', height: '100%', width: `${(v.r / maxR) * 100}%`, background: '#f87171', borderRadius: 4 }} /></span>
+                <b style={{ minWidth: 72, textAlign: 'right' }}>{fmtR(v.r)}</b>
+              </div>
+            ))}
+          </div>
+          <div className="vd-tags" aria-label="Por motivo">
+            {Object.entries(porMotivo).sort((a, b) => b[1].r - a[1].r).map(([k, v]) => <span key={k}>{MOTIVOS_PERDA[k]?.nome || k}: {n1(v.un)} un · {fmtR(v.r)}</span>)}
+          </div>
+          <div>
+            <div className="cf-dim" style={{ marginBottom: 4 }}>Anotadas</div>
+            {(verTodas ? lista : lista.slice(0, 6)).map(x => (
+              <div key={x.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderTop: '1px solid #2a2a2a', fontSize: 13 }}>
+                <span className="cf-dim" style={{ minWidth: 40 }}>{dataCurta(x.created_at)}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>{n1(x.qtd)}× {x.produto_nome} <span className="cf-dim">· {MOTIVOS_PERDA[x.motivo]?.nome || x.motivo}{x.momento === 'producao' ? ' (produção)' : ''}{x.obs ? ` · ${x.obs}` : ''}</span></span>
+                <b>{fmtR(val(x))}</b>
+                <button className="cf-x" aria-label="Apagar anotação" title="Apagar só a anotação (não mexe no estoque)"
+                  onClick={async () => { if (!window.confirm('Apagar essa anotação de perda? O estoque não muda.')) return; await apagarPerda(x.id); carregar() }}>×</button>
+              </div>
+            ))}
+            {lista.length > 6 && <button className="pd-btn" style={{ marginTop: 6 }} onClick={() => setVerTodas(v => !v)}>{verTodas ? 'Ver menos' : `Ver todas (${lista.length})`}</button>}
+          </div>
+          <div className="cf-dim">Custo = o que o doce custou pra fazer (sem embalagem quando a perda foi antes de embalar). Na produção os insumos já saíram do estoque; aqui você vê quanto isso custou.</div>
+        </>
+      )}
+    </section>
   )
 }
 

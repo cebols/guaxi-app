@@ -877,12 +877,85 @@ export async function baixaProntidao(produtoId, etapa, n) {
   return syncEstoqueProdutoFluxo(produtoId)
 }
 
-export async function descartarVencidosProntidao(produtoId, etapa, validadeH) {
+export async function descartarVencidosProntidao(produtoId, etapa, validadeH, prod = null) {
   const limite = new Date(Date.now() - validadeH * 3600e3).toISOString()
+  const { data: venc } = await supabase.from('prontidao_lotes').select('qtd')
+    .eq('produto_id', produtoId).eq('etapa', etapa).lt('entrou_em', limite)
   const { error } = await supabase.from('prontidao_lotes').delete()
     .eq('produto_id', produtoId).eq('etapa', etapa).lt('entrou_em', limite)
   if (error) throw error
+  const n = (venc || []).reduce((s, l) => s + (Number(l.qtd) || 0), 0)
+  if (prod && n > 0) await registrarPerda({ prod, qtd: n, motivo: 'vencido', momento: 'depois', etapa }).catch(() => {})
   return syncEstoqueProdutoFluxo(produtoId)
+}
+
+// ── Perdas ───────────────────────────────────────────────────────────────────
+export const MOTIVOS_PERDA = {
+  desmoldar: { nome: 'Desmoldar / montar', producao: true },
+  quebrou:   { nome: 'Quebrou / rachou', producao: true },
+  queimou:   { nome: 'Queimou / passou do ponto', producao: true },
+  caiu:      { nome: 'Caiu', producao: false },
+  vencido:   { nome: 'Venceu', producao: false },
+  consumo:   { nome: 'Comi / degustação', producao: false },
+  outro:     { nome: 'Outro', producao: false },
+}
+
+// Custo de 1 unidade perdida: sem a embalagem se ainda não tinha sido embalado
+export function custoUnitPerda(prod, semEmbalagem = false) {
+  const total = Number(prod?.custoTotal) || 0
+  if (!semEmbalagem) return total
+  const emb = (prod?.embalagens || []).reduce((s, e) => s + (Number(e.quantidade) || 1) * (Number(e.custoUnit) || 0), 0)
+  return Math.max(0, total - emb)
+}
+
+export async function registrarPerda({ prod, qtd, motivo = 'outro', momento = 'depois', etapa = null, producaoItemId = null, obs = null }) {
+  const n = Number(qtd) || 0
+  if (n <= 0) return null
+  const semEmb = momento === 'producao' || etapa === 'embalar'
+  const { data, error } = await supabase.from('perdas').insert({
+    produto_id: prod.id, produto_nome: prod.nome, qtd: n, custo_unit: Math.round(custoUnitPerda(prod, semEmb) * 100) / 100,
+    motivo, momento, etapa, producao_item_id: producaoItemId, obs: obs || null,
+  }).select('id').single()
+  if (error) throw error
+  return data.id
+}
+
+export async function getPerdas(desdeISO = null) {
+  let q = supabase.from('perdas').select('*').order('created_at', { ascending: false }).limit(2000)
+  if (desdeISO) q = q.gte('created_at', desdeISO)
+  const { data, error } = await q
+  if (error) { if (/perdas/.test(error.message || '')) return []; throw error }
+  return (data || []).map(r => ({ ...r, qtd: Number(r.qtd) || 0, custo_unit: Number(r.custo_unit) || 0 }))
+}
+
+export async function apagarPerda(id) {
+  const { error } = await supabase.from('perdas').delete().eq('id', id)
+  if (error) throw error
+}
+
+// Perda do que já estava pronto: tira da etapa (mais antigos primeiro) e anota. Devolve o desfazer.
+export async function perdaProntidao(prod, etapa, n, motivo, obs = null) {
+  const { consumidos } = await consumirLotes(prod.id, [etapa], n)
+  const tirou = consumidos.reduce((s, c) => s + c.qtd, 0)
+  const perdaId = tirou > 0 ? await registrarPerda({ prod, qtd: tirou, motivo, momento: MOTIVOS_PERDA[motivo]?.producao ? 'producao' : 'depois', etapa, obs }) : null
+  await syncEstoqueProdutoFluxo(prod.id)
+  return { produtoId: prod.id, consumidos, perdaId, n: tirou }
+}
+export async function desfazerPerdaProntidao(info) {
+  for (const c of info.consumidos) await inserirLote(info.produtoId, c.etapa, c.qtd, c.entrou_em)
+  if (info.perdaId) await apagarPerda(info.perdaId)
+  await syncEstoqueProdutoFluxo(info.produtoId)
+}
+
+// Perda na produção (montagem): uma linha por item da produção; corrigir troca a anterior
+export async function salvarPerdaProducao(prod, itemId, qtd, motivo) {
+  const { error } = await supabase.from('perdas').delete().eq('producao_item_id', itemId).eq('momento', 'producao')
+  if (error && !/perdas/.test(error.message || '')) throw error
+  if (Number(qtd) > 0) await registrarPerda({ prod, qtd, motivo, momento: 'producao', producaoItemId: itemId })
+}
+export async function getPerdaProducao(itemId) {
+  const { data } = await supabase.from('perdas').select('qtd, motivo').eq('producao_item_id', itemId).eq('momento', 'producao').maybeSingle()
+  return data ? { qtd: Number(data.qtd) || 0, motivo: data.motivo } : null
 }
 
 // Define o fluxo do produto. Lotes de etapas que não existem mais vão pra 1ª etapa;

@@ -7,6 +7,7 @@ import {
   getProntidaoLotes, moverProntidao, desfazerMovimento, embalarProduto, desfazerEmbalar,
   corrigirEtapaProntidao, baixaProntidao, descartarVencidosProntidao, setProdutoProntidao,
   marcarEtapaPronta, desfazerEtapaPronta,
+  MOTIVOS_PERDA, custoUnitPerda, perdaProntidao, desfazerPerdaProntidao, getPerdas,
 } from '../services/db'
 import {
   FLUXOS, LOCAL, fluxoAtivo, analisarProduto, sugerirConfig, etapasDoProduto, metaPadrao, hhmm, fmtDuracao, usaEmbalagem,
@@ -36,6 +37,8 @@ CREATE POLICY "own_data" ON prontidao_lotes FOR ALL USING (user_id = auth.uid())
 NOTIFY pgrst, 'reload schema';`
 
 const fmtN = (n) => String(Math.round((n || 0) * 10) / 10).replace('.', ',')
+const fmtR = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const inicioMes = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString() }
 
 function textoSugestao(s, prod) {
   if (s.tipo === 'produzir') return `Produzir ${fmtN(s.n)}`
@@ -62,6 +65,15 @@ export default function Prontidao() {
   const [etapaAberta, setEtapaAberta] = useState(null) // { prod, etapaKey }
   const [config, setConfig]         = useState(null) // prod
   const [contar, setContar]         = useState(null) // prod: corrigir quantidades por etapa
+  const [perdaProd, setPerdaProd]   = useState(null) // prod: registrar perda
+  const [perdasMes, setPerdasMes]   = useState(null)
+  const carregarPerdas = () => getPerdas(inicioMes()).then(setPerdasMes).catch(() => setPerdasMes([]))
+  useEffect(() => { carregarPerdas() }, [])
+  // Perda/baixa registrada: atualiza tudo e oferece desfazer
+  const depoisDaPerda = async (msg, undo) => {
+    await recarregar(); carregarPerdas()
+    setAviso({ msg, undo: undo ? async () => { await undo(); await recarregar(); carregarPerdas(); setAviso({ msg: 'Desfeito' }) } : undefined })
+  }
   const [aviso, setAviso]           = useState(null) // { msg, undo? }
   const [aplicando, setAplicando]   = useState(false)
   const [verLembrete, setVerLembrete] = useState(false)
@@ -121,8 +133,8 @@ export default function Prontidao() {
       if (t.tipo === 'produzir') { navigate('/mise-en-place', { state: { adicionar: [{ produtoId: t.prod.id, n: qtd }] } }); return }
       if (t.tipo === 'vencidos') {
         const e = etapasDoProduto(t.prod).find(x => x.key === t.etapa)
-        await descartarVencidosProntidao(t.prod.id, t.etapa, e?.validadeH || 0)
-        await recarregar(); setAviso({ msg: `${fmtN(t.n)} descartado(s)` }); return
+        await descartarVencidosProntidao(t.prod.id, t.etapa, e?.validadeH || 0, t.prod)
+        await recarregar(); carregarPerdas(); setAviso({ msg: `${fmtN(t.n)} descartado(s) · anotado como perda` }); return
       }
       if (t.de === 'embalar') {
         const info = await embalarProduto(t.prod, destinos || [{ etapa: t.para, qtd }])
@@ -195,6 +207,17 @@ export default function Prontidao() {
               </div>
             )}
 
+            {perdasMes && perdasMes.length > 0 && (() => {
+              const un = perdasMes.reduce((s, x) => s + x.qtd, 0)
+              const r = perdasMes.reduce((s, x) => s + x.qtd * x.custo_unit, 0)
+              return (
+                <button onClick={() => navigate('/vendas?aba=produtos#perdas')} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', marginBottom: 12, borderRadius: 10, border: '1px solid #7f1d1d55', background: 'rgba(248,113,113,.07)', color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left' }}>
+                  <span style={{ flex: 1, fontSize: 13.5 }}>Perdas em {new Date().toLocaleDateString('pt-BR', { month: 'long' })}: <b>{fmtN(un)} un</b> · <b style={{ color: '#f87171' }}>{fmtR(r)}</b> em custo</span>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>ver ›</span>
+                </button>
+              )
+            })()}
+
             {/* Etapa de embalagem — decisão única pros já configurados */}
             {pedemEmbalagem.length > 0 && (
               <div className="card" style={{ padding: '12px 14px', marginBottom: 12, borderLeft: '3px solid #c084fc' }}>
@@ -245,6 +268,7 @@ export default function Prontidao() {
                 onEtapa={(etapaKey) => setEtapaAberta({ prod, etapaKey })}
                 onConfig={() => setConfig(prod)}
                 onContar={() => setContar(prod)}
+                onPerda={() => setPerdaProd(prod)}
                 onTarefa={abrirTarefa} />
             ))}
             {verCards && analises.length > 0 && visiveis.length === 0 && (
@@ -310,7 +334,13 @@ export default function Prontidao() {
       )}
       {etapaAberta && (
         <EtapaSheet {...etapaAberta} lotes={lotes || []} agora={agora} onClose={() => setEtapaAberta(null)}
-          onDone={async (msg) => { setEtapaAberta(null); await recarregar(); setAviso({ msg }) }} />
+          onDone={async (msg, undo) => { setEtapaAberta(null); await depoisDaPerda(msg, undo) }} />
+      )}
+      {perdaProd && (
+        <Sheet title={`Perda · ${perdaProd.nome}`} onClose={() => setPerdaProd(null)}>
+          <PerdaForm prod={perdaProd} a={analisarProduto(perdaProd, lotes || [], agora)}
+            onDone={async (msg, undo) => { setPerdaProd(null); await depoisDaPerda(msg, undo) }} />
+        </Sheet>
       )}
       {contar && (
         <Sheet title={`Contar · ${contar.nome}`} onClose={() => setContar(null)}>
@@ -482,7 +512,7 @@ function LinhaAcao({ t, cor, primeira, a, agora, onExecutar }) {
 }
 
 // ── Cartão de um produto ──────────────────────────────────────────────────────
-function CardProduto({ prod, a, interessados = 0, onInteressados, onMover, onEtapa, onConfig, onContar, onTarefa }) {
+function CardProduto({ prod, a, interessados = 0, onInteressados, onMover, onEtapa, onConfig, onContar, onPerda, onTarefa }) {
   const st = STATUS[a.status]
   return (
     <div className="card" style={{ padding: '12px 14px', marginBottom: 10, borderLeft: `3px solid ${st.cor}` }}>
@@ -494,6 +524,7 @@ function CardProduto({ prod, a, interessados = 0, onInteressados, onMover, onEta
         {interessados > 0 && <button onClick={onInteressados} style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', background: 'rgba(96,165,250,.12)', border: 'none', borderRadius: 20, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>🔔 {interessados} querem</button>}
         {a.reservado > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: '#60a5fa', whiteSpace: 'nowrap' }}>{fmtN(a.reservado)} reservado(s)</span>}
         <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: st.bg, color: st.cor, whiteSpace: 'nowrap' }}>{a.rotulo}</span>
+        <button onClick={onPerda} title="Registrar perda" style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: '1px solid #7f1d1d', background: 'transparent', color: '#f87171', cursor: 'pointer', whiteSpace: 'nowrap' }}>Perda</button>
         <button onClick={onContar} title="Contar / corrigir quantidades" style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 20, border: '1px solid #444', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer', whiteSpace: 'nowrap' }}>Contar</button>
         <button onClick={onConfig} title="Configurar fluxo" style={{ background: 'none', border: 'none', color: 'var(--text-tertiary)', fontSize: 17, cursor: 'pointer', padding: '0 2px', lineHeight: 1 }}>⚙</button>
       </div>
@@ -582,6 +613,64 @@ function Sheet({ title, onClose, children }) {
 
 const stepBtn = { width: 54, height: 54, borderRadius: 14, border: '1px solid #333', background: 'var(--bg-secondary)', color: 'var(--text-primary)', fontSize: 26, cursor: 'pointer' }
 
+// Perda (caiu, venceu, comi...) ou baixa (vendi fora do app) do que já está pronto
+const MOTIVOS_DEPOIS = ['caiu', 'quebrou', 'vencido', 'consumo', 'desmoldar', 'outro']
+function PerdaForm({ prod, a, etapaFixa = null, onDone }) {
+  const comEstoque = a.etapas.filter(x => x.qtd > 0)
+  const [etapa, setEtapa] = useState(etapaFixa || (comEstoque.find(x => x.engatilho) || comEstoque[comEstoque.length - 1] || a.etapas[0])?.key)
+  const e = a.etapas.find(x => x.key === etapa)
+  const max = e?.qtd || 0
+  const [n, setN] = useState('1')
+  const [motivo, setMotivo] = useState('caiu')
+  const [obs, setObs] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const q = Math.min(max, parseFloat(n) || 0)
+  const venda = motivo === 'venda'
+  const custo = q * custoUnitPerda(prod, etapa === 'embalar')
+  if (!max && !etapaFixa && !comEstoque.length) return <div style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '8px 0 16px' }}>Não tem nada em estoque desse produto pra dar perda.</div>
+
+  async function salvar() {
+    setSalvando(true)
+    try {
+      if (venda) { await baixaProntidao(prod.id, etapa, q); onDone(`Baixa de ${fmtN(q)} (venda fora do app)`) }
+      else {
+        const info = await perdaProntidao(prod, etapa, q, motivo, obs.trim() || null)
+        onDone(`${fmtN(info.n)} ${prod.nome} perdido(s) · ${fmtR(custo)}`, () => desfazerPerdaProntidao(info))
+      }
+    } catch (err) { alert('Erro: ' + err.message); setSalvando(false) }
+  }
+  const chip = (on, cor) => ({ padding: '7px 12px', borderRadius: 20, fontSize: 13, cursor: 'pointer', fontWeight: on ? 700 : 500, whiteSpace: 'nowrap',
+    border: `1px solid ${on ? cor : '#333'}`, background: on ? `${cor}1f` : 'transparent', color: on ? cor : 'var(--text-secondary)' })
+  return (
+    <div style={{ marginBottom: 6 }}>
+      {!etapaFixa && comEstoque.length > 1 && (
+        <>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 6px' }}>De onde?</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+            {comEstoque.map(x => <button key={x.key} onClick={() => setEtapa(x.key)} style={chip(etapa === x.key, (LOCAL[x.local] || LOCAL.freezer).cor)}>{x.nome} · {fmtN(x.qtd)}</button>)}
+          </div>
+        </>
+      )}
+      <Stepper n={n} setN={setN} max={max} />
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+        {MOTIVOS_DEPOIS.map(k => <button key={k} onClick={() => setMotivo(k)} style={chip(motivo === k, '#f87171')}>{MOTIVOS_PERDA[k].nome}</button>)}
+        <button onClick={() => setMotivo('venda')} style={chip(venda, '#9aa3ae')}>Vendi fora do app</button>
+      </div>
+      {!venda && (
+        <input className="field-input" placeholder="Observação (opcional)" value={obs} onChange={ev => setObs(ev.target.value)} style={{ marginBottom: 10 }} />
+      )}
+      <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginBottom: 10 }}>
+        {venda ? 'Só tira do estoque (não conta como perda). Vendas pelo app já baixam sozinhas.'
+          : <>Tira {fmtN(q)} de {e?.nome?.toLowerCase()} · fica {fmtN(max - q)} · custo perdido ≈ <b style={{ color: '#f87171' }}>{fmtR(custo)}</b></>}
+      </div>
+      <button className="btn-primary" disabled={salvando || !(q > 0)} onClick={salvar}
+        style={venda ? { background: 'transparent', border: '1px solid #333', color: 'var(--text-primary)' } : { background: '#b91c1c' }}>
+        {salvando ? 'Salvando...' : venda ? `Dar baixa de ${fmtN(q)}` : `Registrar perda de ${fmtN(q)}`}
+      </button>
+    </div>
+  )
+}
+
 function Stepper({ n, setN, max }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16, margin: '8px 0 12px' }}>
@@ -669,7 +758,6 @@ function EtapaSheet({ prod, etapaKey, lotes, agora, onClose, onDone }) {
   { let resta = aMais
     for (const x of deTras) { if (resta <= 0) break; const n = Math.min(resta, x.qtd - (x.vencidos || 0)); plano.push({ ...x, n }); resta -= n }
     if (resta > 0) plano.push({ key: '_novos', nome: 'unidades novas', n: resta }) }
-  const [baixa, setBaixa] = useState('1')
   const [salvando, setSalvando] = useState(false)
 
   async function rodar(fn, msg) {
@@ -714,7 +802,7 @@ function EtapaSheet({ prod, etapaKey, lotes, agora, onClose, onDone }) {
       )}
       {e.vencidos > 0 && (
         <button className="btn-primary" disabled={salvando} style={{ background: '#b91c1c', marginBottom: 14 }}
-          onClick={() => rodar(() => descartarVencidosProntidao(prod.id, e.key, e.validadeH), `${fmtN(e.vencidos)} descartado(s)`)}>
+          onClick={() => rodar(() => descartarVencidosProntidao(prod.id, e.key, e.validadeH, prod), `${fmtN(e.vencidos)} descartado(s) · anotado como perda`)}>
           Descartar {fmtN(e.vencidos)} vencido(s)
         </button>
       )}
@@ -748,14 +836,8 @@ function EtapaSheet({ prod, etapaKey, lotes, agora, onClose, onDone }) {
 
       {atual > 0 && (
         <>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Dar baixa</div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Venda fora do app, perda, consumo. Vendas registradas no app já baixam sozinhas.</div>
-          <Stepper n={baixa} setN={setBaixa} max={atual} />
-          <button className="btn-primary" disabled={salvando || !(parseFloat(baixa) > 0) || parseFloat(baixa) > atual}
-            style={{ background: 'transparent', border: '1px solid #333', color: 'var(--text-primary)' }}
-            onClick={() => rodar(() => baixaProntidao(prod.id, e.key, parseFloat(baixa)), `Baixa de ${fmtN(parseFloat(baixa))}`)}>
-            Dar baixa de {fmtN(parseFloat(baixa) || 0)}
-          </button>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>Perda ou baixa</div>
+          <PerdaForm prod={prod} a={a} etapaFixa={e.key} onDone={onDone} />
         </>
       )}
     </Sheet>
