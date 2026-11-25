@@ -1036,6 +1036,7 @@ export async function getEncomendas() {
     desconto: Number(r.desconto) || 0, descontoTipo: r.desconto_tipo || null, cupomCodigo: r.cupom_codigo || null,
     envio: r.envios ? { id: r.envios.id, status: r.envios.status, shareLink: r.envios.share_link || null, periodo: r.envios.periodo || null } : null,
     createdAtTs: r.created_at || null,
+    entregueEm: r.entregue_em || null,
     itens: (r.encomenda_itens || []).map(i => ({
       id: i.id,
       produto: i.produto,

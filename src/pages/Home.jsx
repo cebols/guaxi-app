@@ -101,6 +101,21 @@ function LinhaTarefa({ t, a, agora, onFeito }) {
   )
 }
 
+// Cor de cada pedido no Início: a fazer · pronto · saiu (motorista a caminho) · entregue · esperando Pix
+const COR_PEDIDO = {
+  fazer:    { cor: '#f5b544', nome: 'a fazer' },
+  pronto:   { cor: '#60a5fa', nome: 'pronto' },
+  saiu:     { cor: '#c084fc', nome: 'saiu' },
+  entregue: { cor: '#34d39a', nome: 'entregue' },
+  pix:      { cor: '#8c8c8c', nome: 'esperando Pix' },
+}
+function corDoPedido(e) {
+  if (e.status === 'Entregue') return 'entregue'
+  if (aguardandoPix(e)) return 'pix'
+  if (e.envio && ['ON_GOING', 'PICKED_UP'].includes(e.envio.status)) return 'saiu'
+  return e.status === 'Pronto' ? 'pronto' : 'fazer'
+}
+
 function CardPedido({ enc, onAbrir, onCobrar, onStatus, onPago }) {
   const [ocupado, setOcupado] = useState(false)
   const dias = enc.dataEntrega ? diasAte(enc.dataEntrega) : null
@@ -109,7 +124,8 @@ function CardPedido({ enc, onAbrir, onCobrar, onStatus, onPago }) {
   const aPagar = enc.pgto !== 'Pago' && enc.saldo > 0
   const cobrarJa = aPagar && (entregue || (dias != null && dias <= 0))
 
-  const quando = enc.dataEntrega ? (atrasado ? `atrasado · ${diaCurto(enc.dataEntrega)}` : diaRel(enc.dataEntrega)) : 'sem data'
+  const quando = entregue ? (enc.entregueEm ? `entregue ${new Date(enc.entregueEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'entregue')
+    : enc.dataEntrega ? (atrasado ? `atrasado · ${diaCurto(enc.dataEntrega)}` : diaRel(enc.dataEntrega)) : 'sem data · combinar'
   const itens = (enc.itens || []).map(i => `${fmtN(i.quantidade)}× ${i.produto}`).join(', ') || '—'
   const urgente = cobrarJa ? (enc.pgto === 'Atrasado' ? 'pagamento atrasado' : 'falta pagar') : null
   const estado = [entregue ? 'entregue' : enc.status === 'Pronto' ? 'pronto' : 'a fazer', enc.pgto === 'Pago' ? 'pago' : !urgente && aPagar ? 'a pagar' : null]
@@ -122,7 +138,8 @@ function CardPedido({ enc, onAbrir, onCobrar, onStatus, onPago }) {
   const parar = (fn) => (e) => { e.stopPropagation(); rodar(fn) }
 
   return (
-    <div className="home-card home-pedido" onClick={onAbrir} role="button" tabIndex={0}>
+    <div className={`home-card home-pedido${entregue ? ' feito' : ''}`} onClick={onAbrir} role="button" tabIndex={0}
+      style={{ borderLeft: `4px solid ${COR_PEDIDO[corDoPedido(enc)].cor}` }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <span style={{ fontSize: 14, fontWeight: 700, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{enc.cliente}</span>
         <span style={{ fontSize: 12.5, color: atrasado ? AMBAR : 'var(--text-secondary)', fontWeight: atrasado ? 700 : 400, whiteSpace: 'nowrap' }}>
@@ -281,15 +298,22 @@ export default function Home() {
     } catch (e) { setAviso({ msg: 'Erro: ' + e.message }) }
   }
 
-  // ── Pedidos: hoje e amanhã (+ atrasados e entregues sem pagar) ──
+  // ── Pedidos: pra sair (atrasados, hoje, amanhã, sem data) + o que já saiu hoje ──
+  const hojeS = hoje0().toDateString()
+  const saiuHoje = (e) => e.status === 'Entregue' && (e.entregueEm ? new Date(e.entregueEm).toDateString() === hojeS
+    : e.dataEntrega ? diasAte(e.dataEntrega) === 0 : (e.createdAtTs && new Date(e.createdAtTs).toDateString() === hojeS))
   const pedidos = useMemo(() => (encomendas || [])
     .filter(e => {
-      if (e.status === 'Cancelado' || !e.dataEntrega || aguardandoPix(e)) return false   // esperando o Pix ainda não conta
-      if (e.status === 'Entregue') return e.pgto !== 'Pago' && e.saldo > 0 && diasAte(e.dataEntrega) <= 1
-      return diasAte(e.dataEntrega) <= 1
+      if (e.status === 'Cancelado' || aguardandoPix(e)) return false   // esperando o Pix ainda não conta
+      if (e.status === 'Entregue') return saiuHoje(e) || (e.pgto !== 'Pago' && e.saldo > 0 && e.dataEntrega && diasAte(e.dataEntrega) <= 1)
+      return !e.dataEntrega || diasAte(e.dataEntrega) <= 1     // sem data também aparece (precisa combinar)
     })
-    .sort((a, b) => diaDe(a.dataEntrega) - diaDe(b.dataEntrega)), [encomendas])
+    .sort((a, b) => (a.status === 'Entregue') - (b.status === 'Entregue')
+      || (a.dataEntrega ? diaDe(a.dataEntrega) : 9e15) - (b.dataEntrega ? diaDe(b.dataEntrega) : 9e15)), [encomendas]) // eslint-disable-line react-hooks/exhaustive-deps
   const abertosJanela = pedidos.filter(e => e.status !== 'Entregue').length
+  // Os que chegaram por último (qualquer dia), pra não perder nenhum de vista
+  const recentes = useMemo(() => (encomendas || []).filter(e => e.status !== 'Cancelado' && e.createdAtTs)
+    .sort((a, b) => new Date(b.createdAtTs) - new Date(a.createdAtTs)).slice(0, 5), [encomendas])
   const proximoPedido = useMemo(() => (encomendas || [])
     .find(e => e.status !== 'Cancelado' && e.status !== 'Entregue' && !aguardandoPix(e) && e.dataEntrega && diasAte(e.dataEntrega) > 1), [encomendas])
 
@@ -398,7 +422,7 @@ export default function Home() {
           <div className="home-topo">
             <Numero valor={atendimentos ? esperando.length : '—'} rotulo={esperando.length === 1 ? 'cliente esperando você' : 'clientes esperando você'}
               urgente={esperando.length > 0} onClick={() => navigate('/atendimento')} />
-            <Numero valor={encomendas ? abertosJanela : '—'} rotulo="pedidos hoje e amanhã" onClick={() => navigate('/pedidos')} />
+            <Numero valor={encomendas ? abertosJanela : '—'} rotulo={abertosJanela === 1 ? 'pedido pra sair' : 'pedidos pra sair'} onClick={() => navigate('/pedidos')} />
             <Numero valor={produtos ? prontosPraVender : '—'} rotulo={`${prontosPraVender === 1 ? 'produto' : 'produtos'} à venda · ${fmtN(unidadesProntas)} un`} onClick={() => navigate('/prontidao')} />
             <Numero valor={encomendas ? `R$ ${Math.round(vendidoSemana).toLocaleString('pt-BR')}` : '—'} rotulo="vendido nesta semana" onClick={() => navigate('/pedidos')} />
           </div>
@@ -480,6 +504,9 @@ export default function Home() {
             <div className="home-col">
               {/* Pedidos */}
               <Secao titulo="Pedidos · hoje e amanhã" acao="todos" onAcao={() => navigate('/pedidos')}>
+                <div className="home-legenda" aria-hidden="true">
+                  {Object.entries(COR_PEDIDO).map(([k, c]) => <span key={k}><i style={{ background: c.cor }} />{c.nome}</span>)}
+                </div>
                 {encomendas === null ? (
                   <div className="home-card home-vazio">Carregando…</div>
                 ) : pedidos.length === 0 ? (
@@ -499,6 +526,25 @@ export default function Home() {
                     onStatus={(novo) => mudarStatus(enc, novo)} />
                 ))}
               </Secao>
+
+              {recentes.length > 0 && (
+                <Secao titulo="Chegaram por último" acao="todos" onAcao={() => navigate('/pedidos')}>
+                  <section className="home-card home-lista" aria-label="Pedidos mais recentes">
+                    {recentes.map(e => {
+                      const c = COR_PEDIDO[corDoPedido(e)]
+                      return (
+                        <button key={e.id} className="home-linha-link" onClick={() => abrirPedido(e)}>
+                          <i className="home-ponto" style={{ background: c.cor }} aria-hidden="true" />
+                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {e.cliente} <span style={{ color: 'var(--text-secondary)' }}>· {c.nome}{e.dataEntrega ? ` · ${diaCurto(e.dataEntrega)}` : ' · sem data'}</span>
+                          </span>
+                          <span className="home-linha-dir">{fmtR(e.valor)}</span>
+                        </button>
+                      )
+                    })}
+                  </section>
+                </Secao>
+              )}
 
               {/* Envios e compras */}
               {(enviosAtivos.length > 0 || nCompras > 0) && (

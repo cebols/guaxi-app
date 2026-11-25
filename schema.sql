@@ -607,6 +607,7 @@ ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS cupom_codigo  text;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS desconto      numeric NOT NULL DEFAULT 0;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS desconto_tipo text;   -- cupom | indicacao | credito
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS forma_pgto text;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS entregue_em timestamptz;   -- quando virou Entregue (Início: "saiu hoje")
 ALTER TABLE visitas ADD COLUMN IF NOT EXISTS telefone text;          -- WhatsApp inteiro (só dígitos), pra chamar do painel
 ALTER TABLE links_cliente ADD COLUMN IF NOT EXISTS telefone text;      -- pix | cartao (só retirada: paga na hora, na maquininha)
 
@@ -1547,6 +1548,17 @@ BEGIN
   );
 END $$;
 REVOKE ALL ON FUNCTION lembrar_carrinhos() FROM public, anon, authenticated;
+
+-- Hora em que o pedido virou Entregue (sai de Entregue → limpa)
+CREATE OR REPLACE FUNCTION marcar_entregue_em() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.status = 'Entregue' AND OLD.status IS DISTINCT FROM 'Entregue' THEN NEW.entregue_em := now();
+  ELSIF NEW.status IS DISTINCT FROM 'Entregue' THEN NEW.entregue_em := NULL; END IF;
+  RETURN NEW;
+END $$;
+CREATE OR REPLACE TRIGGER encomenda_entregue_em BEFORE UPDATE OF status ON encomendas
+  FOR EACH ROW EXECUTE FUNCTION marcar_entregue_em();
 
 -- Agenda (rodar de novo só atualiza o mesmo agendamento)
 SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar_lembretes_push()');

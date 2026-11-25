@@ -438,11 +438,27 @@ function DetalhePedido({ p, pix, contatos, produtos = [], msgInicial, onBack, on
                       </button>
                     </div>
                   ))}
-                  <select className="pd-input" aria-label="Adicionar doce ao pedido" value={addId} onChange={e => addItem(e.target.value)}>
-                    <option value="">+ Adicionar doce…</option>
-                    {[...produtos].filter(x => x.ativo !== false && x.tipo !== 'combo' && (x.precoDireta > 0 || x.tipo === 'avulso')).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-                      .map(x => <option key={x.id} value={x.id}>{x.nome}{x.precoDireta > 0 ? ` · ${fmtR(x.precoDireta)}` : ''}</option>)}
-                  </select>
+                  {(() => {
+                    const sem = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+                    const q = sem(addId.trim())
+                    const achados = q ? produtos.filter(x => x.tipo !== 'combo' && x.ativo !== false && sem(x.nome).includes(q))
+                      .sort((a, b) => sem(a.nome).indexOf(q) - sem(b.nome).indexOf(q) || a.nome.localeCompare(b.nome, 'pt-BR')).slice(0, 8) : []
+                    return (
+                      <div className="pd-add">
+                        <input className="pd-input" type="search" placeholder="+ Adicionar doce: digite o nome…" aria-label="Buscar doce pra adicionar" value={addId}
+                          onChange={e => setAddId(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && achados[0]) { e.preventDefault(); addItem(achados[0].id) } }} />
+                        {q && (
+                          <div className="pd-add-lista" role="listbox" aria-label="Doces encontrados">
+                            {achados.length ? achados.map(x => (
+                              <button key={x.id} type="button" role="option" aria-selected="false" onClick={() => addItem(x.id)}>
+                                <span>{x.nome}</span><b>{x.precoDireta > 0 ? fmtR(x.precoDireta) : '—'}</b>
+                              </button>
+                            )) : <div className="pd-add-nada">Nenhum doce com esse nome</div>}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                   <div style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 3 }}>
                     <span>Novo total: <b style={{ color: 'var(--text-primary)' }}>{fmtR(valorEd)}</b>{Math.abs(valorEd - (Number(p.valor) || 0)) > 0.009 ? ` (antes ${fmtR(p.valor)})` : ''}</span>
                     {pagoAntes > 0 && valorEd > pagoAntes + 0.009 && <span style={{ color: '#f5b544' }}>Já pagou {fmtR(pagoAntes)}: vai faltar {fmtR(valorEd - pagoAntes)} (Pix da diferença).</span>}
