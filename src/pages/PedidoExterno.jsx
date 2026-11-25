@@ -780,6 +780,7 @@ export default function PedidoExterno() {
   const [cupomTxt, setCupomTxt]       = useState('')
   const [indica, setIndica]           = useState(null) // código pessoal + crédito
   const [usarCredito, setUsarCredito] = useState(true)
+  const [cuponsOn, setCuponsOn]       = useState(false) // cupons/Indica e ganha ligados (Configurações › Entrega)
   const [descFeito, setDescFeito]     = useState(null) // { valor, rotulo } do pedido que acabou de ir
   const [formaPgto, setFormaPgto]     = useState('pix') // retirada: 'pix' (agora) | 'cartao' (na hora de buscar)
   const [cartaoFeito, setCartaoFeito] = useState(false) // o pedido que acabou de ir paga no cartão
@@ -865,6 +866,7 @@ export default function PedidoExterno() {
         const secoes = cfg.secoesOrdem ?? []
         deliveryCfgRef.current = delivery
         setDeliveryCfg(delivery)
+        setCuponsOn(cfg.cupons !== false)
         setSecoesOrdem(secoes)
       })
       .catch(() => {})
@@ -887,20 +889,20 @@ export default function PedidoExterno() {
   const tel8Form = form.telefone.replace(/\D/g, '').slice(-8)
   const subtotalCupom = step === 'checkout' ? total : null
   useEffect(() => {
-    if (!cupomCod || !userId || step === 'confirm') { if (!cupomCod) setCupomRes(null); return }
+    if (!cuponsOn || !cupomCod || !userId || step === 'confirm') { if (!cupomCod) setCupomRes(null); return }
     let vivo = true
     const t = setTimeout(() => {
       conferirCupom(userId, cupomCod, tel8Form.length === 8 ? form.telefone : '', subtotalCupom)
         .then(r => { if (vivo) setCupomRes(r) })
     }, cupomRes ? 450 : 0)
     return () => { vivo = false; clearTimeout(t) }
-  }, [cupomCod, tel8Form, subtotalCupom, userId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cupomCod, tel8Form, subtotalCupom, userId, cuponsOn]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Desconto: cupom OU crédito (nunca os dois, nunca sobre o frete)
-  const cupomOk = !!cupomCod && cupomRes?.ok === true
+  const cupomOk = cuponsOn && !!cupomCod && cupomRes?.ok === true
   const credito = Number(indica?.credito || 0)
   const creditoMin = Number(indica?.uso_min || 0)
-  const creditoAtivo = !cupomCod && usarCredito && credito > 0 && total >= creditoMin
+  const creditoAtivo = cuponsOn && !cupomCod && usarCredito && credito > 0 && total >= creditoMin
   const desconto = cupomOk ? descontoDe(cupomRes, total)
     : creditoAtivo ? Math.min(Number(indica?.uso_max || 0), credito, total) : 0
   const rotuloDesconto = cupomOk ? (cupomRes.tipo === 'indicacao' ? `Indicação ${cupomRes.codigo}` : `Cupom ${cupomRes.codigo}`) : 'Crédito'
@@ -1180,7 +1182,8 @@ export default function PedidoExterno() {
     // cupom ainda sendo conferido vai junto (o servidor confere de novo); cupom recusado não vai
     const noCartao = form.tipoEntrega === 'Retirada' && formaPgto === 'cartao'
     if (noCartao) entrega.formaPgto = 'cartao'
-    if (cupomCod && cupomRes?.ok !== false) entrega.cupom = cupomCod
+    if (!cuponsOn) { /* cupons pausados: nada de desconto */ }
+    else if (cupomCod && cupomRes?.ok !== false) entrega.cupom = cupomCod
     else if (creditoAtivo) entrega.creditoChaves = lerPedidosSalvos().map(x => x.chave)
 
     setSubmitting(true)
@@ -1327,7 +1330,7 @@ export default function PedidoExterno() {
             </div>
           </div>
 
-          <IndiqueGanhe info={indica} userId={userId} style={{ maxWidth: 440, margin: '14px auto 0', boxSizing: 'border-box' }} />
+          {cuponsOn && <IndiqueGanhe info={indica} userId={userId} style={{ maxWidth: 440, margin: '14px auto 0', boxSizing: 'border-box' }} />}
 
           {/* WhatsApp da Guaxí */}
           <div style={{ maxWidth: 440, margin: '18px auto 0', textAlign: 'center' }}>
@@ -1665,7 +1668,7 @@ export default function PedidoExterno() {
           </Field>
 
           {/* Cupom */}
-          <div style={{ marginTop: 6 }}>
+          {cuponsOn && <div style={{ marginTop: 6 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#5B6878', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>Cupom</div>
             {cupomCod ? (
               <div role="status" style={{
@@ -1696,10 +1699,10 @@ export default function PedidoExterno() {
                 }}>Aplicar</button>
               </form>
             )}
-          </div>
+          </div>}
 
           {/* Crédito do Indica e ganha (não junta com cupom) */}
-          {credito > 0 && (
+          {cuponsOn && credito > 0 && (
             <button type="button" role="switch" aria-checked={creditoAtivo} disabled={total < creditoMin}
               onClick={() => { if (creditoAtivo) setUsarCredito(false); else { setUsarCredito(true); setCupomCod(''); setCupomRes(null); guardarCupom('') } }}
               style={{
@@ -1787,7 +1790,7 @@ export default function PedidoExterno() {
         <InfoLoja endereco={enderecoLoja} cep={deliveryCfg?.lojaCEP} />
       </div>
 
-      {cupomOk && <ConviteBanner info={cupomRes} />}
+      {cuponsOn && cupomOk && <ConviteBanner info={cupomRes} />}
 
       <SeusPedidos pedidos={meusPedidos} pix={deliveryCfg?.pix} pixPor={pixMeus} produtos={produtos}
         onPedirDeNovo={(p) => {
@@ -1796,7 +1799,7 @@ export default function PedidoExterno() {
           setCarrinho(novo)
         }} />
 
-      {indica?.codigo && (
+      {cuponsOn && indica?.codigo && (
         <div style={{ padding: '10px 12px 0', maxWidth: 560, margin: '0 auto' }}>
           <IndiqueGanhe info={indica} userId={userId} style={{ boxShadow: '0 6px 16px rgba(14,60,104,.07)' }} />
         </div>

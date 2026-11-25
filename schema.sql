@@ -760,6 +760,13 @@ $$;
 CREATE OR REPLACE FUNCTION public.tel8(t text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
   SELECT right(regexp_replace(coalesce(t, ''), '\D', '', 'g'), 8)
 $$;
+-- Cupons e Indica e ganha ligados? (Configurações › Entrega; sem nada salvo = ligados)
+CREATE OR REPLACE FUNCTION public.cupons_ativos(p_user_id uuid) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT coalesce((SELECT CASE WHEN jsonb_typeof(config->'cuponsAtivos') = 'boolean' THEN (config->>'cuponsAtivos')::boolean END
+                     FROM user_config WHERE user_id = p_user_id), true)
+$$;
+
 -- Regras do Indica e ganha (Vendas › Cupons), com os padrões combinados
 CREATE OR REPLACE FUNCTION public.indica_cfg(p_user_id uuid) RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
@@ -789,6 +796,7 @@ DECLARE
   hoje date := (now() AT TIME ZONE 'America/Sao_Paulo')::date;
 BEGIN
   IF cod = '' THEN RETURN jsonb_build_object('ok', false, 'motivo', 'Digite o código'); END IF;
+  IF NOT cupons_ativos(p_user_id) THEN RETURN jsonb_build_object('ok', false, 'motivo', 'Os cupons estão pausados no momento'); END IF;
   SELECT * INTO c FROM cupons WHERE user_id = p_user_id AND upper(codigo) = cod;
   IF FOUND THEN
     IF NOT c.ativo THEN RETURN jsonb_build_object('ok', false, 'motivo', 'Esse cupom não está mais valendo'); END IF;
@@ -848,6 +856,7 @@ DECLARE
   e record; t8 text; cod text; base text; nome text; cfg jsonb := indica_cfg(p_user_id);
   hoje date := (now() AT TIME ZONE 'America/Sao_Paulo')::date;
 BEGIN
+  IF NOT cupons_ativos(p_user_id) THEN RETURN jsonb_build_object('ativo', false); END IF;
   SELECT cliente, contato INTO e FROM encomendas
    WHERE user_id = p_user_id AND chave_cliente = ANY (p_chaves[1:10]) AND length(chave_cliente) >= 20
    ORDER BY created_at DESC LIMIT 1;
@@ -993,7 +1002,8 @@ BEGIN
   IF jsonb_array_length(v_itens) = 0 THEN RAISE EXCEPTION 'Pedido vazio'; END IF;
 
   -- Desconto (só no cardápio, nunca no frete): cupom/código de amigo OU crédito, um de cada vez
-  IF coalesce(p_canal, 'FormExterno') = 'FormExterno' THEN
+  -- cupons desligados: ignora cupom/crédito (o pedido segue sem desconto)
+  IF coalesce(p_canal, 'FormExterno') = 'FormExterno' AND cupons_ativos(p_user_id) THEN
     IF coalesce(btrim(p_cupom), '') <> '' THEN
       v_info := conferir_cupom(p_user_id, p_cupom, p_contato, v_total);
       IF NOT coalesce((v_info->>'ok')::boolean, false) THEN RAISE EXCEPTION 'Cupom: %', v_info->>'motivo'; END IF;
@@ -1114,6 +1124,7 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
       'raioKm',       raio_entrega_km(p_user_id)                                          -- entrega só até X km (linha reta); 0 = sem limite
     )),
     'secoesOrdem', COALESCE(config->'secoesOrdem', '[]'::jsonb),
+    'cupons', cupons_ativos(p_user_id),
     'indica', indica_cfg(p_user_id) - 'validade_dias' - 'limite_mes'
   )
   FROM user_config WHERE user_id = p_user_id

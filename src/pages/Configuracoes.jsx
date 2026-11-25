@@ -431,6 +431,31 @@ async function geocodeCep(cep) {
   return null
 }
 
+// Liga/desliga cupons e Indica e ganha no cardápio (salva na hora)
+function CuponsLiga({ show }) {
+  const [on, setOn] = useState(() => getConfig().cuponsAtivos !== false)
+  const [salvando, setSalvando] = useState(false)
+  useEffect(() => { loadUserConfig().then(c => { if (c) setOn(c.cuponsAtivos !== false) }).catch(() => {}) }, [])
+  async function trocar() {
+    setSalvando(true)
+    try { await salvarConfigParcial({ cuponsAtivos: !on }); setOn(!on); show(!on ? 'Cupons ligados no cardápio' : 'Cupons desligados no cardápio') }
+    catch (e) { show('Erro ao salvar: ' + e.message) }
+    finally { setSalvando(false) }
+  }
+  return (
+    <section className="cf-card" aria-label="Cupons">
+      <div className="cf-topo">
+        <h2>Cupons e Indica e ganha</h2>
+        <button type="button" role="switch" aria-checked={on} aria-label="Cupons no cardápio" disabled={salvando} className={`pd-switch${on ? ' on' : ''}`} onClick={trocar}><span /></button>
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 800 }}>{on ? 'Ligados' : 'Desligados'}</div>
+      <div className="cf-hint">{on
+        ? 'O cardápio mostra o campo "Tem cupom?", o crédito de quem indicou e o código pra indicar amigos. Regras e cupons em Vendas › Cupons.'
+        : 'O cardápio não mostra cupom, crédito nem o código de indicação, e nenhum pedido recebe desconto. Seus cupons e créditos ficam guardados.'}</div>
+    </section>
+  )
+}
+
 function AbaEntrega({ show }) {
   const [inicial, setInicial] = useState(null)
   const [f, setF] = useState(null)
@@ -497,6 +522,8 @@ function AbaEntrega({ show }) {
             : 'O despacho é de mentira (sandbox): nenhum motorista vem e nada é cobrado. O frete do cardápio sempre usa o preço real.'}</div>
           {f.lalamoveProducao && !f.lojaPhone.trim() && <div className="cf-status atencao">Preencha o telefone da loja: sem ele o app não chama motorista.</div>}
         </section>
+
+        <CuponsLiga show={show} />
 
         <section className="cf-card" aria-label="Pix">
           <h2>Pix</h2>

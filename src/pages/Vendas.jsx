@@ -830,6 +830,12 @@ function AbaCupons({ encomendas, linkCardapio, show }) {
 
   return (
     <>
+      {getConfig().cuponsAtivos === false && (
+        <section className="cf-card cf-aviso" aria-label="Cupons desligados" style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <span style={{ flex: 1, fontSize: 14 }}><b>Cupons desligados no cardápio.</b> Ninguém vê cupom, crédito nem código de indicação, e nenhum pedido recebe desconto.</span>
+          <button className="pd-btn" onClick={() => window.location.assign('/configuracoes?aba=entrega')}>Ligar</button>
+        </section>
+      )}
       <section className="cf-kpis" aria-label="Este mês">
         <div className="cf-kpi"><span>Vendido com desconto</span><b>{fmtR0(doMes.reduce((s, e) => s + (e.valor || 0) - (e.frete || 0), 0))}</b><small>{doMes.length} {doMes.length === 1 ? 'pedido' : 'pedidos'} este mês</small></div>
         <div className="cf-kpi"><span>Desconto dado</span><b>{fmtR0(doMes.reduce((s, e) => s + e.desconto, 0))}</b><small>cupom, indicação e crédito</small></div>
