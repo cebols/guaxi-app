@@ -1352,3 +1352,13 @@ a { touch-action: manipulation; }
 .vd-cupom { display: flex; align-items: center; gap: 10px; min-height: 62px; padding: 6px 0; border-top: 1px solid var(--border-light-color); flex-wrap: wrap; }
 .vd-cod { padding: 5px 10px; border-radius: 8px; border: 1.5px dashed #4a4a4a; font-weight: 800; letter-spacing: .04em; font-size: 13.5px; }
 @container (max-width: 480px) { .vd-cupom-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Filtros da lista de produtos: só o ativo fica aceso */
+.pc-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.pc-chip { flex-shrink: 0; appearance: none; -webkit-appearance: none; -webkit-tap-highlight-color: transparent; outline: none;
+  font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 20px; border: 1px solid #333; background: #1b1b1b; color: var(--text-secondary); }
+.pc-chip > span { opacity: .75; }
+.pc-chip.alerta { color: #f5b544; }
+.pc-chip.on { background: var(--teal); border-color: var(--teal); color: #fff; }
+.pc-chip:focus-visible { outline: 2px solid #f2f2f2; outline-offset: 2px; }
+@media (hover: hover) { .pc-chip:not(.on):hover { border-color: #555; color: var(--text-primary); } }

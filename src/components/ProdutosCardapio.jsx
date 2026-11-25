@@ -75,7 +75,8 @@ function Linha({ prod, disp, querem, renderPrecos, onAbrir, onToggle, salvando }
   const pend = prod.ativo !== false && prod.tipo !== 'combo' ? pendenciasDe(prod) : []
   const margem = prod.precoDireta > 0 && prod.custoTotal > 0 ? Math.round((1 - prod.custoTotal / prod.precoDireta) * 100) : null
   return (
-    <div onClick={() => onAbrir(prod)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer', opacity: prod.ativo === false ? 0.6 : 1 }}>
+    <div onClick={() => onAbrir(prod)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', cursor: 'pointer', background: prod.ativo === false && prod.tipo !== 'combo' ? 'rgba(255,255,255,.015)' : undefined }}>
+            <div style={{ opacity: prod.ativo === false && prod.tipo !== 'combo' ? 0.45 : 1, filter: prod.ativo === false && prod.tipo !== 'combo' ? 'grayscale(1)' : 'none', display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
       <Thumb prod={prod} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -84,6 +85,7 @@ function Linha({ prod, disp, querem, renderPrecos, onAbrir, onToggle, salvando }
         </div>
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4 }}>
           {prod.ativo !== false && <Status prod={prod} disp={disp} />}
+          {prod.ativo === false && prod.tipo !== 'combo' && <Chip>fora do cardápio</Chip>}
           {querem > 0 && <Chip cor="#60a5fa" bg="rgba(96,165,250,.12)">🔔 {querem} querem</Chip>}
           {pend.map(p => <Chip key={p} cor="#f5b544" bg="rgba(245,181,68,.12)">{p}</Chip>)}
         </div>
@@ -91,6 +93,7 @@ function Linha({ prod, disp, querem, renderPrecos, onAbrir, onToggle, salvando }
           {prod.custoTotal > 0 && <span>custo {fmtR(prod.custoTotal)}{margem != null ? ` · margem ${margem}%` : ''}</span>}
           {renderPrecos && <span style={{ opacity: 0.9 }}>{renderPrecos(prod)}</span>}
         </div>
+      </div>
       </div>
       {onToggle && <Switch on={prod.ativo !== false} disabled={salvando} onClick={() => onToggle(prod)} />}
     </div>
@@ -361,6 +364,11 @@ export default function ProdutosCardapio({ produtos, secoesOrdem, disp, querem =
   const combos = produtos.filter(p => p.tipo === 'combo').sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
   const pendentes = noMenu.filter(p => pendenciasDe(p).length)
   const grupos = useMemo(() => agruparPorSecao(noMenu, secoesOrdem), [produtos, secoesOrdem]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Na lista: os que estão fora ficam na seção deles, no fim e em cinza (liga/desliga ali mesmo)
+  const gruposTodos = useMemo(() => agruparPorSecao(naoCombo, secoesOrdem).map(g => ({
+    ...g, itens: [...g.itens.filter(p => p.ativo !== false), ...g.itens.filter(p => p.ativo === false)],
+    fora: g.itens.filter(p => p.ativo === false).length,
+  })), [produtos, secoesOrdem]) // eslint-disable-line react-hooks/exhaustive-deps
   const porId = useMemo(() => Object.fromEntries(produtos.map(p => [p.id, p])), [produtos])
 
   const noAr = noMenu.filter(p => p.precoDireta > 0)
@@ -417,13 +425,12 @@ export default function ProdutosCardapio({ produtos, secoesOrdem, disp, querem =
         )}
       </div>
       {!q && (
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
+        <div className="pc-chips" role="group" aria-label="Filtro">
           {abas.map(a => (
-            <button key={a.key} onClick={() => setAba(a.key)} style={{
-              flexShrink: 0, fontSize: 12.5, padding: '6px 12px', borderRadius: 20, cursor: 'pointer', fontWeight: 600,
-              border: `1px solid ${aba === a.key ? 'var(--teal)' : '#333'}`, background: aba === a.key ? 'var(--teal)' : 'transparent',
-              color: aba === a.key ? '#fff' : a.alerta ? '#f5b544' : 'var(--text-secondary)',
-            }}>{a.label} <span style={{ opacity: 0.75 }}>{a.n}</span></button>
+            <button key={a.key} type="button" aria-pressed={aba === a.key} onClick={() => setAba(a.key)}
+              className={`pc-chip${aba === a.key ? ' on' : ''}${a.alerta ? ' alerta' : ''}`}>
+              {a.label} <span>{a.n}</span>
+            </button>
           ))}
         </div>
       )}
@@ -434,16 +441,19 @@ export default function ProdutosCardapio({ produtos, secoesOrdem, disp, querem =
           {achados.length ? achados.map(p => linha(p, p.tipo !== 'combo')) : <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nada encontrado</div>}
         </div>
       ) : aba === 'menu' ? (
-        noMenu.length === 0
-          ? <div className="card" style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum produto no cardápio. Ligue em “Fora”.</div>
-          : grupos.map(g => (
-            <div key={g.secao || '__sem'}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, margin: '4px 4px 6px' }}>
-                {g.secao || 'Sem seção'} <span style={{ fontWeight: 500, color: 'var(--text-tertiary)' }}>· {g.itens.length}</span>
+        naoCombo.length === 0
+          ? <div className="card" style={{ textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>Nenhum produto cadastrado.</div>
+          : <>
+            {fora.length > 0 && <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', margin: '0 4px' }}>Em cinza: fora do cardápio agora (o cliente não vê). Liga no botão pra voltar.</div>}
+            {gruposTodos.map(g => (
+              <div key={g.secao || '__sem'}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, margin: '4px 4px 6px' }}>
+                  {g.secao || 'Sem seção'} <span style={{ fontWeight: 500, color: 'var(--text-tertiary)' }}>· {g.itens.length - g.fora}{g.fora ? ` no cardápio · ${g.fora} fora` : ''}</span>
+                </div>
+                <div className="card card-flush lista-prod" style={{ overflow: 'hidden' }}>{g.itens.map(p => linha(p))}</div>
               </div>
-              <div className="card card-flush lista-prod" style={{ overflow: 'hidden' }}>{g.itens.map(p => linha(p))}</div>
-            </div>
-          ))
+            ))}
+          </>
       ) : aba === 'pend' ? (
         <>
           <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', margin: '0 4px' }}>Sem preço direto o produto não aparece no cardápio online. Foto e descrição ajudam a vender.</div>
