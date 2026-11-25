@@ -286,6 +286,7 @@ const AUTOMATICAS = [
   /^Recebi seu Pix do pedido/,
   /saiu pra entrega 🛵/,
   /O Pix do pedido \*PED-\d+\* venceu/,
+  /Vi que você deixou .+ no carrinho do cardápio/,
 ]
 function paraModelo(role: string, conteudo: string): string {
   if (role === 'humano') return `[Guaxí (pessoa)]: ${conteudo}`

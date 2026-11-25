@@ -1,6 +1,18 @@
-import { createClient } from 'npm:@supabase/supabase-js@2'
+import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2'
 import { parseMetaWebhook, sendMetaMessage } from './providers.ts'
 import { runAgent } from './agent.ts'
+import { APP_BASE, OWNER_USER_ID } from './cardapio.ts'
+
+// Link do cardápio que a GuaxiMina manda leva o código da pessoa (?c=): quem clica
+// aparece com nome em Vendas › Visitas (e o lembrete de carrinho reconhece).
+async function comCodigo(sb: SupabaseClient, telefone: string, nome: string | undefined, textos: string[]): Promise<string[]> {
+  const base = APP_BASE.replace(/[.*+?^${}()|[\]\\/]/g, (m) => '\\' + m)
+  const re = new RegExp(base + '/pedido/[0-9a-f-]{36}[^\\s)*_]*', 'g')
+  if (!textos.some(t => new RegExp(re.source).test(t))) return textos
+  const { data: cod } = await sb.rpc('codigo_link_cliente', { p_user_id: OWNER_USER_ID, p_tel: telefone, p_nome: nome || null })
+  if (!cod) return textos
+  return textos.map(t => t.replace(re, (url: string) => url.includes('c=') ? url : `${url}${url.includes('?') ? '&' : '?'}c=${cod}`))
+}
 import { avisarRastreio } from './rastreio.ts'
 
 // A Meta assina cada chamada (X-Hub-Signature-256 = HMAC-SHA256 do corpo com o App
@@ -86,7 +98,8 @@ Deno.serve(async (req: Request) => {
     try {
       const reply = await runAgent(supabase, msg.from, msg.body, msg.pushName)
       // Às vezes são duas mensagens (ex.: recibo + Pix copia e cola), na ordem
-      for (const r of (Array.isArray(reply) ? reply : reply ? [reply] : [])) await sendMetaMessage(msg.from, r, { phoneNumberId, accessToken })
+      const textos = await comCodigo(supabase, msg.from, msg.pushName, Array.isArray(reply) ? reply : reply ? [reply] : []).catch(() => Array.isArray(reply) ? reply : reply ? [reply] : [])
+      for (const r of textos) await sendMetaMessage(msg.from, r, { phoneNumberId, accessToken })
     } catch (err) {
       console.error('Agent error:', err)
       try {

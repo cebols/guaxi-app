@@ -9,8 +9,9 @@ import {
   getProdutos, getVendas, deleteVenda, getEncomendas, getEmbalagens,
   getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
   getCupons, salvarCupom, atualizarCupom, getIndicacoes, cancelarIndicacao,
-  getPerdas, apagarPerda, MOTIVOS_PERDA,
+  getPerdas, apagarPerda, MOTIVOS_PERDA, codigosLinks, linkComCodigo, getVisitas, marcarVisitaChamada, loadUserConfig,
 } from '../services/db'
+import { ETAPAS, nomeOrigem, aoVivo, clientesPorTel, pessoa, funil, porOrigem, abandonos, doces, resumoCarrinho, linkCarrinho, haQuanto } from '../lib/visitas'
 import { criarTransacoes, resumoFinanceiro, ymd } from '../lib/financeiro'
 import {
   janela, somar, variacao, porDia, porCanal, momentos, horarios, HORAS, clientes as calcClientes, sumidos as calcSumidos,
@@ -26,7 +27,7 @@ import { NovoPedidoSheet } from './Pedidos'
 
 const ABAS = [
   { key: 'resumo', nome: 'Resumo' }, { key: 'produtos', nome: 'Produtos' },
-  { key: 'clientes', nome: 'Clientes' }, { key: 'historico', nome: 'Histórico' }, { key: 'cupons', nome: 'Cupons' },
+  { key: 'clientes', nome: 'Clientes' }, { key: 'visitas', nome: 'Visitas' }, { key: 'historico', nome: 'Histórico' }, { key: 'cupons', nome: 'Cupons' },
 ]
 const fmtR = (v) => `R$ ${Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const fmtR0 = (v) => `R$ ${Math.round(Number(v) || 0).toLocaleString('pt-BR')}`
@@ -88,6 +89,7 @@ export default function Vendas() {
             {aba === 'resumo' && <AbaResumo trans={trans} fin={fin} cfg={cfg} sumidos={sumidos} irPara={irPara} navigate={navigate} />}
             {aba === 'produtos' && <AbaProdutos trans={trans} encomendas={encomendas} produtos={produtos} cfg={cfg} navigate={navigate} />}
             {aba === 'clientes' && <AbaClientes lista={listaClientes} sumidos={sumidos} contatos={contatos || []} linkCardapio={linkCardapio} navigate={navigate} show={show} />}
+            {aba === 'visitas' && <AbaVisitas encomendas={encomendas} produtos={produtos} contatos={contatos || []} linkCardapio={linkCardapio} show={show} />}
             {aba === 'historico' && <AbaHistorico trans={trans} navigate={navigate} show={show} aoApagar={rVend} />}
             {aba === 'cupons' && <AbaCupons encomendas={encomendas} linkCardapio={linkCardapio} show={show} />}
           </>
@@ -457,6 +459,180 @@ function AbaProdutos({ trans, encomendas, produtos, cfg, navigate }) {
   )
 }
 
+// ── Visitas do cardápio: ao vivo, funil, carrinhos pra reativar, doces ─────────
+const PERIODOS_VIS = [{ key: 1, nome: 'Hoje' }, { key: 7, nome: '7 dias' }, { key: 30, nome: '30 dias' }]
+const ETAPA_PAROU = { entrou: 'olhando o cardápio', produto: 'vendo um doce', carrinho: 'com carrinho', checkout: 'finalizando', pedido: 'fez o pedido', pago: 'pagou' }
+
+function AbaVisitas({ encomendas, produtos, contatos, linkCardapio, show }) {
+  const [dias, setDias] = useState(7)
+  const [lista, setLista] = useState(null)
+  const [vivo, setVivo] = useState([])
+  const [agora, setAgora] = useState(Date.now())
+  const [codigos, setCodigos] = useState({})
+  const [enviando, setEnviando] = useState(null)
+  const [lembrete, setLembrete] = useState(() => !!getConfig().visitas?.lembrete)
+  useEffect(() => { loadUserConfig().then(c => { if (c) setLembrete(!!c.visitas?.lembrete) }).catch(() => {}) }, [])
+  const desde = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (dias - 1)); return d.toISOString() }, [dias])
+  const carregar = () => getVisitas(desde).then(setLista).catch(() => setLista([]))
+  useEffect(() => { setLista(null); carregar() }, [desde]) // eslint-disable-line react-hooks/exhaustive-deps
+  // ao vivo: a cada 20s (só com a tela aberta)
+  useEffect(() => {
+    const tick = () => { if (document.hidden) return; setAgora(Date.now()); getVisitas(new Date(Date.now() - 3 * 60e3).toISOString()).then(v => setVivo(aoVivo(v))).catch(() => {}) }
+    tick()
+    const t = setInterval(tick, 20000), t2 = setInterval(() => { if (!document.hidden) carregar() }, 90000)
+    return () => { clearInterval(t); clearInterval(t2) }
+  }, [desde]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const clientes = useMemo(() => clientesPorTel(encomendas), [encomendas])
+  const telDe = useMemo(() => {
+    const m = {}
+    for (const e of (encomendas || [])) { const t = soDig(e.contato); if (t.length >= 10) m[t.slice(-8)] = t }
+    return m
+  }, [encomendas])
+  const parados = useMemo(() => lista ? abandonos(lista, encomendas, { agora }) : [], [lista, encomendas, agora])
+  useEffect(() => {
+    const pessoas = parados.filter(v => v.tel8).map(v => ({ tel: v.telefone || telDe[v.tel8] || v.tel8, nome: v.nome || clientes[v.tel8]?.nome }))
+    if (pessoas.length) codigosLinks(pessoas).then(setCodigos)
+  }, [parados.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!lista) return <div className="pd-vazio">Carregando visitas…</div>
+  const nomeProd = Object.fromEntries((produtos || []).map(p => [p.id, p.nome]))
+  const pessoas = new Set(lista.map(v => v.tel8 || v.visitante)).size
+  const comPedido = lista.filter(v => v.pedido_id).length
+  const fun = funil(lista, encomendas)
+  const origens = porOrigem(lista)
+  const docesL = doces(lista).map(d => ({ ...d, nome: d.nome || nomeProd[d.id] || `#${d.id}` })).sort((a, b) => b.viu - a.viu || b.carrinho - a.carrinho).slice(0, 15)
+
+  async function trocarLembrete() {
+    const novo = !lembrete
+    try { await salvarConfigParcial({ visitas: { ...(getConfig().visitas || {}), lembrete: novo } }); setLembrete(novo); show(novo ? 'Lembrete automático ligado' : 'Lembrete automático desligado') }
+    catch (e) { show('Erro: ' + e.message) }
+  }
+  async function chamar(v, p) {
+    const tel = v.telefone || telDe[v.tel8]
+    const link = linkComCodigo(linkCardapio, codigos, tel || v.tel8, `carrinho=${linkCarrinho(v)}`)
+    const texto = `Oi${p.primeiro ? `, ${p.primeiro}` : ''}! Vi que você deixou ${resumoCarrinho(v)} no carrinho do cardápio 🧁 Quer que eu separe pra você? Seu carrinho continua aqui: ${link}`
+    const contato = acharContato(contatos, tel || v.tel8)
+    setEnviando(v.id)
+    try {
+      if (janelaAberta(contato)) { await enviarWhatsApp(contato.telefone, texto, { pausar: false }); show(`Mandado pelo WhatsApp da Guaxí pra ${p.primeiro || p.nome}`) }
+      else {
+        const w = waLink(tel || '', texto)
+        if (!w) { show('Não tenho o WhatsApp inteiro dessa pessoa'); return }
+        window.open(w, '_blank')
+      }
+      await marcarVisitaChamada(v.id); carregar()
+    } catch (e) { show('Não foi: ' + e.message) }
+    finally { setEnviando(null) }
+  }
+
+  return (
+    <>
+      <div className="vd-chips" role="group" aria-label="Período">
+        {PERIODOS_VIS.map(p => <button key={p.key} className={`vd-chip${dias === p.key ? ' on' : ''}`} aria-pressed={dias === p.key} onClick={() => setDias(p.key)}>{p.nome}</button>)}
+      </div>
+
+      <section className="cf-card" aria-label="Agora no cardápio" style={{ borderColor: vivo.length ? 'rgba(34,184,134,.45)' : undefined }}>
+        <div className="cf-topo"><h2><span className={`vs-ponto${vivo.length ? ' on' : ''}`} aria-hidden="true" /> Agora no cardápio · {vivo.length}</h2><span className="cf-dim">atualiza sozinho</span></div>
+        {!vivo.length ? <div className="cf-hint">Ninguém com o cardápio aberto agora.</div> : vivo.map(v => {
+          const p = pessoa(v, clientes, lista)
+          return (
+            <div key={v.id} className="vs-linha">
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <b className={p.conhecido ? 'vs-conhecido' : ''}>{p.nome}</b> <span className="cf-dim">· {p.detalhe}{p.conhecido ? ` · ${nomeOrigem(v.origem)}` : ''}</span>
+                <div className="cf-dim">{ETAPA_PAROU[v.etapa]}{(v.carrinho || []).length ? `: ${resumoCarrinho(v)} (${fmtR(v.valor)})` : ''} · entrou {haQuanto(v.inicio, agora)}</div>
+              </div>
+            </div>
+          )
+        })}
+      </section>
+
+      <section className="cf-kpis" aria-label="Período">
+        <div className="cf-kpi"><span>Visitas</span><b>{lista.length}</b><small>{pessoas} {pessoas === 1 ? 'pessoa' : 'pessoas'}</small></div>
+        <div className="cf-kpi"><span>Fizeram pedido</span><b>{comPedido}</b><small>{lista.length ? pct(comPedido / lista.length) : '0%'} das visitas</small></div>
+        <div className="cf-kpi"><span>Carrinhos parados</span><b>{parados.length}</b><small>{fmtR0(parados.reduce((s, v) => s + v.valor, 0))} em doces</small></div>
+        <div className="cf-kpi"><span>Conhecidos</span><b>{lista.filter(v => v.tel8).length}</b><small>visitas com nome</small></div>
+      </section>
+
+      <section className="cf-card" aria-label="Funil">
+        <h2>Funil · onde as pessoas param</h2>
+        <div className="vs-funil">
+          {fun.map((e, i) => (
+            <div key={e.key} className="vs-etapa">
+              <span className="vs-nome">{e.nome}</span>
+              <span className="vs-barra"><i style={{ width: `${Math.max(e.pct * 100, e.n ? 2 : 0)}%` }} /></span>
+              <b>{e.n}</b>
+              <span className="vs-caiu">{i > 0 && e.caiu > 0 ? `−${pct(e.caiu)}` : ''}</span>
+            </div>
+          ))}
+        </div>
+        <div className="cf-dim">Cada linha conta as visitas que chegaram até ali. "−%" é quanto caiu da etapa anterior: o maior número mostra onde mais gente desiste.</div>
+      </section>
+
+      <section className="cf-card" aria-label="Carrinhos pra reativar">
+        <div className="cf-topo" style={{ flexWrap: 'wrap' }}>
+          <h2>Carrinhos parados · pra reativar</h2>
+          <label className="vs-auto">
+            <button type="button" role="switch" aria-checked={lembrete} className={`pd-switch${lembrete ? ' on' : ''}`} onClick={trocarLembrete}><span /></button>
+            <span>GuaxiMina lembra sozinha</span>
+          </label>
+        </div>
+        <div className="cf-dim">
+          {lembrete
+            ? 'Ligado: 40 min a 3 h depois de parar, a GuaxiMina manda uma mensagem só pra quem conversou com ela nas últimas 24 h (regra da Meta). Uma vez por pessoa por dia.'
+            : 'Desligado: você chama daqui. Pela Guaxí se a conversa com a pessoa está aberta (24 h); senão abre o seu WhatsApp com a mensagem pronta.'}
+        </div>
+        {!parados.length ? <div className="cf-hint">Nenhum carrinho parado no período.</div> : parados.map(v => {
+          const p = pessoa(v, clientes, lista)
+          const feito = v.chamado_em || v.lembrado_em
+          return (
+            <div key={v.id} className="vs-parado">
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <b className={p.conhecido ? 'vs-conhecido' : ''}>{p.nome}</b> <span className="cf-dim">· {p.detalhe}</span>
+                <div style={{ fontSize: 13.5, marginTop: 2 }}>{resumoCarrinho(v)} · <b>{fmtR(v.valor)}</b></div>
+                <div className="cf-dim">parou {v.etapa === 'checkout' ? 'no checkout' : 'no carrinho'} {haQuanto(v.ultimo, agora)} · {nomeOrigem(v.origem)}
+                  {v.lembrado_em ? ' · GuaxiMina já lembrou' : v.chamado_em ? ` · você chamou ${haQuanto(v.chamado_em, agora)}` : ''}</div>
+              </div>
+              {p.conhecido
+                ? <button className={`pd-btn${feito ? '' : ' verde'}`} disabled={enviando === v.id} onClick={() => chamar(v, p)}>{enviando === v.id ? 'Mandando…' : feito ? 'Chamar de novo' : 'Chamar'}</button>
+                : <span className="cf-dim" style={{ maxWidth: 120, textAlign: 'right' }}>anônimo: não dá pra chamar</span>}
+            </div>
+          )
+        })}
+      </section>
+
+      <div className="cf-grade duas">
+        <section className="cf-card" aria-label="De onde vêm">
+          <h2>De onde vêm</h2>
+          {!origens.length ? <div className="cf-hint">Sem visitas.</div> : origens.map(o => (
+            <div key={o.origem} className="vd-linha-canal">
+              <span style={{ flex: 1 }}>{nomeOrigem(o.origem)}</span>
+              <span className="cf-dim">{o.visitas} {o.visitas === 1 ? 'visita' : 'visitas'}</span>
+              <b style={{ minWidth: 70, textAlign: 'right' }}>{o.pedidos} {o.pedidos === 1 ? 'pedido' : 'pedidos'}</b>
+            </div>
+          ))}
+          <div className="cf-dim">Link da Guaxí = links com código que a GuaxiMina, a Wishlist e os Clientes mandam (a pessoa aparece com nome).</div>
+        </section>
+
+        <section className="cf-card" aria-label="Doces mais vistos">
+          <h2>Doces · viu, carrinho, pedido</h2>
+          {!docesL.length ? <div className="cf-hint">Ninguém abriu doce ainda.</div> : (
+            <div className="vs-doces">
+              <div className="vs-doces-cab"><span>Doce</span><span>Viu</span><span>Carrinho</span><span>Pedido</span></div>
+              {docesL.map(d => (
+                <div key={d.id} className="vs-doces-lin">
+                  <span className="nome">{d.nome}</span><span>{d.viu}</span><span>{d.carrinho}</span><b>{d.pedido}</b>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="cf-dim">Muita gente vendo e pouca pondo no carrinho? Pode ser preço, foto ou descrição.</div>
+        </section>
+      </div>
+    </>
+  )
+}
+
 // ── Perdas: o que foi pro lixo (Prontidão e montagem da produção) ─────────────
 function CardPerdas({ de, dias, custoVendido, desperdicio, navigate }) {
   const [lista, setLista] = useState(null)
@@ -548,7 +724,9 @@ function AbaClientes({ lista, sumidos, contatos, linkCardapio, navigate, show })
   const ordenados = [...sumidos].sort((a, b) => (chamados[a.chave] ? 1 : 0) - (chamados[b.chave] ? 1 : 0))
   const pendentes = ordenados.filter(c => !chamados[c.chave] && soDig(c.contato).length >= 10)
 
-  const texto = (c) => `Oi${primeiroNome(c.nome) ? `, ${primeiroNome(c.nome)}` : ''}! Saudade 💛 ${c.favorito ? `Tem ${c.favorito} fresquinho por aqui, ` : 'Tem fornada nova por aqui, '}quer que eu separe pra você?${linkCardapio ? ` Dá pra pedir por aqui: ${linkCardapio}` : ''}`
+  const [codigos, setCodigos] = useState({})
+  useEffect(() => { if (sumidos.length) codigosLinks(sumidos.map(c => ({ tel: c.contato, nome: c.nome }))).then(setCodigos) }, [sumidos.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  const texto = (c) => `Oi${primeiroNome(c.nome) ? `, ${primeiroNome(c.nome)}` : ''}! Saudade 💛 ${c.favorito ? `Tem ${c.favorito} fresquinho por aqui, ` : 'Tem fornada nova por aqui, '}quer que eu separe pra você?${linkCardapio ? ` Dá pra pedir por aqui: ${linkComCodigo(linkCardapio, codigos, c.contato)}` : ''}`
   const marcar = (c) => { const n = { ...lerChamados(), [c.chave]: hojeS }; try { localStorage.setItem(CHAVE_CHAMADOS, JSON.stringify(n)) } catch { /* sem storage */ } setChamados(n) }
   async function chamar(c) {
     const contato = acharContato(contatos, c.contato)

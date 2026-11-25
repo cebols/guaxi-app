@@ -456,6 +456,43 @@ CREATE TABLE IF NOT EXISTS perdas (
 );
 CREATE INDEX IF NOT EXISTS perdas_data ON perdas(user_id, created_at);
 
+-- Visitas ao cardápio online (analytics próprio, sem terceiros). Uma linha por visita
+-- (aba aberta); o cardápio manda um "ping" ao entrar, a cada ~25s e a cada passo
+-- (abriu doce, carrinho, checkout, pedido). visitante = id aleatório do aparelho.
+CREATE TABLE IF NOT EXISTS visitas (
+  id              uuid primary key,
+  user_id         uuid references auth.users(id) on delete cascade,
+  visitante       text not null,
+  tel8            text,            -- quando dá pra saber quem é (comprou nesse aparelho, link com código, digitou no checkout)
+  nome            text,
+  origem          text,            -- instagram | whatsapp | link (código da Guaxí) | convite | facebook | google | direto | outro
+  ref             text,            -- código do link (links_cliente)
+  cupom           text,
+  etapa           text not null default 'entrou',   -- entrou | produto | carrinho | checkout | pedido | pago
+  carrinho        jsonb,           -- [{ id, nome, qtd, preco }]
+  valor           numeric not null default 0,
+  produtos_vistos jsonb not null default '[]'::jsonb,
+  pedido_id       text,
+  aparelho        text,
+  inicio          timestamptz not null default now(),
+  ultimo          timestamptz not null default now(),
+  lembrado_em     timestamptz,     -- GuaxiMina mandou o lembrete do carrinho
+  chamado_em      timestamptz      -- a dona chamou pelo painel
+);
+CREATE INDEX IF NOT EXISTS visitas_ultimo ON visitas(user_id, ultimo DESC);
+CREATE INDEX IF NOT EXISTS visitas_tel ON visitas(user_id, tel8);
+
+-- Código curto por cliente pros links que a Guaxí manda (?c=CODIGO): quem clica é reconhecido
+CREATE TABLE IF NOT EXISTS links_cliente (
+  user_id    uuid references auth.users(id) on delete cascade,
+  codigo     text not null,
+  tel8       text not null,
+  nome       text,
+  created_at timestamptz default now(),
+  primary key (user_id, codigo)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS links_cliente_tel ON links_cliente(user_id, tel8);
+
 -- =============================================================================
 -- 3. COLUNAS ADICIONADAS COM O TEMPO (bancos criados antes ficam atualizados)
 -- =============================================================================
@@ -569,7 +606,9 @@ ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS aguarda_pix_ate timestamptz;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS cupom_codigo  text;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS desconto      numeric NOT NULL DEFAULT 0;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS desconto_tipo text;   -- cupom | indicacao | credito
-ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS forma_pgto text;      -- pix | cartao (só retirada: paga na hora, na maquininha)
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS forma_pgto text;
+ALTER TABLE visitas ADD COLUMN IF NOT EXISTS telefone text;          -- WhatsApp inteiro (só dígitos), pra chamar do painel
+ALTER TABLE links_cliente ADD COLUMN IF NOT EXISTS telefone text;      -- pix | cartao (só retirada: paga na hora, na maquininha)
 
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS produto_id bigint references produtos(id) on delete set null;
@@ -618,6 +657,8 @@ ALTER TABLE codigos_indicacao      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE indicacoes             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE creditos               ENABLE ROW LEVEL SECURITY;
 ALTER TABLE perdas                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE visitas                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE links_cliente          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE encomendas             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE encomenda_itens        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE envios                 ENABLE ROW LEVEL SECURITY;
@@ -684,6 +725,10 @@ DROP POLICY IF EXISTS "own_data" ON creditos;
 CREATE POLICY "own_data" ON creditos FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 DROP POLICY IF EXISTS "own_data" ON perdas;
 CREATE POLICY "own_data" ON perdas FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON visitas;
+CREATE POLICY "own_data" ON visitas FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "own_data" ON links_cliente;
+CREATE POLICY "own_data" ON links_cliente FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 DROP POLICY IF EXISTS "own_data" ON interesses;
 CREATE POLICY "own_data" ON interesses FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 DROP POLICY IF EXISTS "own_data" ON envios;
@@ -887,6 +932,85 @@ BEGIN
     'expira', (SELECT min(expira_em) FROM creditos WHERE user_id = p_user_id AND tel8 = t8 AND saldo > 0 AND expira_em >= hoje),
     'uso_max', (cfg->>'uso_max')::numeric, 'uso_min', (cfg->>'uso_min')::numeric,
     'amigo_tipo', cfg->>'amigo_tipo', 'amigo_valor', (cfg->>'amigo_valor')::numeric, 'premio', (cfg->>'premio')::numeric);
+END $$;
+
+-- ── Visitas do cardápio ──────────────────────────────────────────────────────
+-- Ping do cardápio (sem login). Cria a visita ou atualiza: hora, etapa (só avança),
+-- carrinho, doce aberto, quem é (WhatsApp digitado ou código do link).
+CREATE OR REPLACE FUNCTION public.visita_ping(p_user_id uuid, p_id uuid, p jsonb) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  etapas text[] := ARRAY['entrou', 'produto', 'carrinho', 'checkout', 'pedido', 'pago'];
+  v_etapa text := CASE WHEN p->>'etapa' = ANY (etapas) THEN p->>'etapa' ELSE 'entrou' END;
+  v_tel8 text := tel8(p->>'tel');
+  v_tel text := left(regexp_replace(coalesce(p->>'tel', ''), '\D', '', 'g'), 15);
+  v_nome text := nullif(left(btrim(coalesce(p->>'nome', '')), 60), '');
+  v_ref text := nullif(upper(left(btrim(coalesce(p->>'ref', '')), 12)), '');
+  v_carr jsonb := CASE WHEN jsonb_typeof(p->'carrinho') = 'array' AND length((p->'carrinho')::text) < 4000 THEN p->'carrinho' END;
+  v_ver jsonb := CASE WHEN (p->>'ver') ~ '^\d{1,12}$' THEN jsonb_build_array((p->>'ver')::bigint) ELSE '[]'::jsonb END;
+  r record;
+BEGIN
+  IF p_user_id IS NULL OR p_id IS NULL OR coalesce(p->>'visitante', '') = '' THEN RETURN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM user_config WHERE user_id = p_user_id) THEN RETURN; END IF;
+  IF length(coalesce(v_tel8, '')) <> 8 THEN v_tel8 := NULL; v_tel := NULL; END IF;
+  IF v_tel8 IS NULL AND v_ref IS NOT NULL THEN
+    SELECT tel8, nome, telefone INTO r FROM links_cliente WHERE user_id = p_user_id AND codigo = v_ref;
+    IF FOUND THEN v_tel8 := r.tel8; v_tel := r.telefone; v_nome := coalesce(v_nome, r.nome); END IF;
+  END IF;
+  INSERT INTO visitas AS v (id, user_id, visitante, tel8, telefone, nome, origem, ref, cupom, etapa, carrinho, valor, produtos_vistos, pedido_id, aparelho)
+  VALUES (p_id, p_user_id, left(p->>'visitante', 40), v_tel8, v_tel, v_nome, left(p->>'origem', 20), v_ref, left(p->>'cupom', 30), v_etapa,
+          v_carr, CASE WHEN v_carr IS NOT NULL THEN least(coalesce((p->>'valor')::numeric, 0), 100000) ELSE 0 END,
+          v_ver, left(p->>'pedido', 20), left(p->>'aparelho', 20))
+  ON CONFLICT (id) DO UPDATE SET
+    ultimo   = now(),
+    tel8     = coalesce(EXCLUDED.tel8, v.tel8),
+    telefone = coalesce(EXCLUDED.telefone, v.telefone),
+    nome     = coalesce(EXCLUDED.nome, v.nome),
+    etapa    = CASE WHEN array_position(etapas, EXCLUDED.etapa) > array_position(etapas, v.etapa) THEN EXCLUDED.etapa ELSE v.etapa END,
+    carrinho = CASE WHEN v_carr IS NOT NULL THEN v_carr ELSE v.carrinho END,
+    valor    = CASE WHEN v_carr IS NOT NULL THEN EXCLUDED.valor ELSE v.valor END,
+    produtos_vistos = CASE WHEN jsonb_array_length(v_ver) > 0 AND jsonb_array_length(v.produtos_vistos) < 60
+                           THEN v.produtos_vistos || v_ver ELSE v.produtos_vistos END,
+    pedido_id = coalesce(EXCLUDED.pedido_id, v.pedido_id)
+  WHERE v.user_id = p_user_id AND v.visitante = EXCLUDED.visitante;
+END $$;
+
+-- Código do link de um cliente (cria na primeira vez). Dona logada ou o sistema.
+CREATE OR REPLACE FUNCTION public.codigo_link_cliente(p_user_id uuid, p_tel text, p_nome text default null) RETURNS text
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE t8 text := tel8(p_tel); cod text;
+BEGIN
+  IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN RAISE EXCEPTION 'sem acesso'; END IF;
+  IF length(coalesce(t8, '')) <> 8 THEN RETURN NULL; END IF;
+  SELECT codigo INTO cod FROM links_cliente WHERE user_id = p_user_id AND tel8 = t8;
+  IF cod IS NOT NULL THEN
+    UPDATE links_cliente SET nome = coalesce(nome, nullif(left(btrim(coalesce(p_nome, '')), 60), '')),
+                             telefone = coalesce(telefone, nullif(left(regexp_replace(p_tel, '\D', '', 'g'), 15), ''))
+     WHERE user_id = p_user_id AND tel8 = t8 AND (nome IS NULL OR telefone IS NULL);
+    RETURN cod;
+  END IF;
+  LOOP
+    cod := upper(substr(translate(md5(random()::text || clock_timestamp()::text), '01', ''), 1, 6));
+    EXIT WHEN NOT EXISTS (SELECT 1 FROM links_cliente WHERE user_id = p_user_id AND codigo = cod);
+  END LOOP;
+  INSERT INTO links_cliente (user_id, codigo, tel8, nome, telefone)
+  VALUES (p_user_id, cod, t8, nullif(left(btrim(coalesce(p_nome, '')), 60), ''), nullif(left(regexp_replace(p_tel, '\D', '', 'g'), 15), ''))
+  ON CONFLICT (user_id, tel8) DO NOTHING;
+  SELECT codigo INTO cod FROM links_cliente WHERE user_id = p_user_id AND tel8 = t8;
+  RETURN cod;
+END $$;
+
+-- Vários de uma vez (telas de mensagem do app): [{tel, nome}] → { tel8: codigo }
+CREATE OR REPLACE FUNCTION public.codigos_link_clientes(p_pessoas jsonb) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE e jsonb; out jsonb := '{}'::jsonb; c text;
+BEGIN
+  IF auth.uid() IS NULL THEN RETURN out; END IF;
+  FOR e IN SELECT * FROM jsonb_array_elements(coalesce(p_pessoas, '[]'::jsonb)) LIMIT 300 LOOP
+    c := codigo_link_cliente(auth.uid(), e->>'tel', e->>'nome');
+    IF c IS NOT NULL THEN out := out || jsonb_build_object(tel8(e->>'tel'), c); END IF;
+  END LOOP;
+  RETURN out;
 END $$;
 
 -- Distância em linha reta (km) e raio de entrega da loja (Configurações › Entrega;
@@ -1217,6 +1341,11 @@ GRANT EXECUTE ON FUNCTION public.conferir_cupom(uuid, text, text, numeric) TO an
 GRANT EXECUTE ON FUNCTION public.indicacao_do_cliente(uuid, text[]) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.pedidos_do_cliente(text[])   TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.delete_pedido(text, uuid)     TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.visita_ping(uuid, uuid, jsonb) TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.codigo_link_cliente(uuid, text, text) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.codigo_link_cliente(uuid, text, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.codigos_link_clientes(jsonb) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.codigos_link_clientes(jsonb) TO authenticated;
 
 
 -- =============================================================================
@@ -1396,9 +1525,33 @@ REVOKE ALL ON FUNCTION indica_status_pedido() FROM public, anon, authenticated;
 CREATE OR REPLACE TRIGGER encomenda_indica AFTER UPDATE OF status ON encomendas
   FOR EACH ROW EXECUTE FUNCTION indica_status_pedido();
 
+-- Carrinho esquecido: a cada 10 min, se tem visita de cliente conhecido que parou no
+-- carrinho/checkout há 40 min–3 h, chama a função (ela confere a janela de 24h do
+-- WhatsApp e o liga/desliga em Vendas › Visitas antes de mandar).
+CREATE OR REPLACE FUNCTION lembrar_carrinhos() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE segredo text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM visitas v JOIN user_config c ON c.user_id = v.user_id
+                  WHERE coalesce((c.config->'visitas'->>'lembrete')::boolean, false)
+                    AND v.etapa IN ('carrinho', 'checkout') AND v.tel8 IS NOT NULL AND v.pedido_id IS NULL
+                    AND v.lembrado_em IS NULL AND v.chamado_em IS NULL
+                    AND v.ultimo BETWEEN now() - interval '3 hours' AND now() - interval '40 minutes'
+                    AND jsonb_array_length(coalesce(v.carrinho, '[]'::jsonb)) > 0) THEN RETURN; END IF;
+  SELECT decrypted_secret INTO segredo FROM vault.decrypted_secrets WHERE name = 'guaxi_cron_secret' LIMIT 1;
+  IF segredo IS NULL THEN RETURN; END IF;
+  PERFORM net.http_post(
+    url     := 'https://xhnzbmguobhfvcmwhhwi.supabase.co/functions/v1/pix-mercadopago?acao=carrinhos',
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-guaxi-segredo', segredo),
+    body    := '{}'::jsonb
+  );
+END $$;
+REVOKE ALL ON FUNCTION lembrar_carrinhos() FROM public, anon, authenticated;
+
 -- Agenda (rodar de novo só atualiza o mesmo agendamento)
 SELECT cron.schedule('guaxi-lembrete-fim-do-dia', '*/10 * * * *', 'SELECT enviar_lembretes_push()');
 SELECT cron.schedule('guaxi-pix-vencidos', '*/5 * * * *', 'SELECT cancelar_pix_vencidos()');
+SELECT cron.schedule('guaxi-carrinhos', '*/10 * * * *', 'SELECT lembrar_carrinhos()');
 
 
 -- =============================================================================

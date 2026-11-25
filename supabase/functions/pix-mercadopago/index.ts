@@ -56,12 +56,12 @@ function prazoDe(p: Pedido): number | null {
 }
 
 // Mensagem pro cliente pelo WhatsApp da Guaxí, se a conversa estiver aberta (janela de 24h)
-async function whatsCliente(sb: SupabaseClient, contato: string, userId: string, texto: string) {
+async function whatsCliente(sb: SupabaseClient, contato: string, userId: string, texto: string): Promise<boolean> {
   const fim = soDigitos(contato).slice(-8)
-  if (fim.length !== 8) return
+  if (fim.length !== 8) return false
   const { data: ats } = await sb.from('atendimentos').select('telefone, ultima_msg_cliente_em').like('telefone', `%${fim}`)
   const at = (ats || []).find(a => a.ultima_msg_cliente_em && Date.now() - new Date(a.ultima_msg_cliente_em).getTime() < 24 * 3600e3)
-  if (!at) return
+  if (!at) return false
   const r = await fetch(`https://graph.facebook.com/v19.0/${Deno.env.get('META_PHONE_NUMBER_ID')}/messages`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${Deno.env.get('META_ACCESS_TOKEN')}`, 'Content-Type': 'application/json' },
@@ -71,6 +71,14 @@ async function whatsCliente(sb: SupabaseClient, contato: string, userId: string,
     await sb.from('agent_conversas').insert({ telefone: at.telefone, role: 'assistant', conteudo: texto, user_id: userId })
     await sb.from('atendimentos').update({ ultima_msg_em: new Date().toISOString() }).eq('telefone', at.telefone)
   }
+  return !!r?.ok
+}
+
+// Link do cardápio com o código da pessoa (aparece com nome em Vendas › Visitas)
+async function linkCardapio(sb: SupabaseClient, userId: string, tel: string, nome: string | null, extra = '') {
+  const { data: cod } = await sb.rpc('codigo_link_cliente', { p_user_id: userId, p_tel: tel, p_nome: nome })
+  const qs = [extra, cod ? `c=${cod}` : ''].filter(Boolean).join('&')
+  return `https://guaxi-app.vercel.app/pedido/${userId}${qs ? `?${qs}` : ''}`
 }
 const falta = (p: Pedido) => Math.max(0, Math.round((Number(p.valor) - Number(p.sinal || 0)) * 100) / 100)
 
@@ -249,9 +257,58 @@ async function vencidos(sb: SupabaseClient, req: Request) {
     })
     if (error) console.error('avisar_dono', error.message)
     await whatsCliente(sb, p.contato, p.user_id,
-      `Oi${nome ? `, ${nome}` : ''}! O Pix do pedido *${p.id}* venceu e o pedido foi cancelado. Se ainda quiser, é só fazer de novo pelo cardápio 💛 https://guaxi-app.vercel.app/pedido/${p.user_id}`)
+      `Oi${nome ? `, ${nome}` : ''}! O Pix do pedido *${p.id}* venceu e o pedido foi cancelado. Se ainda quiser, é só fazer de novo pelo cardápio 💛 ${await linkCardapio(sb, p.user_id, p.contato, p.cliente)}`)
   }
   return json({ cancelados: feitos })
+}
+
+// Carrinho esquecido (cron a cada 10 min): cliente conhecido parou no carrinho/checkout há
+// 40 min–3 h, não comprou depois e conversou com a GuaxiMina nas últimas 24 h → ela lembra.
+// Só se a dona ligou (Vendas › Visitas). Uma vez por pessoa por dia.
+interface Visita { id: string; user_id: string; tel8: string; telefone: string | null; nome: string | null; carrinho: { id: number; nome: string; qtd: number }[] | null; valor: number; inicio: string }
+async function carrinhos(sb: SupabaseClient, req: Request) {
+  const { data: ok } = await sb.rpc('conferir_segredo_guaxi', { p_segredo: req.headers.get('x-guaxi-segredo') || '' })
+  if (ok !== true) return json({ error: 'Forbidden' }, 403)
+  const agora = Date.now()
+  const { data: lista } = await sb.from('visitas').select('id, user_id, tel8, telefone, nome, carrinho, valor, inicio')
+    .in('etapa', ['carrinho', 'checkout']).not('tel8', 'is', null).is('pedido_id', null).is('lembrado_em', null).is('chamado_em', null)
+    .gte('ultimo', new Date(agora - 3 * 3600e3).toISOString()).lte('ultimo', new Date(agora - 40 * 60e3).toISOString())
+    .order('ultimo', { ascending: false }).limit(30)
+  const ligado: Record<string, boolean> = {}
+  const feitos: string[] = [], jaFoi = new Set<string>()
+  for (const v of (lista || []) as Visita[]) {
+    const itens = Array.isArray(v.carrinho) ? v.carrinho.filter(i => i && i.qtd > 0) : []
+    if (!itens.length || jaFoi.has(`${v.user_id}|${v.tel8}`)) continue
+    jaFoi.add(`${v.user_id}|${v.tel8}`)
+    if (ligado[v.user_id] === undefined) {
+      const { data: c } = await sb.from('user_config').select('config').eq('user_id', v.user_id).maybeSingle()
+      ligado[v.user_id] = (c?.config as { visitas?: { lembrete?: boolean } } | null)?.visitas?.lembrete === true
+    }
+    if (!ligado[v.user_id]) continue
+    // já lembrou essa pessoa hoje?
+    const { count: lembrou } = await sb.from('visitas').select('id', { count: 'exact', head: true })
+      .eq('user_id', v.user_id).eq('tel8', v.tel8).gte('lembrado_em', new Date(agora - 24 * 3600e3).toISOString())
+    if (lembrou) continue
+    // comprou depois (por qualquer canal)?
+    const { data: peds } = await sb.from('encomendas').select('id').eq('user_id', v.user_id).neq('status', 'Cancelado')
+      .gte('created_at', v.inicio).like('contato', `%${v.tel8.slice(0, 4)}%${v.tel8.slice(4)}`).limit(1)
+    if (peds?.length) continue
+    const primeiro = String(v.nome || '').trim().split(/\s+/)[0]
+    const resumo = itens.map(i => `${i.qtd}× ${i.nome}`).join(', ')
+    const link = await linkCardapio(sb, v.user_id, v.telefone || v.tel8, v.nome, `carrinho=${itens.map(i => `${i.id}.${i.qtd}`).join(',')}`)
+    const texto = `Oi${primeiro ? `, ${primeiro}` : ''}! Aqui é a GuaxiMina 🦝 Vi que você deixou ${resumo} no carrinho do cardápio. Quer finalizar? Seu carrinho continua aqui: ${link}`
+    const foi = await whatsCliente(sb, v.telefone || v.tel8, v.user_id, texto)
+    if (!foi) continue
+    await sb.from('visitas').update({ lembrado_em: new Date().toISOString() }).eq('id', v.id)
+    feitos.push(v.id)
+    const { error } = await sb.rpc('avisar_dono', {
+      p_user_id: v.user_id, p_titulo: `🛒 GuaxiMina lembrou ${primeiro || 'um cliente'} do carrinho`,
+      p_corpo: `${resumo} · ${fmtR(Number(v.valor))}. Se responder, a conversa tá no Atendimento.`,
+      p_url: '/vendas?aba=visitas', p_tag: `carrinho-${v.id}`,
+    })
+    if (error) console.error('avisar_dono', error.message)
+  }
+  return json({ lembrados: feitos })
 }
 
 Deno.serve(async (req: Request) => {
@@ -262,6 +319,7 @@ Deno.serve(async (req: Request) => {
   try {
     if (acao === 'aviso') return await aviso(sb, req)
     if (acao === 'vencidos') return await vencidos(sb, req)
+    if (acao === 'carrinhos') return await carrinhos(sb, req)
     if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405)
     let body: { pedido?: string; chave?: string; acao?: string } = {}
     try { body = await req.json() } catch { return json({ error: 'Corpo inválido' }, 400) }

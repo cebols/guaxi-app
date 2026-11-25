@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useData } from '../hooks/useData'
 import {
   getProdutos, getDisponibilidade, getInteressesLista, marcarInteressesAvisados, desmarcarInteressesAvisados,
-  apagarInteresse, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
+  apagarInteresse, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp, codigosLinks, linkComCodigo,
 } from '../services/db'
 
 // ── Interessados ─────────────────────────────────────────────────────────────
@@ -81,8 +81,11 @@ export default function Interessados() {
     if (el) { rolou.current = true; setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150) }
   }, [alvo, grupos])
 
-  const link = (prod) => `${window.location.origin}/pedido/${user?.id}?produto=${prod.id}`
-  const texto = (i, prod) => `Oi${primeiro(i.nome) ? `, ${primeiro(i.nome)}` : ''}! Boa notícia: *${prod.nome}* voltou pro cardápio 💙 Dá pra pedir por aqui: ${link(prod)}`
+  // link com o código da pessoa: quem clica aparece com nome em Vendas › Visitas
+  const [codigos, setCodigos] = useState({})
+  useEffect(() => { if (lista?.length) codigosLinks(lista.map(i => ({ tel: i.telefone, nome: i.nome }))).then(setCodigos) }, [lista])
+  const link = (prod, tel) => linkComCodigo(`${window.location.origin}/pedido/${user?.id}`, codigos, tel, `produto=${prod.id}`)
+  const texto = (i, prod) => `Oi${primeiro(i.nome) ? `, ${primeiro(i.nome)}` : ''}! Boa notícia: *${prod.nome}* voltou pro cardápio 💙 Dá pra pedir por aqui: ${link(prod, i.telefone)}`
 
   async function marcar(ids, msg) {
     await marcarInteressesAvisados(ids).catch(() => {})

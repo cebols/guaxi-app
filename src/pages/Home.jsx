@@ -7,8 +7,9 @@ import {
   insumosDoCardapio, reconciliarBaixasPedidos, reservasPorProduto, updateStatusEncomenda,
   getProntidaoLotes, getInteresses, moverProntidao, desfazerMovimento, embalarProduto, desfazerEmbalar,
   descartarVencidosProntidao, marcarEtapaPronta, desfazerEtapaPronta,
-  getAtendimentos, getEnvios, acharContato, janelaAberta, enviarWhatsApp,
+  getAtendimentos, getEnvios, acharContato, janelaAberta, enviarWhatsApp, getVisitas,
 } from '../services/db'
+import { aoVivo, clientesPorTel, pessoa } from '../lib/visitas'
 import {
   fluxoAtivo, analisarProduto, etapasDoProduto, hhmm, GRUPOS_TAREFA, FEITO, grupoDe, montarTarefas, destinosEmbalar,
 } from '../lib/prontidao'
@@ -145,6 +146,32 @@ function CardPedido({ enc, onAbrir, onCobrar, onStatus, onPago }) {
 }
 
 // ── Página ────────────────────────────────────────────────────────────────────
+// Quem está com o cardápio aberto agora (atualiza a cada 25s; some quando não tem ninguém)
+function AgoraNoCardapio({ encomendas, onAbrir }) {
+  const [vivo, setVivo] = useState([])
+  useEffect(() => {
+    const tick = () => { if (!document.hidden) getVisitas(new Date(Date.now() - 3 * 60e3).toISOString()).then(v => setVivo(aoVivo(v))).catch(() => {}) }
+    tick()
+    const t = setInterval(tick, 25000)
+    return () => clearInterval(t)
+  }, [])
+  const clientes = useMemo(() => clientesPorTel(encomendas), [encomendas])
+  if (!vivo.length) return null
+  const nomes = vivo.map(v => pessoa(v, clientes, [])).filter(p => p.conhecido).map(p => p.primeiro || p.nome)
+  const anon = vivo.length - nomes.length
+  const comCarrinho = vivo.filter(v => (v.carrinho || []).length).length
+  return (
+    <button onClick={onAbrir} className="home-aovivo">
+      <span className="vs-ponto on" aria-hidden="true" />
+      <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+        <b>{vivo.length} no cardápio agora</b>
+        <span style={{ color: 'var(--text-secondary)' }}> · {[nomes.join(', '), anon ? `${anon} ${anon === 1 ? 'visitante' : 'visitantes'}` : ''].filter(Boolean).join(' e ')}{comCarrinho ? ` · ${comCarrinho} com carrinho` : ''}</span>
+      </span>
+      <span style={{ color: 'var(--text-secondary)' }}>ver ›</span>
+    </button>
+  )
+}
+
 export default function Home() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -363,6 +390,8 @@ export default function Home() {
             <button className="home-btn-pedido" onClick={() => setNovoPedido(true)}>+ Pedido</button>
           </div>
         </div>
+
+        <AgoraNoCardapio encomendas={encomendas} onAbrir={() => navigate('/vendas?aba=visitas')} />
 
         <div className="home">
           {/* Números do dia */}

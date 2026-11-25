@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
-import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig, registrarInteresse, getPedidosDoCliente, pixDoPedido, conferirPix, conferirCupom, indicacaoDoCliente } from '../services/db'
+import { getPublicProdutos, submitPedidoExterno, getPublicDeliveryConfig, registrarInteresse, getPedidosDoCliente, pixDoPedido, conferirPix, conferirCupom, indicacaoDoCliente, visitaPing } from '../services/db'
 import { pixCopiaECola } from '../lib/pix'
 
 const fmtR = (v) =>
@@ -103,6 +103,70 @@ const guardarPedido = (id, chave) => { try { localStorage.setItem(CHAVE_PEDIDOS,
 const novaChave = () => {
   try { if (crypto.randomUUID) return crypto.randomUUID() } catch {}
   const b = new Uint8Array(16); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
+}
+
+// ── Visita (analytics próprio, sem terceiros) ─────────────────────────────────
+const uuid = () => {
+  try { if (crypto.randomUUID) return crypto.randomUUID() } catch {}
+  const b = new Uint8Array(16); crypto.getRandomValues(b); b[6] = (b[6] & 15) | 64; b[8] = (b[8] & 63) | 128
+  const h = Array.from(b, x => x.toString(16).padStart(2, '0')).join('')
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
+}
+const guardado = (store, chave, criar) => {
+  try { let v = store.getItem(chave); if (!v) { v = criar(); store.setItem(chave, v) } return v } catch { return criar() }
+}
+function origemDaVisita(params) {
+  if (params.get('c')) return 'link'
+  if (params.get('cupom')) return 'convite'
+  const utm = (params.get('utm_source') || '').toLowerCase()
+  if (utm) return utm.slice(0, 20)
+  const ua = navigator.userAgent || '', ref = document.referrer || ''
+  if (/Instagram/i.test(ua) || /instagram\./i.test(ref)) return 'instagram'
+  if (/FBAN|FBAV/i.test(ua) || /facebook\.|fb\.me/i.test(ref)) return 'facebook'
+  if (/WhatsApp/i.test(ua) || /wa\.me|whatsapp/i.test(ref)) return 'whatsapp'
+  if (/google\./i.test(ref)) return 'google'
+  if (ref && !ref.includes(window.location.host)) return 'outro'
+  return 'direto'
+}
+// Carrinho fica guardado no aparelho por 3 dias (volta quando a pessoa abre de novo)
+const CHAVE_CARRINHO = 'guaxi_carrinho'
+const lerCarrinhoGuardado = () => {
+  try { const x = JSON.parse(localStorage.getItem(CHAVE_CARRINHO) || 'null'); return x?.itens && Date.now() - (x.em || 0) < 3 * 864e5 ? x.itens : null } catch { return null }
+}
+const guardarCarrinho = (itens) => { try { Object.keys(itens || {}).length ? localStorage.setItem(CHAVE_CARRINHO, JSON.stringify({ itens, em: Date.now() })) : localStorage.removeItem(CHAVE_CARRINHO) } catch {} }
+
+function useVisita(userId) {
+  const base = useRef(null)
+  if (!base.current) {
+    const params = new URLSearchParams(window.location.search)
+    const refLink = (params.get('c') || '').trim().toUpperCase().slice(0, 12)
+    try { if (refLink) localStorage.setItem('guaxi_ref', refLink) } catch {}
+    const ref = refLink || (() => { try { return localStorage.getItem('guaxi_ref') || '' } catch { return '' } })()
+    const cli = lerCliente()
+    base.current = {
+      id: guardado(sessionStorage, 'guaxi_visita', uuid),
+      dados: {
+        visitante: guardado(localStorage, 'guaxi_visitante', uuid), origem: origemDaVisita(params), ref: ref || undefined,
+        cupom: params.get('cupom') || undefined, aparelho: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || '') ? 'celular' : 'computador',
+        tel: cli.telefone || undefined, nome: cli.nome || undefined,
+      },
+    }
+  }
+  const ping = useRef(() => {})
+  ping.current = (extra = {}) => { if (userId) visitaPing(userId, base.current.id, { ...base.current.dados, ...extra }) }
+  // entrou + "ainda aqui" a cada 25s (só com a aba na frente)
+  useEffect(() => {
+    if (!userId) return
+    ping.current({ etapa: 'entrou' })
+    const t = setInterval(() => { if (!document.hidden) ping.current() }, 25000)
+    const onVis = () => { if (!document.hidden) ping.current() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis) }
+  }, [userId])
+  return {
+    ping: (extra) => ping.current(extra),
+    quemE: (tel, nome) => { base.current.dados = { ...base.current.dados, tel, nome } },
+  }
 }
 
 // Cupom que veio pelo link (?cupom=) fica guardado até usar (30 dias)
@@ -786,6 +850,7 @@ export default function PedidoExterno() {
   const [cartaoFeito, setCartaoFeito] = useState(false) // o pedido que acabou de ir paga no cartão
   useFontesMarca()
   useRolarAoDigitar()
+  const visita = useVisita(userId)
   // Endereço da última compra: ao ir pro checkout com Entrega, já preenche o CEP e calcula o frete
   useEffect(() => {
     if (step !== 'checkout' || form.tipoEntrega !== 'Entrega' || form.cep || !form.cepSalvo) return
@@ -822,7 +887,7 @@ export default function PedidoExterno() {
   // Pix automático do recibo (pedido recém-feito)
   const pixRecibo = usePixAutomatico(pedidoId, chaveAtual, step === 'confirm' && !cartaoFeito)
   // Pagou o primeiro pedido → já ganha o código pra indicar (aparece no recibo)
-  useEffect(() => { if (step === 'confirm' && pixRecibo.estado === 'pago') carregarIndica() }, [step, pixRecibo.estado]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (step === 'confirm' && pixRecibo.estado === 'pago') { carregarIndica(); visita.ping({ etapa: 'pago' }) } }, [step, pixRecibo.estado]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pix automático dos pedidos em aberto no topo do cardápio (e confere se caiu de tempos em tempos)
   const devendo = meusPedidos.filter(p => !['Entregue', 'Cancelado'].includes(p.status) && p.pgto !== 'Pago' && p.forma_pgto !== 'cartao' && Number(p.valor) - Number(p.sinal || 0) > 0).map(p => p.id).join(',')
@@ -855,6 +920,17 @@ export default function PedidoExterno() {
         const pid = new URLSearchParams(window.location.search).get('produto')
         const alvo = pid && lista.find(p => String(p.id) === pid)
         if (alvo) setAberto(alvo)
+        // carrinho: do link do lembrete (?carrinho=31.2,24.1) ou o que ficou guardado no aparelho
+        const doLink = new URLSearchParams(window.location.search).get('carrinho')
+        const base = doLink ? Object.fromEntries(doLink.split(',').map(x => x.split('.')).filter(([id, q]) => id && Number(q) > 0).map(([id, q]) => [id, Number(q)])) : lerCarrinhoGuardado()
+        if (base) {
+          const ok = {}
+          for (const [id, q] of Object.entries(base)) {
+            const p = lista.find(x => String(x.id) === String(id))
+            if (p && !p.esgotado) ok[p.id] = Math.min(Number(q), p.estoqueAtual > 0 ? p.estoqueAtual : 99)
+          }
+          if (Object.keys(ok).length) setCarrinho(c => Object.keys(c).length ? c : ok)
+        }
       })
       .catch(e => setLoadError(e.message))
     getPublicDeliveryConfig(userId)
@@ -905,6 +981,28 @@ export default function PedidoExterno() {
   const creditoAtivo = cuponsOn && !cupomCod && usarCredito && credito > 0 && total >= creditoMin
   const desconto = cupomOk ? descontoDe(cupomRes, total)
     : creditoAtivo ? Math.min(Number(indica?.uso_max || 0), credito, total) : 0
+  // ── Visita: cada passo vai pro painel (Vendas › Visitas) ──
+  const carrinhoJson = JSON.stringify(carrinho)
+  const primeiraVez = useRef(true)
+  useEffect(() => {
+    if (!produtos) return
+    if (primeiraVez.current) { primeiraVez.current = false; if (!Object.keys(carrinho).length) return }
+    guardarCarrinho(carrinho)
+    const t = setTimeout(() => {
+      const itens = carrinhoItens.map(it => ({ id: it.produto.id, nome: it.produto.nome, qtd: it.qtd, preco: it.produto.precoDireta || 0 }))
+      visita.ping({ etapa: itens.length ? 'carrinho' : undefined, carrinho: itens, valor: total })
+    }, 1200)
+    return () => clearTimeout(t)
+  }, [carrinhoJson, produtos]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (step === 'checkout') visita.ping({ etapa: 'checkout' }) }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (aberto) visita.ping({ etapa: 'produto', ver: String(aberto.id) }) }, [aberto?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  const telDigitos = form.telefone.replace(/\D/g, '')
+  useEffect(() => {
+    if (step !== 'checkout' || telDigitos.length < 10) return
+    const t = setTimeout(() => { visita.quemE(form.telefone, form.nome.trim() || undefined); visita.ping() }, 1500)
+    return () => clearTimeout(t)
+  }, [telDigitos, step]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const rotuloDesconto = cupomOk ? (cupomRes.tipo === 'indicacao' ? `Indicação ${cupomRes.codigo}` : `Cupom ${cupomRes.codigo}`) : 'Crédito'
 
   // Fragilidade do carrinho: se qualquer item é frágil, a viagem toda é frágil (carro)
@@ -1194,6 +1292,9 @@ export default function PedidoExterno() {
       setCartaoFeito(noCartao)
       if (entrega.cupom) { setCupomCod(''); guardarCupom('') }
       if (id) guardarPedido(id, chave)
+      visita.quemE(form.telefone, form.nome.trim())
+      visita.ping({ etapa: 'pedido', pedido: id })
+      guardarCarrinho({})
       setChaveAtual(chave)
       setPedidoId(id)
       setStep('confirm')
@@ -1854,6 +1955,10 @@ export default function PedidoExterno() {
           ))}
         </div>
       )}
+
+      <div style={{ padding: '20px 20px 96px', textAlign: 'center', fontSize: 11.5, color: C.tinta2, lineHeight: 1.5, maxWidth: 520, margin: '0 auto' }}>
+        A Guaxí guarda o que você vê e põe no carrinho aqui no cardápio só pra te atender melhor (ex.: lembrar um carrinho esquecido). Nada vai pra outras empresas.
+      </div>
 
       {aberto && (
         <ProdutoSheet produto={aberto} userId={userId} qtdNoCarrinho={carrinho[aberto.id] || 0} onClose={() => setAberto(null)}

@@ -2673,6 +2673,35 @@ export async function cancelarIndicacao(id, liberado) {
 }
 
 // Pedidos feitos neste aparelho (cardápio, sem login): pelo segredo guardado em cada pedido
+// ── Visitas do cardápio (analytics próprio) ──────────────────────────────────
+// Ping do cardápio (sem login). Nunca dá erro pra fora: analytics não pode atrapalhar a venda.
+export function visitaPing(userId, visitaId, dados) {
+  return supabase.rpc('visita_ping', { p_user_id: userId, p_id: visitaId, p: dados }).then(() => {}, () => {})
+}
+// Visitas da loja (dona logada) desde uma data
+export async function getVisitas(desdeISO) {
+  const { data, error } = await supabase.from('visitas').select('*').gte('ultimo', desdeISO).order('ultimo', { ascending: false }).limit(3000)
+  if (error) { if (/visitas/.test(error.message || '')) return []; throw error }
+  return (data || []).map(v => ({ ...v, valor: Number(v.valor) || 0, carrinho: Array.isArray(v.carrinho) ? v.carrinho : [], produtos_vistos: Array.isArray(v.produtos_vistos) ? v.produtos_vistos : [] }))
+}
+export async function marcarVisitaChamada(id) {
+  const { error } = await supabase.from('visitas').update({ chamado_em: new Date().toISOString() }).eq('id', id)
+  if (error) throw error
+}
+// Códigos dos links por cliente: [{ tel, nome }] → { tel8: 'AB12CD' }
+export async function codigosLinks(pessoas) {
+  const lista = (pessoas || []).filter(x => String(x.tel || '').replace(/\D/g, '').length >= 8)
+  if (!lista.length) return {}
+  const { data, error } = await supabase.rpc('codigos_link_clientes', { p_pessoas: lista })
+  return error ? {} : (data || {})
+}
+// Link do cardápio com o código da pessoa (?c=) — quem clica é reconhecido nas Visitas
+export function linkComCodigo(base, codigos, tel, extra = '') {
+  const c = codigos?.[String(tel || '').replace(/\D/g, '').slice(-8)]
+  const qs = [extra, c ? `c=${c}` : ''].filter(Boolean).join('&')
+  return qs ? `${base}${base.includes('?') ? '&' : '?'}${qs}` : base
+}
+
 export async function getPedidosDoCliente(chaves) {
   if (!chaves?.length) return []
   const { data, error } = await supabase.rpc('pedidos_do_cliente', { p_chaves: chaves.slice(0, 10) })
