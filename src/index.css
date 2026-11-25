@@ -1384,3 +1384,4 @@ a { touch-action: manipulation; }
 .vs-doces-cab > :first-child, .vs-doces-lin .nome { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @container (max-width: 520px) { .vs-etapa { grid-template-columns: 104px minmax(0, 1fr) 34px 40px; font-size: 12.5px; } }
 .home-aovivo { width: 100%; display: flex; align-items: center; gap: 10px; padding: 11px 14px; margin-bottom: 12px; border-radius: 12px; border: 1px solid rgba(34,184,134,.4); background: rgba(34,184,134,.07); color: var(--text-primary); font-size: 14px; cursor: pointer; }
+.pd-item-tirar { width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center; border-radius: 8px; border: 1px solid #3a3a3a; background: transparent; color: #f87171; cursor: pointer; }

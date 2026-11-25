@@ -1113,10 +1113,22 @@ export async function savePedido(pedido, itens) {
   return id
 }
 
-export async function updateEncomendaItens(id, itens) {
-  // Atualiza preço/qtd de cada item existente (por id)
+export async function updateEncomendaItens(id, itens, removidos = []) {
+  // Tira os itens removidos (com as linhas ↳ de combo que vierem junto)
+  if (removidos.length) {
+    const { error } = await supabase.from('encomenda_itens').delete().eq('encomenda_id', id).in('id', removidos)
+    if (error) throw error
+  }
+  // Atualiza preço/qtd de cada item existente (por id); item novo (sem id) entra no pedido
   for (const it of itens) {
-    if (!it.id) continue
+    if (!it.id) {
+      const { error } = await supabase.from('encomenda_itens').insert({
+        encomenda_id: id, produto: it.produto, produto_id: it.produtoId || null,
+        quantidade: parseFloat(it.quantidade) || 1, preco_unit: parseFloat(it.precoUnit) || 0,
+      })
+      if (error) throw error
+      continue
+    }
     const { error } = await supabase.from('encomenda_itens').update({
       quantidade: parseFloat(it.quantidade) || 1,
       preco_unit: parseFloat(it.precoUnit) || 0,

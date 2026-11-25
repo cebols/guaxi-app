@@ -848,6 +848,7 @@ export default function PedidoExterno() {
   const [descFeito, setDescFeito]     = useState(null) // { valor, rotulo } do pedido que acabou de ir
   const [formaPgto, setFormaPgto]     = useState('pix') // retirada: 'pix' (agora) | 'cartao' (na hora de buscar)
   const [cartaoFeito, setCartaoFeito] = useState(false) // o pedido que acabou de ir paga no cartão
+  const [diaRet, setDiaRet]           = useState(null)  // retirada: dia escolhido (YYYY-MM-DD)
   useFontesMarca()
   useRolarAoDigitar()
   const visita = useVisita(userId)
@@ -1270,13 +1271,14 @@ export default function PedidoExterno() {
       : ''
 
     if (form.tipoEntrega === 'Entrega' && freteDias && !diaSel) { alert('Escolha o dia de entrega'); return }
+    if (form.tipoEntrega === 'Retirada' && !diaRet) { alert('Escolha o dia que você vem buscar'); return }
     if (form.tipoEntrega === 'Entrega' && freteDias && freteDias.some(d => d.periodos?.length) && !perSel) { alert('Escolha o período da entrega (manhã, tarde ou noite)'); return }
 
     const freteValor = form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0
     const chave = novaChave()
     const entrega = form.tipoEntrega === 'Entrega'
       ? { dataEntrega: diaSel, periodo: perSel || null, lat: coordCliente?.lat, lng: coordCliente?.lng, frag: fragCarrinho, freteAssinatura: frete?.viaDias ? frete.assinatura : null, chave }
-      : { chave }
+      : { chave, dataEntrega: diaRet }
     // cupom ainda sendo conferido vai junto (o servidor confere de novo); cupom recusado não vai
     const noCartao = form.tipoEntrega === 'Retirada' && formaPgto === 'cartao'
     if (noCartao) entrega.formaPgto = 'cartao'
@@ -1334,7 +1336,7 @@ export default function PedidoExterno() {
   if (step === 'confirm') {
     const primeiro = (form.nome || '').trim().split(/\s+/)[0]
     const ehEntrega = form.tipoEntrega === 'Entrega'
-    const dia = ehEntrega ? (frete?.dia || diaSel) : null
+    const dia = ehEntrega ? (frete?.dia || diaSel) : diaRet
     const enderecoTxt = [form.ruaBairro, form.numero, form.complemento].filter(Boolean).join(', ')
     const freteValor = ehEntrega && frete ? frete.valor : 0
     const msgWa = `Oi, GuaxiMina! Acabei de fazer o pedido ${pedidoId} pelo cardápio 🧁`
@@ -1404,9 +1406,9 @@ export default function PedidoExterno() {
               <div style={{ display: 'flex', gap: 10 }}>
                 <span style={{ fontSize: 18 }}>{ehEntrega ? '🛵' : '🏠'}</span>
                 <div>
-                  <b>{ehEntrega ? (dia ? `Entrega ${diaLabel(dia)}${perSel ? ` · ${PERIODOS_PE[perSel].nome.toLowerCase()} (${PERIODOS_PE[perSel].faixa})` : ''}` : 'Entrega') : 'Retirada'}</b>
+                  <b>{ehEntrega ? (dia ? `Entrega ${diaLabel(dia)}${perSel ? ` · ${PERIODOS_PE[perSel].nome.toLowerCase()} (${PERIODOS_PE[perSel].faixa})` : ''}` : 'Entrega') : (dia ? `Retirada ${diaLabel(dia)}` : 'Retirada')}</b>
                   <div style={{ color: C.tinta2, fontSize: 13, marginTop: 1 }}>
-                    {ehEntrega ? (enderecoTxt || 'no endereço informado') : 'a gente combina o dia e o horário pelo WhatsApp'}
+                    {ehEntrega ? (enderecoTxt || 'no endereço informado') : dia ? `${deliveryCfg?.lojaEndereco || 'na Guaxí'} · o horário a gente combina pelo WhatsApp` : 'a gente combina o dia e o horário pelo WhatsApp'}
                   </div>
                 </div>
               </div>
@@ -1554,6 +1556,27 @@ export default function PedidoExterno() {
             <div style={{ marginTop: -6, marginBottom: 16, padding: '10px 12px', borderRadius: 12, background: C.azulClaro, color: C.azulEsc, fontSize: 13.5, lineHeight: 1.45 }}>
               Você busca aqui: <b>{deliveryCfg.lojaEndereco}</b>{lugarLoja ? ` · ${lugarLoja}` : ''}
             </div>
+          )}
+
+          {form.tipoEntrega === 'Retirada' && (
+            <Field label="Quando você vem buscar?">
+              <div role="radiogroup" aria-label="Dia da retirada" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none' }}>
+                {Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + 1 + i); return d.toLocaleDateString('en-CA') }).map(ds => {
+                  const on = diaRet === ds
+                  const d = new Date(ds + 'T12:00:00')
+                  return (
+                    <button key={ds} type="button" role="radio" aria-checked={on} onClick={() => setDiaRet(ds)} style={{
+                      flexShrink: 0, minWidth: 64, padding: '9px 8px', borderRadius: 12, cursor: 'pointer', fontFamily: FONTE, textAlign: 'center',
+                      border: `1.5px solid ${on ? C.azul : C.linha}`, background: on ? C.azul : '#FFFFFF', color: on ? '#FFFFFF' : C.tinta,
+                    }}>
+                      <span style={{ display: 'block', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', opacity: on ? 0.9 : 0.7 }}>{d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')}</span>
+                      <span style={{ display: 'block', fontSize: 17, fontWeight: 800, marginTop: 1 }}>{String(d.getDate()).padStart(2, '0')}/{String(d.getMonth() + 1).padStart(2, '0')}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <div style={{ fontSize: 12.5, color: C.tinta2, marginTop: 4 }}>O horário a gente combina pelo WhatsApp.</div>
+            </Field>
           )}
 
           {form.tipoEntrega === 'Retirada' && (
@@ -1846,15 +1869,15 @@ export default function PedidoExterno() {
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, maxWidth: 640, margin: '0 auto', padding: '16px 20px', background: '#FFFFFF', borderTop: '1px solid #EBCDD5' }}>
           <button
             onClick={handleSubmit}
-            disabled={submitting || !form.nome || !form.telefone || (form.tipoEntrega === 'Entrega' && !!fora)}
+            disabled={submitting || !form.nome || !form.telefone || (form.tipoEntrega === 'Entrega' && !!fora) || (form.tipoEntrega === 'Retirada' && !diaRet)}
             style={{
               width: '100%', padding: 14, borderRadius: 12,
               background: '#185D9C', color: '#fff', border: 'none',
               fontWeight: 700, fontSize: 16, cursor: 'pointer',
-              opacity: (!form.nome || !form.telefone || submitting || (form.tipoEntrega === 'Entrega' && fora)) ? 0.5 : 1,
+              opacity: (!form.nome || !form.telefone || submitting || (form.tipoEntrega === 'Entrega' && fora) || (form.tipoEntrega === 'Retirada' && !diaRet)) ? 0.5 : 1,
             }}
           >
-            {submitting ? 'Enviando...' : form.tipoEntrega === 'Entrega' && fora ? 'Fora da área de entrega' : `Enviar pedido · ${fmtR(total - desconto + (form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0))}`}
+            {submitting ? 'Enviando...' : form.tipoEntrega === 'Entrega' && fora ? 'Fora da área de entrega' : form.tipoEntrega === 'Retirada' && !diaRet ? 'Escolha o dia da retirada' : `Enviar pedido · ${fmtR(total - desconto + (form.tipoEntrega === 'Entrega' && frete ? frete.valor : 0))}`}
           </button>
         </div>
       </div>

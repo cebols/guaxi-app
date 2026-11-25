@@ -66,7 +66,7 @@ function agruparItens(itens) {
   const out = []
   for (const it of itens || []) {
     const nome = String(it.produto || '')
-    if (nome.startsWith('↳') && out.length) out[out.length - 1].subs.push({ nome: nome.replace(/^↳\s*/, ''), q: it.quantidade })
+    if (nome.startsWith('↳') && out.length) out[out.length - 1].subs.push({ nome: nome.replace(/^↳\s*/, ''), q: it.quantidade, id: it.id })
     else out.push({ ...it, subs: [] })
   }
   return out
@@ -227,10 +227,12 @@ function CardPedido({ p, onAbrir, onAcao }) {
 }
 
 // ── Detalhe ───────────────────────────────────────────────────────────────────
-function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarregar, avisar }) {
+function DetalhePedido({ p, pix, contatos, produtos = [], msgInicial, onBack, onAcao, recarregar, avisar }) {
   const navigate = useNavigate()
   const [editItens, setEditItens] = useState(false)
   const [itensEd, setItensEd] = useState([])
+  const [removidos, setRemovidos] = useState([])   // ids que saem do pedido (com as linhas ↳ do combo)
+  const [addId, setAddId] = useState('')
   const [mudarDia, setMudarDia] = useState(false)
   const [endereco, setEndereco] = useState(p.endereco || '')
   const [frete, setFrete] = useState(p.frete ? fmtM(p.frete) : '')
@@ -282,17 +284,44 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
   const salvarSinal = () => { if (num(sinal) === Number(p.sinal || 0)) return; salvarCampos({ sinal: num(sinal) }, 'Sinal salvo') }
   const salvarPgto = v => salvar(() => updateStatusEncomenda(p.id, p.status, v, p.tipoEntrega, p.frete, p.valor), v === 'Pago' ? 'Marcado como pago' : 'Marcado como a receber')
 
+  // Edição: cada doce (combo junto com as linhas ↳) pode mudar qtd/preço, sair ou entrar um novo
   function abrirEdicao() {
-    setItensEd((p.itens || []).map(it => ({ ...it, quantidade: fmtQ(it.quantidade), precoUnit: fmtQ(it.precoUnit) })))
+    setItensEd(agruparItens(p.itens || []).map(it => ({ ...it, quantidade: fmtQ(it.quantidade), precoUnit: fmtQ(it.precoUnit) })))
+    setRemovidos([]); setAddId('')
     setEditItens(true)
   }
+  const tirarItem = (i) => {
+    const it = itensEd[i]
+    if (it.id) setRemovidos(r => [...r, it.id, ...(it.subs || []).map(s => s.id).filter(Boolean)])
+    setItensEd(l => l.filter((_, k) => k !== i))
+  }
+  const addItem = (pid) => {
+    const prod = produtos.find(x => String(x.id) === String(pid))
+    if (!prod) return
+    setItensEd(l => {
+      const ja = l.findIndex(x => !x.id && String(x.produtoId) === String(prod.id))
+      if (ja >= 0) return l.map((x, k) => k === ja ? { ...x, quantidade: fmtQ(num(x.quantidade) + 1) } : x)
+      return [...l, { produtoId: prod.id, produto: prod.nome, quantidade: '1', precoUnit: fmtQ(prod.precoDireta || 0), subs: [] }]
+    })
+    setAddId('')
+  }
+  const docesEd = itensEd.reduce((s, it) => s + num(it.precoUnit) * num(it.quantidade), 0)
+  const valorEd = comDesc(docesEd) + (entrega ? Number(p.frete || 0) : 0)
+  const pagoAntes = p.pgto === 'Pago' ? Number(p.valor) || 0 : Number(p.sinal) || 0
   const salvarItens = () => salvar(async () => {
-    const lista = itensEd.map(it => ({ ...it, quantidade: num(it.quantidade), precoUnit: num(it.precoUnit) }))
-    await updateEncomendaItens(p.id, lista)
-    const novo = comDesc(lista.reduce((s, it) => s + it.precoUnit * it.quantidade, 0)) + (entrega ? Number(p.frete || 0) : 0)
-    await atualizarPedido(p.id, { valor: novo })
+    const lista = itensEd.filter(it => num(it.quantidade) > 0).map(it => ({ ...it, quantidade: num(it.quantidade), precoUnit: num(it.precoUnit) }))
+    const zerados = itensEd.filter(it => it.id && !(num(it.quantidade) > 0)).flatMap(it => [it.id, ...(it.subs || []).map(s => s.id).filter(Boolean)])
+    if (!lista.length) throw new Error('O pedido precisa de pelo menos um doce')
+    await updateEncomendaItens(p.id, lista, [...removidos, ...zerados])
+    const campos = { valor: valorEd }
+    // Já estava pago e ficou mais caro: o que ele pagou vira sinal e falta só a diferença (Pix da diferença)
+    if (p.pgto === 'Pago' && valorEd > pagoAntes + 0.009) await updateStatusEncomenda(p.id, p.status, 'Aguardando', p.tipoEntrega, p.frete, valorEd)
+    if (p.pgto === 'Pago' && valorEd > pagoAntes + 0.009) campos.sinal = pagoAntes
+    await atualizarPedido(p.id, campos)
+    await reconciliarBaixasPedidos().catch(() => {})
     setEditItens(false)
-  }, 'Itens salvos')
+  }, valorEd > pagoAntes + 0.009 && pagoAntes > 0 ? `Itens salvos · falta ${fmtR(valorEd - pagoAntes)} (o Pix da diferença já sai na mensagem)`
+    : pagoAntes > valorEd + 0.009 ? `Itens salvos · sobrou ${fmtR(pagoAntes - valorEd)} pro cliente (devolver ou combinar)` : 'Itens salvos')
 
   async function enviarMsg() {
     if (!texto.trim()) return
@@ -394,15 +423,31 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
               ) : (
                 <>
                   {itensEd.map((it, i) => (
-                    <div key={it.id || i} className="pd-item-ed">
-                      <span style={{ flex: 1, minWidth: 0 }}>{it.produto}</span>
+                    <div key={it.id || `novo-${it.produtoId}`} className="pd-item-ed">
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        {it.produto}{!it.id && <b style={{ color: '#34d39a', fontSize: 11.5 }}> · novo</b>}
+                        {(it.subs || []).length > 0 && <span style={{ display: 'block', fontSize: 11.5, color: 'var(--text-tertiary)' }}>{nomesSubs(it.subs)}</span>}
+                      </span>
                       <input inputMode="decimal" aria-label={`Quantidade de ${it.produto}`} value={it.quantidade}
                         onChange={e => setItensEd(l => l.map((x, k) => k === i ? { ...x, quantidade: e.target.value } : x))} />
                       <span style={{ color: 'var(--text-tertiary)' }}>× R$</span>
                       <input inputMode="decimal" style={{ width: 70 }} aria-label={`Preço de ${it.produto}`} value={it.precoUnit}
                         onChange={e => setItensEd(l => l.map((x, k) => k === i ? { ...x, precoUnit: e.target.value } : x))} />
+                      <button type="button" className="pd-item-tirar" aria-label={`Tirar ${it.produto} do pedido`} title="Tirar do pedido" onClick={() => tirarItem(i)}>
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 002 2h6a2 2 0 002-2l1-12M9 7V4h6v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                      </button>
                     </div>
                   ))}
+                  <select className="pd-input" aria-label="Adicionar doce ao pedido" value={addId} onChange={e => addItem(e.target.value)}>
+                    <option value="">+ Adicionar doce…</option>
+                    {[...produtos].filter(x => x.ativo !== false && x.tipo !== 'combo' && (x.precoDireta > 0 || x.tipo === 'avulso')).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+                      .map(x => <option key={x.id} value={x.id}>{x.nome}{x.precoDireta > 0 ? ` · ${fmtR(x.precoDireta)}` : ''}</option>)}
+                  </select>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <span>Novo total: <b style={{ color: 'var(--text-primary)' }}>{fmtR(valorEd)}</b>{Math.abs(valorEd - (Number(p.valor) || 0)) > 0.009 ? ` (antes ${fmtR(p.valor)})` : ''}</span>
+                    {pagoAntes > 0 && valorEd > pagoAntes + 0.009 && <span style={{ color: '#f5b544' }}>Já pagou {fmtR(pagoAntes)}: vai faltar {fmtR(valorEd - pagoAntes)} (Pix da diferença).</span>}
+                    {pagoAntes > valorEd + 0.009 && <span style={{ color: '#f5b544' }}>Já pagou {fmtR(pagoAntes)}: sobra {fmtR(pagoAntes - valorEd)} pro cliente.</span>}
+                  </div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button className="pd-btn vazado" style={{ flex: 1 }} onClick={() => setEditItens(false)}>Cancelar</button>
                     <button className="pd-btn verde" style={{ flex: 1 }} disabled={ocupado} onClick={salvarItens}>Salvar itens</button>
@@ -796,7 +841,7 @@ export default function Pedidos() {
     if (p) {
       return (
         <>
-          <DetalhePedido key={p.id} p={p} pix={pix} contatos={contatos || []} msgInicial={modo.msg}
+          <DetalhePedido key={p.id} p={p} pix={pix} contatos={contatos || []} produtos={produtos || []} msgInicial={modo.msg}
             onBack={() => { setModo('lista'); setTimeout(() => rolador().scrollTo(0, rolagem.current), 0) }}
             onAcao={acao} recarregar={recarregar} avisar={setAviso} />
           <Aviso aviso={aviso} fechar={() => setAviso(null)} />
