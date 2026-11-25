@@ -1058,6 +1058,19 @@ BEGIN
          p_user_id, (elem->>'produto_id')::bigint
     FROM jsonb_array_elements(v_itens) AS elem;
 
+  -- Aviso no celular da dona na hora (antes do Pix): dá pra chamar quem não terminou de pagar.
+  -- Mesma tag do "Pix recebido"/"cancelado": quando pagar, esse aviso é trocado pelo novo.
+  BEGIN
+    PERFORM avisar_dono(p_user_id,
+      '🛒 Novo pedido · ' || v_id || ' · aguardando Pix',
+      coalesce(nullif(split_part(btrim(p_cliente), ' ', 1), ''), 'Cliente') || ' · ' || fmt_reais(v_total - v_desc + v_frete)
+        || CASE WHEN p_canal = 'WhatsApp' THEN ' (WhatsApp)' ELSE ' (cardápio)' END || ': '
+        || (SELECT string_agg((e->>'quantidade')::numeric::text || '× ' || (e->>'produto_nome'), ', ') FROM jsonb_array_elements(v_itens) e)
+        || '. Se não pagar logo, dá um toque.',
+      '/pedidos?pedido=' || v_id, 'pix-' || v_id);
+  EXCEPTION WHEN others THEN NULL;   -- aviso nunca derruba o pedido
+  END;
+
   RETURN v_id;
 END;
 $$;

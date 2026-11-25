@@ -639,6 +639,13 @@ export default function Pedidos() {
       setModo({ id: location.state.openPedidoId })
       navigate(location.pathname, { replace: true, state: null })
     }
+    // Do aviso no celular: /pedidos?pedido=PED-041
+    const doLink = new URLSearchParams(location.search).get('pedido')
+    if (doLink && pedidos) {
+      tratou.current = true
+      if (pedidos.some(p => p.id === doLink)) setModo({ id: doLink })
+      navigate(location.pathname, { replace: true, state: null })
+    }
   }, [pedidos]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const recarregar = () => Promise.all([reloadPedidos(), reloadContatos()])

@@ -123,7 +123,7 @@ async function marcarPago(sb: SupabaseClient, pedidoId: string, pag: Pagamento) 
   const { error } = await sb.rpc('avisar_dono', {
     p_user_id: p.user_id, p_titulo: `💸 Pix recebido · ${p.id}`,
     p_corpo: `${nome || 'Cliente'} pagou ${fmtR(Number(pag.transaction_amount || p.valor))}. O pedido tá confirmado.`,
-    p_url: '/pedidos', p_tag: `pix-${p.id}`,
+    p_url: `/pedidos?pedido=${p.id}`, p_tag: `pix-${p.id}`,
   })
   if (error) console.error('avisar_dono', error.message)
 
@@ -245,7 +245,7 @@ async function vencidos(sb: SupabaseClient, req: Request) {
     const { error } = await sb.rpc('avisar_dono', {
       p_user_id: p.user_id, p_titulo: `⌛ ${p.id} cancelado`,
       p_corpo: `${nome || 'O cliente'} não pagou o Pix em 2h. O estoque voltou pro cardápio.`,
-      p_url: '/pedidos', p_tag: `pix-${p.id}`,
+      p_url: `/pedidos?pedido=${p.id}`, p_tag: `pix-${p.id}`,
     })
     if (error) console.error('avisar_dono', error.message)
     await whatsCliente(sb, p.contato, p.user_id,
