@@ -1030,7 +1030,8 @@ export async function getEncomendas() {
     periodo: r.periodo || null,
     rastreioAuto: r.rastreio_auto ?? true,
     rastreioEnviadoEm: r.rastreio_enviado_em || null,
-    aguardaPixAte: r.aguarda_pix_ate || null,   // pedido do cardápio esperando o Pix (cancela sozinho depois)
+    aguardaPixAte: r.aguarda_pix_ate || null,
+    formaPgto: r.forma_pgto || 'pix',           // cartao = paga na retirada (maquininha)   // pedido do cardápio esperando o Pix (cancela sozinho depois)
     pixPagoEm: r.pix_pago_em || null,
     desconto: Number(r.desconto) || 0, descontoTipo: r.desconto_tipo || null, cupomCodigo: r.cupom_codigo || null,
     envio: r.envios ? { id: r.envios.id, status: r.envios.status, shareLink: r.envios.share_link || null, periodo: r.envios.periodo || null } : null,
@@ -2591,8 +2592,10 @@ export async function submitPedidoExterno(userId, form, carrinho, freteValor = 0
   // p_chave: segredo do aparelho do cliente (deixa ele acompanhar o pedido no cardápio)
   const comChave = entrega.chave ? { ...comPeriodo, p_chave: entrega.chave } : comPeriodo
   // desconto: cupom/código de amigo OU crédito (o banco confere e calcula)
-  const comDesconto = entrega.cupom ? { ...comChave, p_cupom: entrega.cupom }
+  const comDesc0 = entrega.cupom ? { ...comChave, p_cupom: entrega.cupom }
     : entrega.creditoChaves?.length ? { ...comChave, p_credito_chaves: entrega.creditoChaves } : comChave
+  // retirada paga no cartão na hora (sem Pix agora)
+  const comDesconto = entrega.formaPgto === 'cartao' ? { ...comDesc0, p_forma_pgto: 'cartao' } : comDesc0
   let { data, error } = await supabase.rpc('submit_pedido_externo', comDesconto)
   if (error && !naoAchou(error)) throw error
   if (naoAchou(error) && comDesconto !== comChave) ({ data, error } = await supabase.rpc('submit_pedido_externo', comChave))

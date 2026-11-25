@@ -569,6 +569,7 @@ ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS aguarda_pix_ate timestamptz;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS cupom_codigo  text;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS desconto      numeric NOT NULL DEFAULT 0;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS desconto_tipo text;   -- cupom | indicacao | credito
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS forma_pgto text;      -- pix | cartao (só retirada: paga na hora, na maquininha)
 
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS user_id    uuid default auth.uid() references auth.users(id) on delete cascade;
 ALTER TABLE encomenda_itens ADD COLUMN IF NOT EXISTS produto_id bigint references produtos(id) on delete set null;
@@ -905,6 +906,7 @@ DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, tex
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text);
 DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text, text);
+DROP FUNCTION IF EXISTS public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text, text, text, text[]);
 CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_user_id          uuid,
   p_cliente          text,
@@ -923,7 +925,8 @@ CREATE OR REPLACE FUNCTION public.submit_pedido_externo(
   p_periodo          text default null,           -- manha | tarde | noite (null = a combinar)
   p_chave            text default null,           -- segredo gerado no aparelho do cliente: deixa ele ver o pedido no cardápio
   p_cupom            text default null,           -- cupom da dona ou código de um amigo (só cardápio)
-  p_credito_chaves   text[] default null          -- usar o crédito: segredos de pedidos anteriores desse WhatsApp (prova que é a pessoa)
+  p_credito_chaves   text[] default null,         -- usar o crédito: segredos de pedidos anteriores desse WhatsApp (prova que é a pessoa)
+  p_forma_pgto       text default null            -- 'cartao' = paga na retirada (maquininha); senão Pix
 ) RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions AS $$
 DECLARE
@@ -951,6 +954,7 @@ DECLARE
   v_t8       text := tel8(p_contato);
   v_raio     numeric;
   v_loja     jsonb;
+  v_forma    text := CASE WHEN p_tipo_entrega <> 'Entrega' AND p_forma_pgto = 'cartao' THEN 'cartao' ELSE 'pix' END;
 BEGIN
   IF coalesce(trim(p_cliente), '') = '' OR coalesce(trim(p_contato), '') = '' THEN
     RAISE EXCEPTION 'Informe nome e WhatsApp';
@@ -1036,14 +1040,14 @@ BEGIN
 
   INSERT INTO encomendas
     (id, user_id, cliente, contato, canal, tipo_entrega, endereco, obs, valor, frete, status, pgto,
-     data_entrega, entrega_lat, entrega_lng, entrega_frag, periodo, chave_cliente, cupom_codigo, desconto, desconto_tipo)
+     data_entrega, entrega_lat, entrega_lng, entrega_frag, periodo, chave_cliente, cupom_codigo, desconto, desconto_tipo, forma_pgto)
   VALUES
     (v_id, p_user_id, left(trim(p_cliente), 100), left(trim(p_contato), 40),
      CASE WHEN p_canal = 'WhatsApp' THEN 'WhatsApp' ELSE 'FormExterno' END,
      CASE WHEN v_entrega THEN 'Entrega' ELSE 'Retirada' END, left(coalesce(p_endereco, ''), 300), v_obs,
      v_total - v_desc + v_frete, v_frete, 'Pendente', 'Aguardando',
      p_data_entrega, p_lat, p_lng, v_frag, v_periodo,
-     CASE WHEN length(p_chave) BETWEEN 20 AND 64 THEN p_chave END, v_cupom, v_desc, v_desc_tipo);
+     CASE WHEN length(p_chave) BETWEEN 20 AND 64 THEN p_chave END, v_cupom, v_desc, v_desc_tipo, v_forma);
 
   IF v_desc_tipo = 'indicacao' THEN
     INSERT INTO indicacoes (user_id, codigo, dono_tel8, amigo_tel8, amigo_nome, pedido_id, status)
@@ -1062,11 +1066,11 @@ BEGIN
   -- Mesma tag do "Pix recebido"/"cancelado": quando pagar, esse aviso é trocado pelo novo.
   BEGIN
     PERFORM avisar_dono(p_user_id,
-      '🛒 Novo pedido · ' || v_id || ' · aguardando Pix',
+      '🛒 Novo pedido · ' || v_id || CASE WHEN v_forma = 'cartao' THEN ' · cartão na retirada' ELSE ' · aguardando Pix' END,
       coalesce(nullif(split_part(btrim(p_cliente), ' ', 1), ''), 'Cliente') || ' · ' || fmt_reais(v_total - v_desc + v_frete)
         || CASE WHEN p_canal = 'WhatsApp' THEN ' (WhatsApp)' ELSE ' (cardápio)' END || ': '
         || (SELECT string_agg((e->>'quantidade')::numeric::text || '× ' || (e->>'produto_nome'), ', ') FROM jsonb_array_elements(v_itens) e)
-        || '. Se não pagar logo, dá um toque.',
+        || CASE WHEN v_forma = 'cartao' THEN '. Paga no cartão quando vier buscar.' ELSE '. Se não pagar logo, dá um toque.' END,
       '/pedidos?pedido=' || v_id, 'pix-' || v_id);
   EXCEPTION WHEN others THEN NULL;   -- aviso nunca derruba o pedido
   END;
@@ -1085,7 +1089,7 @@ RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $
       'data', e.data_entrega, 'periodo', e.periodo, 'tipo', e.tipo_entrega, 'criado', e.created_at,
       'itens', (SELECT coalesce(jsonb_agg(jsonb_build_object('produto', i.produto, 'qtd', i.quantidade) ORDER BY i.id), '[]'::jsonb)
                   FROM encomenda_itens i WHERE i.encomenda_id = e.id AND i.produto NOT LIKE '↳%'),
-      'envio', v.status, 'pague_ate', e.aguarda_pix_ate, 'desconto', e.desconto, 'desconto_tipo', e.desconto_tipo, 'cupom', e.cupom_codigo,
+      'envio', v.status, 'pague_ate', e.aguarda_pix_ate, 'desconto', e.desconto, 'desconto_tipo', e.desconto_tipo, 'cupom', e.cupom_codigo, 'forma_pgto', e.forma_pgto,
       'rastreio', CASE WHEN v.status IN ('ON_GOING', 'PICKED_UP') THEN v.share_link END
     ) AS x
     FROM encomendas e LEFT JOIN envios v ON v.id = e.envio_id
@@ -1197,7 +1201,7 @@ GRANT EXECUTE ON FUNCTION public.cardapio_publico(uuid)        TO anon, authenti
 GRANT EXECUTE ON FUNCTION public.get_delivery_config(uuid)     TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.produtos_disponiveis(uuid)    TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.registrar_interesse(uuid, bigint, text, text) TO anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text, text, text, text[]) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.submit_pedido_externo(uuid, text, text, text, text, text, jsonb, numeric, date, numeric, numeric, text, text, text, text, text, text, text[], text) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.conferir_cupom(uuid, text, text, numeric) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.indicacao_do_cliente(uuid, text[]) TO anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.pedidos_do_cliente(text[])   TO anon, authenticated, service_role;

@@ -94,7 +94,7 @@ function estadoTexto(p) {
   if (aguardandoPix(p)) return `aguardando o Pix · cancela sozinho às ${horaDe(p.aguardaPixAte)}`
   const st = p.status === 'Pendente' ? 'a fazer' : p.status === 'Pronto' ? 'pronto' : p.status === 'Entregue' ? 'entregue' : 'cancelado'
   const jaAvisou = alertasDe(p).some(a => a.includes('pag'))
-  const pg = p.pgto === 'Pago' ? (p.pixPagoEm ? 'pago no Pix ✓' : 'pago') : jaAvisou ? null : p.sinal > 0 ? `sinal ${fmtR(p.sinal)}` : 'a receber'
+  const pg = p.pgto === 'Pago' ? (p.pixPagoEm ? 'pago no Pix ✓' : 'pago') : jaAvisou ? null : p.sinal > 0 ? `sinal ${fmtR(p.sinal)}` : p.formaPgto === 'cartao' ? '💳 cartão na retirada' : 'a receber'
   const env = p.envio && p.status !== 'Entregue' ? ENVIO_STATUS[p.envio.status] : null
   return [st, env ? `envio ${env}` : null, p.status === 'Cancelado' ? null : pg].filter(Boolean).join(' · ')
 }
@@ -479,6 +479,9 @@ function DetalhePedido({ p, pix, contatos, msgInicial, onBack, onAcao, recarrega
                   <button className={p.pgto !== 'Pago' ? 'on' : ''} disabled={ocupado} onClick={() => p.pgto === 'Pago' && salvarPgto('Aguardando')}>A receber</button>
                   <button className={p.pgto === 'Pago' ? 'on' : ''} disabled={ocupado} onClick={() => p.pgto !== 'Pago' && salvarPgto('Pago')}>Pago</button>
                 </div>
+                {p.pgto !== 'Pago' && p.formaPgto === 'cartao' && (
+                  <div style={{ fontSize: 13, color: '#f5b544', fontWeight: 700 }}>💳 Vai pagar no cartão na retirada ({fmtR(faltaPagar(p))}). Passou na maquininha? Marca Pago.</div>
+                )}
                 {p.pgto === 'Pago' && p.pixPagoEm && (
                   <div style={{ fontSize: 13, color: '#34d39a', fontWeight: 700 }}>Pago no Pix (Mercado Pago) às {horaDe(p.pixPagoEm)} ✓</div>
                 )}

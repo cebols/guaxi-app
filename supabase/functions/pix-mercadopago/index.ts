@@ -35,14 +35,14 @@ interface Pedido {
   id: string; user_id: string; cliente: string; contato: string; valor: number; sinal: number
   pgto: string; status: string; chave_cliente: string | null
   pix_mp_id: string | null; pix_codigo: string | null; pix_valor: number | null; pix_expira_em: string | null
-  canal: string | null; created_at: string; aguarda_pix_ate: string | null; obs: string | null
+  canal: string | null; created_at: string; aguarda_pix_ate: string | null; obs: string | null; forma_pgto?: string | null
 }
 interface Pagamento {
   id: number; status: string; external_reference?: string; transaction_amount?: number; date_of_expiration?: string
   point_of_interaction?: { transaction_data?: { qr_code?: string; qr_code_base64?: string } }
 }
 
-const CAMPOS = 'id, user_id, cliente, contato, valor, sinal, pgto, status, chave_cliente, pix_mp_id, pix_codigo, pix_valor, pix_expira_em, canal, created_at, aguarda_pix_ate, obs'
+const CAMPOS = 'id, user_id, cliente, contato, valor, sinal, pgto, status, chave_cliente, pix_mp_id, pix_codigo, pix_valor, pix_expira_em, canal, created_at, aguarda_pix_ate, obs, forma_pgto'
 const PRAZO_CARDAPIO_MS = 2 * 3600e3
 const horaBR = (iso: string) => new Date(new Date(iso).getTime() - 3 * 3600e3).toISOString().slice(11, 16)
 
@@ -50,7 +50,7 @@ const horaBR = (iso: string) => new Date(new Date(iso).getTime() - 3 * 3600e3).t
 // (de antes do Pix automático) ou anotado pela dona não tem prazo.
 function prazoDe(p: Pedido): number | null {
   if (p.aguarda_pix_ate) return new Date(p.aguarda_pix_ate).getTime()
-  if (p.canal !== 'FormExterno') return null
+  if (p.canal !== 'FormExterno' || p.forma_pgto === 'cartao') return null   // cartão na retirada: sem prazo
   const fim = new Date(p.created_at).getTime() + PRAZO_CARDAPIO_MS
   return fim > Date.now() ? fim : null
 }

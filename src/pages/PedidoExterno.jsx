@@ -334,7 +334,7 @@ function SeusPedidos({ pedidos, pix, pixPor = {}, produtos, onPedirDeNovo }) {
         const falta = Math.max(0, (Number(p.valor) || 0) - (Number(p.sinal) || 0))
         const auto = pixPor[p.id]
         const pago = p.pgto === 'Pago' || auto?.estado === 'pago'
-        const codigo = pago || falta <= 0 ? '' : auto?.estado === 'aguardando' ? auto.codigo : pix ? pixCopiaECola({ chave: pix, valor: falta, txid: p.id }) : ''
+        const codigo = pago || falta <= 0 || p.forma_pgto === 'cartao' ? '' : auto?.estado === 'aguardando' ? auto.codigo : pix ? pixCopiaECola({ chave: pix, valor: falta, txid: p.id }) : ''
         return (
           <section key={p.id} aria-label={`Seu pedido ${p.id}`} style={card}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -362,6 +362,8 @@ function SeusPedidos({ pedidos, pix, pixPor = {}, produtos, onPedirDeNovo }) {
             )}
             {pago ? (
               <div style={{ fontSize: 13, fontWeight: 700, color: '#1F9D6B', marginTop: 8 }}>Pagamento confirmado ✓</div>
+            ) : falta > 0 && p.forma_pgto === 'cartao' ? (
+              <div style={{ fontSize: 13, color: C.tinta2, marginTop: 8 }}>💳 Paga <b style={{ color: C.tinta }}>{fmtR(falta)}</b> no cartão quando vier buscar</div>
             ) : falta > 0 && (
               <div style={{ marginTop: 10 }}>
                 <div style={{ fontSize: 13, color: C.tinta2, marginBottom: 6 }}>
@@ -779,6 +781,8 @@ export default function PedidoExterno() {
   const [indica, setIndica]           = useState(null) // código pessoal + crédito
   const [usarCredito, setUsarCredito] = useState(true)
   const [descFeito, setDescFeito]     = useState(null) // { valor, rotulo } do pedido que acabou de ir
+  const [formaPgto, setFormaPgto]     = useState('pix') // retirada: 'pix' (agora) | 'cartao' (na hora de buscar)
+  const [cartaoFeito, setCartaoFeito] = useState(false) // o pedido que acabou de ir paga no cartão
   useFontesMarca()
   useRolarAoDigitar()
   // Endereço da última compra: ao ir pro checkout com Entrega, já preenche o CEP e calcula o frete
@@ -815,12 +819,12 @@ export default function PedidoExterno() {
   useEffect(() => { if (step === 'catalog') carregarMeus() }, [step]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pix automático do recibo (pedido recém-feito)
-  const pixRecibo = usePixAutomatico(pedidoId, chaveAtual, step === 'confirm')
+  const pixRecibo = usePixAutomatico(pedidoId, chaveAtual, step === 'confirm' && !cartaoFeito)
   // Pagou o primeiro pedido → já ganha o código pra indicar (aparece no recibo)
   useEffect(() => { if (step === 'confirm' && pixRecibo.estado === 'pago') carregarIndica() }, [step, pixRecibo.estado]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pix automático dos pedidos em aberto no topo do cardápio (e confere se caiu de tempos em tempos)
-  const devendo = meusPedidos.filter(p => !['Entregue', 'Cancelado'].includes(p.status) && p.pgto !== 'Pago' && Number(p.valor) - Number(p.sinal || 0) > 0).map(p => p.id).join(',')
+  const devendo = meusPedidos.filter(p => !['Entregue', 'Cancelado'].includes(p.status) && p.pgto !== 'Pago' && p.forma_pgto !== 'cartao' && Number(p.valor) - Number(p.sinal || 0) > 0).map(p => p.id).join(',')
   useEffect(() => {
     if (!devendo || step !== 'catalog') return
     const chaves = Object.fromEntries(lerPedidosSalvos().map(x => [x.id, x.chave]))
@@ -1174,6 +1178,8 @@ export default function PedidoExterno() {
       ? { dataEntrega: diaSel, periodo: perSel || null, lat: coordCliente?.lat, lng: coordCliente?.lng, frag: fragCarrinho, freteAssinatura: frete?.viaDias ? frete.assinatura : null, chave }
       : { chave }
     // cupom ainda sendo conferido vai junto (o servidor confere de novo); cupom recusado não vai
+    const noCartao = form.tipoEntrega === 'Retirada' && formaPgto === 'cartao'
+    if (noCartao) entrega.formaPgto = 'cartao'
     if (cupomCod && cupomRes?.ok !== false) entrega.cupom = cupomCod
     else if (creditoAtivo) entrega.creditoChaves = lerPedidosSalvos().map(x => x.chave)
 
@@ -1182,6 +1188,7 @@ export default function PedidoExterno() {
       const id = await submitPedidoExterno(userId, { ...form, endereco }, carrinhoItens, freteValor, entrega)
       salvarCliente({ nome: form.nome, telefone: form.telefone, tipoEntrega: form.tipoEntrega, cep: form.cep, numero: form.numero, complemento: form.complemento })
       setDescFeito(desconto > 0 && (entrega.cupom || entrega.creditoChaves) ? { valor: desconto, rotulo: rotuloDesconto } : null)
+      setCartaoFeito(noCartao)
       if (entrega.cupom) { setCupomCod(''); guardarCupom('') }
       if (id) guardarPedido(id, chave)
       setChaveAtual(chave)
@@ -1302,8 +1309,19 @@ export default function PedidoExterno() {
               <div style={{ display: 'flex', gap: 10 }}>
                 <span style={{ fontSize: 18 }}>💸</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <b>Pagamento por Pix</b>
-                  <PagamentoPix pix={pixRecibo} estatico={codigoPix} valor={totalR} />
+                  {cartaoFeito ? (
+                    <>
+                      <b>Pagamento no cartão, na retirada</b>
+                      <div style={{ color: C.tinta2, fontSize: 13, marginTop: 2, lineHeight: 1.45 }}>
+                        Crédito ou débito na maquininha quando você vier buscar: <b style={{ color: C.tinta }}>{fmtR(totalR)}</b>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <b>Pagamento por Pix</b>
+                      <PagamentoPix pix={pixRecibo} estatico={codigoPix} valor={totalR} />
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -1322,7 +1340,7 @@ export default function PedidoExterno() {
               Confirmar no WhatsApp
             </a>
             <div style={{ fontSize: 13, color: C.tinta2, marginTop: 10, lineHeight: 1.45 }}>
-              A <b style={{ color: C.azul }}>GuaxiMina</b> te manda o recibo por lá e tira qualquer dúvida&nbsp;🦝{pixRecibo.estado === 'erro' && codigoPix ? <><br />Pagou? Manda o comprovante por lá também.</> : null}
+              A <b style={{ color: C.azul }}>GuaxiMina</b> te manda o recibo por lá e tira qualquer dúvida&nbsp;🦝{!cartaoFeito && pixRecibo.estado === 'erro' && codigoPix ? <><br />Pagou? Manda o comprovante por lá também.</> : null}
             </div>
             <button onClick={() => { setStep('catalog'); setCarrinho({}); window.scrollTo(0, 0) }} style={{
               marginTop: 18, background: 'none', border: 'none', color: C.azul, fontWeight: 700, fontSize: 14, cursor: 'pointer', fontFamily: FONTE, padding: 8,
@@ -1432,6 +1450,33 @@ export default function PedidoExterno() {
             <div style={{ marginTop: -6, marginBottom: 16, padding: '10px 12px', borderRadius: 12, background: C.azulClaro, color: C.azulEsc, fontSize: 13.5, lineHeight: 1.45 }}>
               Você busca aqui: <b>{deliveryCfg.lojaEndereco}</b>{lugarLoja ? ` · ${lugarLoja}` : ''}
             </div>
+          )}
+
+          {form.tipoEntrega === 'Retirada' && (
+            <Field label="Pagamento">
+              <div role="radiogroup" aria-label="Forma de pagamento" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  ['pix', 'Pix agora', 'O pedido já fica confirmado'],
+                  ['cartao', 'Cartão na retirada', 'Crédito ou débito na maquininha, na hora de buscar'],
+                ].map(([k, titulo, sub]) => {
+                  const on = formaPgto === k
+                  return (
+                    <button key={k} type="button" role="radio" aria-checked={on} onClick={() => setFormaPgto(k)} style={{
+                      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12, textAlign: 'left', cursor: 'pointer', fontFamily: FONTE,
+                      border: `1.5px solid ${on ? C.azul : C.linha}`, background: on ? 'rgba(24,93,156,.07)' : '#FFFFFF', color: C.tinta,
+                    }}>
+                      <span aria-hidden="true" style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, border: `2px solid ${on ? C.azul : '#B8C2CC'}`, display: 'grid', placeItems: 'center' }}>
+                        {on && <i style={{ width: 10, height: 10, borderRadius: '50%', background: C.azul }} />}
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: 'block', fontWeight: 700, fontSize: 14.5 }}>{titulo}</span>
+                        <span style={{ display: 'block', fontSize: 12.5, color: C.tinta2, marginTop: 1 }}>{sub}</span>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </Field>
           )}
 
           {form.tipoEntrega === 'Entrega' && (
