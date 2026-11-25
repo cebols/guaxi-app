@@ -1254,8 +1254,8 @@ export default function PedidoExterno() {
               background: cor, animation: `gx-cai ${1.6 + (i % 4) * 0.35}s ease-in ${(i % 5) * 0.12}s both`,
             }} />
           ))}
-          <div style={{ position: 'relative', width: 124, margin: '0 auto' }}>
-            <img src="/brand/guaxinim.png" alt="Guaxí" className="gx-anim" style={{ width: 124, height: 'auto', display: 'block', animation: 'gx-pula .7s cubic-bezier(.2,.9,.3,1.3) both, gx-acena 2.4s ease-in-out .9s 2' }} />
+          <div style={{ position: 'relative', width: 'fit-content', margin: '0 auto' }}>
+            <img src="/brand/guaxinim.png" alt="Guaxí" className="gx-anim" style={{ height: 126, width: 'auto', display: 'block', animation: 'gx-pula .7s cubic-bezier(.2,.9,.3,1.3) both, gx-acena 2.4s ease-in-out .9s 2' }} />
             <div style={{ position: 'absolute', right: -6, bottom: 2, width: 44, height: 44, borderRadius: '50%', background: '#FFFFFF', display: 'grid', placeItems: 'center', boxShadow: '0 4px 12px rgba(14,60,104,.18)' }}>
               <CheckAnim size={34} />
             </div>
@@ -1777,7 +1777,8 @@ export default function PedidoExterno() {
     <div style={{ ...shell, background: C.creme }}>
       {/* Marca */}
       <div style={{ background: C.rosa, padding: '20px 18px 16px', textAlign: 'center' }}>
-        <img src="/brand/guaxinim.png" alt="Guaxí" style={{ width: 104, height: 'auto', display: 'block', margin: '0 auto -2px' }} />
+        {/* logo centrado pelo rosto (o rabo fica pra direita), com um respiro antes do nome */}
+        <img src="/brand/guaxinim.png" alt="Guaxí" style={{ height: 108, width: 'auto', display: 'block', margin: '0 auto 6px' }} />
         <div style={{ fontFamily: SERIF, fontWeight: 600, fontSize: 36, letterSpacing: '.06em', color: C.azul, lineHeight: 1 }}>GUAXÍ</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 200, margin: '7px auto 4px' }}>
           <i style={{ flex: 1, height: 1, background: C.azul }} /><b style={{ width: 6, height: 6, background: C.azul, transform: 'rotate(45deg)' }} /><i style={{ flex: 1, height: 1, background: C.azul }} />
