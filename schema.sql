@@ -607,7 +607,8 @@ ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS cupom_codigo  text;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS desconto      numeric NOT NULL DEFAULT 0;
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS desconto_tipo text;   -- cupom | indicacao | credito
 ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS forma_pgto text;
-ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS entregue_em timestamptz;   -- quando virou Entregue (Início: "saiu hoje")
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS entregue_em timestamptz;
+ALTER TABLE encomendas ADD COLUMN IF NOT EXISTS pago_com text;         -- pix | dinheiro | debito | credito (taxa do cartão nas contas)   -- quando virou Entregue (Início: "saiu hoje")
 ALTER TABLE visitas ADD COLUMN IF NOT EXISTS telefone text;          -- WhatsApp inteiro (só dígitos), pra chamar do painel
 ALTER TABLE links_cliente ADD COLUMN IF NOT EXISTS telefone text;      -- pix | cartao (só retirada: paga na hora, na maquininha)
 

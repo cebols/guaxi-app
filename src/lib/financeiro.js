@@ -29,6 +29,7 @@ export function criarTransacoes({ encomendas, vendas, produtos, cfg, custoSacola
   const porNome = new Map((produtos || []).map(p => [String(p.nome || '').trim().toLowerCase(), p]))
   const desperdicio = 1 + Math.max(0, Math.min(100, parseFloat(cfg?.fatorDesperdicio) || 0)) / 100
   const taxaIfood = (parseFloat(cfg?.taxaIfood) || 0) / 100
+  const taxaCartaoDe = (pagoCom) => taxaCartao(cfg, pagoCom)
 
   const produtoDe = (nome, produtoId) => (produtoId != null && porId.get(Number(produtoId))) || porNome.get(String(nome || '').trim().toLowerCase()) || null
   const custoDe = (nome, produtoId, semCusto) => {
@@ -67,7 +68,11 @@ export function criarTransacoes({ encomendas, vendas, produtos, cfg, custoSacola
     out.push({
       id: e.id, tipo: 'pedido', data, canal, cliente: e.cliente || '', contato: e.contato || '',
       receita, frete: Number(e.frete) || 0, valor: Number(e.valor) || 0,
-      cmv: itens.reduce((s, i) => s + i.custo, 0), embalagem: custoSacola || 0, taxas: canal === 'iFood' ? receita * taxaIfood : 0,
+      cmv: itens.reduce((s, i) => s + i.custo, 0), embalagem: custoSacola || 0,
+      // taxa do cartão sai do total cobrado (com frete); só quando já foi pago no cartão
+      taxaCartao: e.pgto === 'Pago' ? (Number(e.valor) || 0) * taxaCartaoDe(e.pagoCom) : 0,
+      taxas: (canal === 'iFood' ? receita * taxaIfood : 0) + (e.pgto === 'Pago' ? (Number(e.valor) || 0) * taxaCartaoDe(e.pagoCom) : 0),
+      pagoCom: e.pgto === 'Pago' ? (e.pagoCom || null) : null,
       pago: e.pgto === 'Pago', pixPago: !!e.pixPagoEm, status: e.status, periodo: e.periodo || null,
       criadoEm: e.createdAtTs || null,   // hora em que o pedido foi feito
       itens, semCusto,
@@ -91,9 +96,16 @@ export function criarTransacoes({ encomendas, vendas, produtos, cfg, custoSacola
   return out
 }
 
+// Taxa da maquininha (Tap to Pay) em fração: débito 0,89% e crédito 3,09% (Configurações › Custos)
+export function taxaCartao(cfg, pagoCom) {
+  if (pagoCom === 'debito') return (cfg?.taxaDebito != null && cfg.taxaDebito !== '' ? parseFloat(cfg.taxaDebito) || 0 : 0.89) / 100
+  if (pagoCom === 'credito') return (cfg?.taxaCredito != null && cfg.taxaCredito !== '' ? parseFloat(cfg.taxaCredito) || 0 : 3.09) / 100
+  return 0
+}
+
 // Soma uma janela de datas [de, ate] (YYYY-MM-DD, inclusivo)
 export function somarTransacoes(trans, de, ate) {
-  const t = { receita: 0, cmv: 0, embalagem: 0, taxas: 0, pedidos: 0, unidades: 0 }
+  const t = { receita: 0, cmv: 0, embalagem: 0, taxas: 0, taxaCartao: 0, noCartao: 0, pedidos: 0, unidades: 0 }
   const semCusto = new Set()
   for (const x of trans) {
     if (x.data < de || x.data > ate) continue
@@ -101,6 +113,8 @@ export function somarTransacoes(trans, de, ate) {
     t.cmv += x.cmv
     t.embalagem += x.embalagem
     t.taxas += x.taxas
+    t.taxaCartao += x.taxaCartao || 0
+    if (x.pagoCom === 'debito' || x.pagoCom === 'credito') t.noCartao += x.valor
     if (x.tipo === 'pedido') t.pedidos += 1
     for (const i of x.itens) if (!i.sub) t.unidades += i.qtd
     for (const n of x.semCusto) semCusto.add(n)

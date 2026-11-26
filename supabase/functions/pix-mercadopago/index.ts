@@ -121,7 +121,7 @@ async function acharPedido(sb: SupabaseClient, req: Request, body: { pedido?: st
 async function marcarPago(sb: SupabaseClient, pedidoId: string, pag: Pagamento) {
   const agora = new Date().toISOString()
   const { data: upd } = await sb.from('encomendas')
-    .update({ pgto: 'Pago', data_pago: hojeBR(), pix_pago_em: agora })
+    .update({ pgto: 'Pago', data_pago: hojeBR(), pix_pago_em: agora, pago_com: 'pix' })
     .eq('id', pedidoId).neq('pgto', 'Pago')
     .select('id, user_id, cliente, contato, valor')
   const p = upd?.[0]

@@ -109,7 +109,8 @@ function AbaFinanceiro({ fin, cfg, setCfg, irPara, navigate, show }) {
   const partes = r > 0 ? [
     { nome: 'Ingredientes', dica: 'com o desperdício', v: ult30.cmv / r * 100 },
     { nome: 'Embalagem', dica: 'sacola por pedido', v: ult30.embalagem / r * 100 },
-    ...(ult30.taxas > 0 ? [{ nome: 'Taxa do iFood', v: ult30.taxas / r * 100 }] : []),
+    ...(ult30.taxas - ult30.taxaCartao > 0.005 ? [{ nome: 'Taxa do iFood', v: (ult30.taxas - ult30.taxaCartao) / r * 100 }] : []),
+    ...(ult30.taxaCartao > 0 ? [{ nome: 'Taxa do cartão', dica: 'débito e crédito', v: ult30.taxaCartao / r * 100 }] : []),
     { nome: 'Custos fixos', dica: 'aluguel, luz, gás…', v: fin.fixos / r * 100 },
   ] : []
   const sobra = r > 0 ? 100 - partes.reduce((s, p) => s + p.v, 0) : 0
@@ -206,6 +207,9 @@ function AbaFinanceiro({ fin, cfg, setCfg, irPara, navigate, show }) {
                   <b>{sobra >= 0 ? '' : '− '}{fmtR(Math.abs(sobra))}</b>
                 </div>
               </div>
+              {ult30.noCartao > 0 && (
+                <div className="cf-dim">No cartão: {fmtR(ult30.noCartao)} cobrados · taxa <b style={{ color: '#f87171' }}>−{fmtR(ult30.taxaCartao)}</b> · entrou {fmtR(ult30.noCartao - ult30.taxaCartao)}</div>
+              )}
             </>
           ) : <div className="cf-hint">Sem vendas nos últimos 30 dias.</div>}
         </section>
@@ -250,6 +254,7 @@ function formDeCusto(cfg) {
     margem: String(cfg.margem ?? 30),
     fatorDesperdicio: String(cfg.fatorDesperdicio ?? 0),
     taxaIfood: String(cfg.taxaIfood ?? 27),
+    taxaDebito: String(cfg.taxaDebito ?? 0.89), taxaCredito: String(cfg.taxaCredito ?? 3.09),
     embalagemDeliveryIds: cfg.embalagemDeliveryIds || [],
     embalagemEncomendaIds: cfg.embalagemEncomendaIds || [],
   }
@@ -284,6 +289,7 @@ function AbaCustos({ cfg, setCfg, embalagens, fin, show }) {
         unidadesAuto: f.unidadesAuto,
         unidadesProjetadas: Math.max(1, Math.round(unidades)) || 100,
         margem: num(f.margem), fatorDesperdicio: num(f.fatorDesperdicio), taxaIfood: num(f.taxaIfood),
+        taxaDebito: f.taxaDebito === '' ? 0.89 : num(f.taxaDebito), taxaCredito: f.taxaCredito === '' ? 3.09 : num(f.taxaCredito),
         embalagemDeliveryIds: f.embalagemDeliveryIds, embalagemEncomendaIds: f.embalagemEncomendaIds,
       })
       setCfg(novoCfg)
@@ -342,6 +348,15 @@ function AbaCustos({ cfg, setCfg, embalagens, fin, show }) {
             <label className="cf-campo"><span>Taxa do iFood</span><span className="cf-campo-num"><input inputMode="decimal" value={f.taxaIfood} onChange={e => set('taxaIfood', e.target.value)} /><i>%</i></span><small>preço do iFood já cobre</small></label>
           </div>
           <div className="cf-dim">Preço sugerido = (custo do doce + desperdício + {fmtR(rateio)} de custo fixo) com {num(f.margem)}% de margem.</div>
+        </section>
+
+        <section className="cf-card" aria-label="Taxas do cartão">
+          <h2>Taxas do cartão (Tap to Pay)</h2>
+          <div className="cf-tres">
+            <label className="cf-campo"><span>Débito</span><span className="cf-campo-num"><input inputMode="decimal" value={f.taxaDebito} onChange={e => set('taxaDebito', e.target.value)} /><i>%</i></span><small>R$ 100 → entra {fmtR(100 - num(f.taxaDebito))}</small></label>
+            <label className="cf-campo"><span>Crédito</span><span className="cf-campo-num"><input inputMode="decimal" value={f.taxaCredito} onChange={e => set('taxaCredito', e.target.value)} /><i>%</i></span><small>R$ 100 → entra {fmtR(100 - num(f.taxaCredito))}</small></label>
+          </div>
+          <div className="cf-dim">Quando você marca um pedido como pago no débito ou no crédito, a taxa sai das contas (Financeiro e Vendas) e o pedido mostra quanto entra de fato.</div>
         </section>
 
         <section className="cf-card" aria-label="Embalagens">

@@ -1,3 +1,5 @@
+import { ChipsPagoCom, SheetComoRecebeu, nomePagoCom } from '../components/PagoCom'
+import { getConfig } from '../hooks/useConfig'
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useData } from '../hooks/useData'
@@ -7,7 +9,7 @@ import NovoPedidoForm from '../components/NovoPedidoForm'
 import {
   getProdutos, getEncomendas, getClientes, updateStatusEncomenda, updateEncomendaItens, deletePedido,
   reconciliarBaixasPedidos, getContatosAtendimento, acharContato, janelaAberta, enviarWhatsApp,
-  atualizarPedido, loadUserConfig, pixDoPedido, aguardandoPix,
+  atualizarPedido, marcarPagoCom, loadUserConfig, pixDoPedido, aguardandoPix,
 } from '../services/db'
 import { usePedidoMudou } from '../hooks/useRealtimePedidos'
 import { pixCopiaECola } from '../lib/pix'
@@ -282,7 +284,10 @@ function DetalhePedido({ p, pix, contatos, produtos = [], msgInicial, onBack, on
   const salvarFrete = () => { if (num(frete) === Number(p.frete || 0)) return; salvar(() => updateStatusEncomenda(p.id, p.status, p.pgto, p.tipoEntrega, num(frete), itensTotal + num(frete)), 'Frete salvo') }
   const salvarEndereco = () => { if (endereco.trim() === (p.endereco || '')) return; salvarCampos({ endereco: endereco.trim() }, 'Endereço salvo') }
   const salvarSinal = () => { if (num(sinal) === Number(p.sinal || 0)) return; salvarCampos({ sinal: num(sinal) }, 'Sinal salvo') }
-  const salvarPgto = v => salvar(() => updateStatusEncomenda(p.id, p.status, v, p.tipoEntrega, p.frete, p.valor), v === 'Pago' ? 'Marcado como pago' : 'Marcado como a receber')
+  const salvarPgto = v => salvar(async () => {
+    await updateStatusEncomenda(p.id, p.status, v, p.tipoEntrega, p.frete, p.valor)
+    if (v !== 'Pago') await marcarPagoCom(p.id, null)
+  }, v === 'Pago' ? 'Marcado como pago · diz como recebeu' : 'Marcado como a receber')
 
   // Edição: cada doce (combo junto com as linhas ↳) pode mudar qtd/preço, sair ou entrar um novo
   function abrirEdicao() {
@@ -543,6 +548,10 @@ function DetalhePedido({ p, pix, contatos, produtos = [], msgInicial, onBack, on
                 {p.pgto !== 'Pago' && p.formaPgto === 'cartao' && (
                   <div style={{ fontSize: 13, color: '#f5b544', fontWeight: 700 }}>💳 Vai pagar no cartão na retirada ({fmtR(faltaPagar(p))}). Passou na maquininha? Marca Pago.</div>
                 )}
+                {p.pgto === 'Pago' && (
+                  <ChipsPagoCom valor={p.pagoCom} total={Number(p.valor) || 0} cfg={getConfig()} disabled={ocupado}
+                    onChange={k => salvar(() => marcarPagoCom(p.id, k), 'Forma de pagamento salva')} />
+                )}
                 {p.pgto === 'Pago' && p.pixPagoEm && (
                   <div style={{ fontSize: 13, color: '#34d39a', fontWeight: 700 }}>Pago no Pix (Mercado Pago) às {horaDe(p.pixPagoEm)} ✓</div>
                 )}
@@ -685,6 +694,17 @@ export default function Pedidos() {
   const [filtro, setFiltro] = useState(() => { try { return localStorage.getItem('pedidos_filtro2') || 'proximos' } catch { return 'proximos' } })
   const [busca, setBusca] = useState('')
   const [aviso, setAviso] = useState(null)
+  const [recebendo, setRecebendo] = useState(null)   // pedido que você marcou "Recebi": pergunta como
+  async function receber(p, pagoCom) {
+    setRecebendo(null)
+    const antes = { pgto: p.pgto, pagoCom: p.pagoCom || null }
+    try {
+      await updateStatusEncomenda(p.id, p.status, 'Pago', p.tipoEntrega, p.frete, p.valor)
+      await marcarPagoCom(p.id, pagoCom)
+      await recarregar()
+      setAviso({ msg: `${primeiroNome(p) || p.id}: pago no ${nomePagoCom(pagoCom).toLowerCase()}`, undo: async () => { await updateStatusEncomenda(p.id, p.status, antes.pgto, p.tipoEntrega, p.frete, p.valor); await marcarPagoCom(p.id, antes.pagoCom); await recarregar(); setAviso({ msg: 'Desfeito' }) } })
+    } catch (e) { setAviso({ msg: 'Erro: ' + e.message }) }
+  }
   const [pix, setPix] = useState('')
   const rolagem = useRef(0)
 
@@ -762,13 +782,7 @@ export default function Pedidos() {
       if (key === 'entregue') return await mudarStatus(p, 'Entregue')
       if (key === 'reabrir') return await mudarStatus(p, 'Pendente')
       if (key === 'cancelar') { if (window.confirm(`Cancelar o pedido ${p.id}?`)) await mudarStatus(p, 'Cancelado'); return }
-      if (key === 'recebi') {
-        const antes = p.pgto
-        await updateStatusEncomenda(p.id, p.status, 'Pago', p.tipoEntrega, p.frete, p.valor)
-        await recarregar()
-        setAviso({ msg: `${primeiroNome(p) || p.id}: pago`, undo: async () => { await updateStatusEncomenda(p.id, p.status, antes, p.tipoEntrega, p.frete, p.valor); await recarregar(); setAviso({ msg: 'Desfeito' }) } })
-        return
-      }
+      if (key === 'recebi') { setRecebendo(p); return }   // pergunta como (Pix, dinheiro, débito, crédito)
       // esperando o Pix: abre o pedido com o lembrete e o código do Mercado Pago
       if (key === 'cobrar' && aguardandoPix(p)) { rolagem.current = rolador().scrollTop; setModo({ id: p.id, msg: 'cobrar' }); return }
       if (key === 'cobrar') return await cobrar(p)
@@ -861,6 +875,7 @@ export default function Pedidos() {
             onBack={() => { setModo('lista'); setTimeout(() => rolador().scrollTo(0, rolagem.current), 0) }}
             onAcao={acao} recarregar={recarregar} avisar={setAviso} />
           <Aviso aviso={aviso} fechar={() => setAviso(null)} />
+          {recebendo && <SheetComoRecebeu pedido={recebendo} cfg={getConfig()} onEscolher={k => receber(recebendo, k)} onClose={() => setRecebendo(null)} />}
         </>
       )
     }
@@ -955,6 +970,7 @@ export default function Pedidos() {
         ))}
       </div>
       <Aviso aviso={aviso} fechar={() => setAviso(null)} />
+      {recebendo && <SheetComoRecebeu pedido={recebendo} cfg={getConfig()} onEscolher={k => receber(recebendo, k)} onClose={() => setRecebendo(null)} />}
     </>
   )
 }

@@ -1,3 +1,5 @@
+import { getConfig } from '../hooks/useConfig'
+import { SheetComoRecebeu, nomePagoCom } from '../components/PagoCom'
 import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -7,7 +9,7 @@ import {
   insumosDoCardapio, reconciliarBaixasPedidos, reservasPorProduto, updateStatusEncomenda,
   getProntidaoLotes, getInteresses, moverProntidao, desfazerMovimento, embalarProduto, desfazerEmbalar,
   descartarVencidosProntidao, marcarEtapaPronta, desfazerEtapaPronta,
-  getAtendimentos, getEnvios, acharContato, janelaAberta, enviarWhatsApp, getVisitas,
+  getAtendimentos, getEnvios, acharContato, janelaAberta, enviarWhatsApp, getVisitas, marcarPagoCom,
 } from '../services/db'
 import { aoVivo, clientesPorTel, pessoa } from '../lib/visitas'
 import {
@@ -344,12 +346,17 @@ export default function Home() {
     } catch (e) { setAviso({ msg: 'Erro: ' + e.message }) }
   }
 
-  async function marcarPago(enc) {
-    const antes = enc.pgto
+  // "Recebi": pergunta como (Pix, dinheiro, débito, crédito) e marca pago
+  const [recebendo, setRecebendo] = useState(null)
+  const marcarPago = (enc) => setRecebendo(enc)
+  async function receber(enc, pagoCom) {
+    setRecebendo(null)
+    const antes = { pgto: enc.pgto, pagoCom: enc.pagoCom || null }
     try {
       await updateStatusEncomenda(enc.id, enc.status, 'Pago', enc.tipoEntrega, enc.frete, enc.valor)
+      await marcarPagoCom(enc.id, pagoCom)
       await reloadEnc()
-      setAviso({ msg: `${enc.cliente.split(' ')[0]}: pago`, undo: async () => { await updateStatusEncomenda(enc.id, enc.status, antes, enc.tipoEntrega, enc.frete, enc.valor); await reloadEnc(); setAviso({ msg: 'Desfeito' }) } })
+      setAviso({ msg: `${enc.cliente.split(' ')[0]}: pago no ${nomePagoCom(pagoCom).toLowerCase()}`, undo: async () => { await updateStatusEncomenda(enc.id, enc.status, antes.pgto, enc.tipoEntrega, enc.frete, enc.valor); await marcarPagoCom(enc.id, antes.pagoCom); await reloadEnc(); setAviso({ msg: 'Desfeito' }) } })
     } catch (e) { setAviso({ msg: 'Erro: ' + e.message }) }
   }
 
@@ -569,6 +576,7 @@ export default function Home() {
       </div>
 
       {novoPedido && <NovoPedidoSheet onClose={() => setNovoPedido(false)} onSaved={reloadEnc} />}
+      {recebendo && <SheetComoRecebeu pedido={recebendo} cfg={getConfig()} onEscolher={k => receber(recebendo, k)} onClose={() => setRecebendo(null)} />}
       {aviso && (
         <div style={{ position: 'fixed', left: 0, right: 0, bottom: 90, display: 'flex', justifyContent: 'center', zIndex: 300, pointerEvents: 'none' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: '#222', color: '#fff', borderRadius: 12, padding: '11px 16px', fontSize: 14, boxShadow: '0 6px 20px rgba(0,0,0,.4)', pointerEvents: 'auto' }}>

@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { saveCliente, savePedido } from '../services/db'
+import { ChipsPagoCom } from './PagoCom'
+import { getConfig } from '../hooks/useConfig'
 
 // ── Novo pedido / venda já feita ─────────────────────────────────────────────
 // Usado no Início (sheet) e em Pedidos (página). Combos ("Cookie + Cookie")
@@ -431,6 +433,11 @@ export default function NovoPedidoForm({ produtos, clientes, encomendas, onSaved
       <div className="np-bloco">
         <div className="np-titulo">Pagamento</div>
         <Segmento valor={form.pgto === 'Pago' ? 'Pago' : 'Aguardando'} onChange={v => set('pgto', v)} opcoes={[{ v: 'Aguardando', l: 'A receber' }, { v: 'Pago', l: '✓ Pago' }]} />
+        {form.pgto === 'Pago' && (
+          <div style={{ marginTop: 10 }}>
+            <ChipsPagoCom valor={form.pagoCom} total={total} cfg={getConfig()} onChange={k => set('pagoCom', k)} />
+          </div>
+        )}
         {form.pgto !== 'Pago' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
             <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)' }}>Sinal já recebido (opcional)</span>

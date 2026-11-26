@@ -1037,6 +1037,7 @@ export async function getEncomendas() {
     envio: r.envios ? { id: r.envios.id, status: r.envios.status, shareLink: r.envios.share_link || null, periodo: r.envios.periodo || null } : null,
     createdAtTs: r.created_at || null,
     entregueEm: r.entregue_em || null,
+    pagoCom: r.pago_com || (r.pix_pago_em ? 'pix' : null),   // pix | dinheiro | debito | credito
     itens: (r.encomenda_itens || []).map(i => ({
       id: i.id,
       produto: i.produto,
@@ -1048,17 +1049,9 @@ export async function getEncomendas() {
 }
 
 export async function savePedido(pedido, itens) {
-  const { data: last } = await supabase
-    .from('encomendas')
-    .select('id')
-    .order('created_at', { ascending: false })
-    .limit(1)
-
-  let nextNum = 1
-  if (last?.length > 0) {
-    const match = last[0].id.match(/PED-(\d+)/)
-    if (match) nextNum = parseInt(match[1]) + 1
-  }
+  // próximo número = maior PED-nnn + 1 (pelo mais recente repetia número)
+  const { data: ids } = await supabase.from('encomendas').select('id')
+  const nextNum = 1 + Math.max(0, ...(ids || []).map(r => parseInt((r.id.match(/^PED-(\d+)$/) || [])[1] || '0', 10)))
   const id = `PED-${String(nextNum).padStart(3, '0')}`
 
   const frete = parseFloat(pedido.frete) || 0
@@ -1078,6 +1071,7 @@ export async function savePedido(pedido, itens) {
     valor: total,
     sinal: parseFloat(pedido.sinal) || 0,
     pgto: pedido.pgto || 'Aguardando',
+    ...(pedido.pgto === 'Pago' && pedido.pagoCom ? { pago_com: pedido.pagoCom } : {}),
     status: pedido.status || 'Pendente',
     obs: pedido.obs || '',
     tipo_entrega: pedido.tipoEntrega || 'Retirada',
@@ -1203,6 +1197,12 @@ export async function deletePedido(id) {
 }
 
 // Atualiza campos soltos do pedido (período, rastreio, endereço…) — nomes já no formato do banco
+// Como o pedido foi pago (pix | dinheiro | debito | credito); null = a receber
+export async function marcarPagoCom(id, pagoCom) {
+  const { error } = await supabase.from('encomendas').update({ pago_com: pagoCom || null }).eq('id', id)
+  if (error) throw error
+}
+
 export async function atualizarPedido(id, campos) {
   const { error } = await supabase.from('encomendas').update(campos).eq('id', id)
   if (error) throw error
